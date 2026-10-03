@@ -1,19 +1,29 @@
 <script lang="ts">
-  import { getCurrentWindow } from '@tauri-apps/api/window';
+  import { invoke } from '@tauri-apps/api/core';
   import { playerState } from '../state.svelte';
 
-  const appWindow = typeof window !== 'undefined' ? getCurrentWindow() : null;
-
   async function handleMinimize() {
-    await appWindow?.minimize();
+    try {
+      await invoke('window_minimize');
+    } catch (e) {
+      console.error('Minimize error:', e);
+    }
   }
 
   async function handleMaximize() {
-    await appWindow?.toggleMaximize();
+    try {
+      await invoke('window_toggle_maximize');
+    } catch (e) {
+      console.error('Maximize error:', e);
+    }
   }
 
   async function handleClose() {
-    await appWindow?.close();
+    try {
+      await invoke('window_close');
+    } catch (e) {
+      console.error('Close error:', e);
+    }
   }
 
   function toggleSidebar() {
@@ -21,7 +31,7 @@
   }
 </script>
 
-<header data-tauri-drag-region class="h-12 w-full flex items-center justify-between px-3 bg-[#111215]/80 backdrop-blur-xl border-b border-white/[0.06] select-none z-30 shrink-0">
+<header class="h-12 w-full flex items-center justify-between px-3 bg-[#111215]/80 backdrop-blur-xl border-b border-white/[0.06] select-none z-30 shrink-0">
   <!-- Left: Sidebar toggle + App Brand -->
   <div class="flex items-center gap-2">
     <button

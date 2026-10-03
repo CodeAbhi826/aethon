@@ -106,6 +106,9 @@ pub fn run() {
             get_stream_cache_size,
             clear_stream_cache,
             show_window,
+            window_minimize,
+            window_toggle_maximize,
+            window_close,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

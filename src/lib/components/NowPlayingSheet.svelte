@@ -1,20 +1,30 @@
 <script lang="ts">
   import { onMount } from 'svelte';
-  import { getCurrentWindow } from '@tauri-apps/api/window';
+  import { invoke } from '@tauri-apps/api/core';
   import { playerState } from '../state.svelte';
 
-  const appWindow = typeof window !== 'undefined' ? getCurrentWindow() : null;
-
   async function handleMinimize() {
-    await appWindow?.minimize();
+    try {
+      await invoke('window_minimize');
+    } catch (e) {
+      console.error('Minimize error:', e);
+    }
   }
 
   async function handleMaximize() {
-    await appWindow?.toggleMaximize();
+    try {
+      await invoke('window_toggle_maximize');
+    } catch (e) {
+      console.error('Maximize error:', e);
+    }
   }
 
   async function handleClose() {
-    await appWindow?.close();
+    try {
+      await invoke('window_close');
+    } catch (e) {
+      console.error('Close error:', e);
+    }
   }
 
   let canvasEl = $state<HTMLCanvasElement>();
@@ -374,7 +384,7 @@
             ontouchmove={handleUserScroll}
             role="region"
             aria-label="Synchronized lyrics view"
-            class="flex-1 overflow-y-auto px-2 sm:px-4 py-8 space-y-4 sm:space-y-6 lyrics-scroll-container scrollbar-none"
+            class="flex-1 overflow-y-auto px-2 sm:px-4 py-6 space-y-1.5 sm:space-y-2 lyrics-scroll-container scrollbar-none"
           >
             {#if playerState.lyrics.synced && playerState.lyrics.lines.length > 0}
               {#each playerState.lyrics.lines as line, i}
@@ -382,7 +392,7 @@
                 <button
                   type="button"
                   onclick={() => { playerState.seek(line.time); resumeSync(); }}
-                  class="w-full text-left font-display font-extrabold tracking-tight transition-all duration-300 py-2 sm:py-2.5 px-3 sm:px-4 rounded-2xl block text-xl sm:text-2xl md:text-3xl lg:text-4xl leading-relaxed cursor-pointer select-none {isCur ? 'active-lyric' : 'inactive-lyric'}"
+                  class="w-full text-left font-display font-bold tracking-tight transition-all duration-300 py-1.5 sm:py-2 px-3 sm:px-4 rounded-2xl block text-xl sm:text-2xl md:text-3xl leading-snug cursor-pointer select-none {isCur ? 'active-lyric' : 'inactive-lyric'}"
                   style={isCur ? `--lyric-glow: ${playerState.accentColor || 'var(--md-sys-primary)'};` : ''}
                 >
                   {line.text}

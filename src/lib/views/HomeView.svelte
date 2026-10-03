@@ -90,22 +90,13 @@
 
 <div class="px-6 py-6 space-y-8 max-w-7xl mx-auto pb-28">
   
-  <!-- Friendly Greeting Header (From Mockup) -->
-  <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-    <div>
-      <div class="flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-[var(--md-sys-primary)] font-display">
-        <span class="material-symbols-rounded text-base">waving_hand</span>
-        <span>Welcome Back</span>
-      </div>
-      <h1 class="text-3xl md:text-4xl font-extrabold text-white tracking-tight font-display mt-0.5">Good evening</h1>
+  <!-- Friendly Greeting Header -->
+  <div>
+    <div class="flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-[var(--md-sys-primary)] font-display">
+      <span class="material-symbols-rounded text-base">waving_hand</span>
+      <span>Welcome Back</span>
     </div>
-
-    <!-- Quick Audio Engine Chip -->
-    <div class="flex items-center gap-2 px-3 py-1.5 rounded-full m3-acrylic-card border border-white/10 text-xs">
-      <span class="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
-      <span class="text-[var(--md-sys-on-surface-variant)]">PipeWire Bit-Perfect:</span>
-      <span class="font-mono font-bold text-[var(--md-sys-primary)]">Ready</span>
-    </div>
+    <h1 class="text-3xl md:text-4xl font-extrabold text-white tracking-tight font-display mt-0.5">Good evening</h1>
   </div>
 
   <!-- Quick Picks (ArchiveTune Homescreen.kt Skeleton) -->

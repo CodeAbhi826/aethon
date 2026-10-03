@@ -2,6 +2,7 @@
   import { playerState } from '../state.svelte';
   import { settingsState } from '../settingsState.svelte';
   import { THEME_PRESETS } from '../theme';
+  import { openUrl } from '@tauri-apps/plugin-opener';
   import CupertinoSwitch from '../components/CupertinoSwitch.svelte';
   import CupertinoSelect from '../components/CupertinoSelect.svelte';
 
@@ -25,7 +26,9 @@
   let importSuccess = $state<string | null>(null);
 
   // Account & Sync state
+  let loginMode = $state<'direct' | 'advanced'>('direct');
   let ytmCookieInput = $state('');
+  let rawTokenBlockInput = $state('');
   let isConnectingYtm = $state(false);
   let ytmConnectMsg = $state<string | null>(null);
   let isSyncingYtm = $state(false);
@@ -129,6 +132,39 @@
     settingsState.connectYtmAccount(ytmCookieInput);
     isConnectingYtm = false;
     ytmConnectMsg = 'Successfully connected YouTube Music account!';
+    ytmCookieInput = '';
+    setTimeout(() => (ytmConnectMsg = null), 4000);
+  }
+
+  async function handleDirectWebLogin() {
+    try {
+      await openUrl('https://accounts.google.com/ServiceLogin?continue=https%3A%2F%2Fmusic.youtube.com');
+      ytmConnectMsg = 'Opened Google sign-in. After completing sign-in, use Advanced Login to paste your session cookie to verify.';
+    } catch {
+      window.open('https://accounts.google.com/ServiceLogin?continue=https%3A%2F%2Fmusic.youtube.com', '_blank');
+      ytmConnectMsg = 'Opened Google sign-in in browser.';
+    }
+  }
+
+  function handleAdvancedTokenConnect() {
+    const raw = rawTokenBlockInput.trim() || ytmCookieInput.trim();
+    if (!raw) return;
+
+    let cookieToUse = raw;
+    // Check if it's ArchiveTune export format
+    if (raw.includes('***INNERTUBE COOKIE***')) {
+      for (const line of raw.split('\n')) {
+        const trimmed = line.trim();
+        if (trimmed.startsWith('***INNERTUBE COOKIE*** =')) {
+          cookieToUse = trimmed.substring('***INNERTUBE COOKIE*** ='.length).trim();
+          break;
+        }
+      }
+    }
+
+    settingsState.connectYtmAccount(cookieToUse);
+    ytmConnectMsg = 'Advanced login credentials saved successfully!';
+    rawTokenBlockInput = '';
     ytmCookieInput = '';
     setTimeout(() => (ytmConnectMsg = null), 4000);
   }
@@ -257,59 +293,101 @@
               </div>
             </div>
           {:else}
-            <!-- Not Connected Form -->
-            <div class="space-y-3">
+            <!-- ArchiveTune Dual Login: Direct Web Login & Advanced Token Login -->
+            <div class="space-y-4">
               <p class="text-xs text-white/70 leading-relaxed">
-                Connect your YouTube Music account using your session cookie (specifically <code class="px-1.5 py-0.5 rounded bg-black/40 text-[var(--md-sys-primary)] font-mono text-[11px]">SAPISID</code> or full Cookie header).
-                Aethon stores this securely in local SQLite with 0% external cloud tracking.
+                Connect your YouTube Music account to sync your playlists, favorites, and history. Choose between direct Google sign-in or advanced token entry.
               </p>
 
-              <div class="space-y-2">
-                <div class="flex gap-2">
-                  <input
-                    type="password"
-                    bind:value={ytmCookieInput}
-                    placeholder="Paste SAPISID or full Cookie header here..."
-                    class="flex-1 bg-black/40 border border-white/10 rounded-xl px-3.5 py-2.5 text-xs text-white placeholder-white/30 outline-none focus:border-[var(--md-sys-primary)] transition-all font-mono"
-                  />
-                  <button
-                    type="button"
-                    onclick={handleConnectYtm}
-                    disabled={isConnectingYtm || !ytmCookieInput.trim()}
-                    class="px-4 py-2.5 rounded-xl bg-[var(--md-sys-primary)] text-[var(--md-sys-on-primary)] hover:opacity-90 text-xs font-semibold transition-all disabled:opacity-40 disabled:cursor-not-allowed shrink-0 flex items-center gap-2 cursor-pointer"
-                  >
-                    {#if isConnectingYtm}
-                      <span class="material-symbols-rounded animate-spin text-[16px]">sync</span>
-                      <span>Connecting...</span>
-                    {:else}
-                      <span class="material-symbols-rounded text-[16px]">link</span>
-                      <span>Connect Account</span>
-                    {/if}
-                  </button>
-                </div>
-
+              <!-- Login Mode Selector (Matching ArchiveTune) -->
+              <div class="flex items-center gap-1.5 p-1 rounded-xl bg-black/40 border border-white/[0.08] w-fit">
                 <button
                   type="button"
-                  onclick={() => showCookieHelp = !showCookieHelp}
-                  class="text-[11px] text-[var(--md-sys-primary)] hover:underline flex items-center gap-1 font-medium cursor-pointer"
+                  onclick={() => (loginMode = 'direct')}
+                  class="px-3.5 py-1.5 rounded-lg text-xs font-medium transition-all cursor-pointer {loginMode === 'direct' ? 'bg-[var(--md-sys-primary)] text-[var(--md-sys-on-primary)] font-semibold shadow-sm' : 'text-white/60 hover:text-white'}"
                 >
-                  <span class="material-symbols-rounded text-[14px]">help</span>
-                  <span>How to obtain your SAPISID / YouTube Music cookie?</span>
+                  Direct Web Login
                 </button>
-
-                {#if showCookieHelp}
-                  <div class="p-4 rounded-2xl bg-black/30 border border-white/[0.06] text-xs text-white/70 space-y-2 animate-fade-in font-sans">
-                    <p class="font-semibold text-white">Instructions (Same method as ArchiveTune & ViMusic):</p>
-                    <ol class="list-decimal list-inside space-y-1 text-white/60">
-                      <li>Open <a href="https://music.youtube.com" target="_blank" class="text-[var(--md-sys-primary)] underline">music.youtube.com</a> in your browser and sign in.</li>
-                      <li>Press <kbd class="px-1.5 py-0.5 rounded bg-white/10 text-white font-mono text-[10px]">F12</kbd> or right-click &rarr; <span class="text-white">Inspect</span> to open Developer Tools.</li>
-                      <li>Go to the <span class="text-white">Application</span> tab &rarr; <span class="text-white">Cookies</span> &rarr; select <span class="text-white">https://music.youtube.com</span>.</li>
-                      <li>Locate the cookie named <code class="text-[var(--md-sys-primary)] font-mono">SAPISID</code> or copy the entire request cookie header.</li>
-                      <li>Paste it into the field above and click Connect.</li>
-                    </ol>
-                  </div>
-                {/if}
+                <button
+                  type="button"
+                  onclick={() => (loginMode = 'advanced')}
+                  class="px-3.5 py-1.5 rounded-lg text-xs font-medium transition-all cursor-pointer {loginMode === 'advanced' ? 'bg-[var(--md-sys-primary)] text-[var(--md-sys-on-primary)] font-semibold shadow-sm' : 'text-white/60 hover:text-white'}"
+                >
+                  Advanced Login
+                </button>
               </div>
+
+              {#if loginMode === 'direct'}
+                <!-- 1. Direct Web Login Flow -->
+                <div class="p-4 rounded-2xl bg-black/30 border border-white/[0.07] space-y-3">
+                  <div class="flex items-center gap-2.5">
+                    <span class="material-symbols-rounded text-[20px] text-amber-400">lock_open</span>
+                    <div>
+                      <h5 class="text-xs font-bold text-white">Default Google Sign-In</h5>
+                      <p class="text-[11px] text-white/50">Opens official Google account authentication in your browser/window</p>
+                    </div>
+                  </div>
+
+                  <button
+                    type="button"
+                    onclick={handleDirectWebLogin}
+                    class="w-full sm:w-auto px-5 py-2.5 rounded-xl bg-[var(--md-sys-primary)] text-[var(--md-sys-on-primary)] hover:opacity-90 text-xs font-semibold transition-all flex items-center justify-center gap-2 cursor-pointer shadow-md"
+                  >
+                    <span class="material-symbols-rounded text-[18px]">login</span>
+                    <span>Sign in with Google / YouTube Music</span>
+                  </button>
+
+                  <p class="text-[10px] text-white/40">
+                    Aethon uses official Google endpoints. After logging in, verify by pasting your session cookie in Advanced Login or authorizing via browser.
+                  </p>
+                </div>
+              {:else}
+                <!-- 2. Advanced Token / Cookie Editor (ArchiveTune Format Supported) -->
+                <div class="p-4 rounded-2xl bg-black/30 border border-white/[0.07] space-y-3">
+                  <div class="flex items-center justify-between">
+                    <div>
+                      <h5 class="text-xs font-bold text-white">Advanced Token / Cookie Editor</h5>
+                      <p class="text-[11px] text-white/50">Supports raw SAPISID cookie or ArchiveTune exported token block</p>
+                    </div>
+                    <button
+                      type="button"
+                      onclick={() => (showCookieHelp = !showCookieHelp)}
+                      class="text-[11px] text-[var(--md-sys-primary)] hover:underline flex items-center gap-1 font-medium cursor-pointer"
+                    >
+                      <span class="material-symbols-rounded text-[14px]">help</span>
+                      <span>How to get cookie?</span>
+                    </button>
+                  </div>
+
+                  <textarea
+                    bind:value={rawTokenBlockInput}
+                    placeholder="Paste SAPISID, Cookie header, or ArchiveTune token block:&#10;***INNERTUBE COOKIE*** = ...&#10;***VISITOR DATA*** = ..."
+                    rows="3"
+                    class="w-full bg-black/50 border border-white/10 rounded-xl p-3 text-xs text-white placeholder-white/25 outline-none focus:border-[var(--md-sys-primary)] transition-all font-mono resize-none"
+                  ></textarea>
+
+                  <button
+                    type="button"
+                    onclick={handleAdvancedTokenConnect}
+                    disabled={!rawTokenBlockInput.trim()}
+                    class="px-4 py-2 rounded-xl bg-[var(--md-sys-primary)] text-[var(--md-sys-on-primary)] hover:opacity-90 text-xs font-semibold transition-all disabled:opacity-40 disabled:cursor-not-allowed flex items-center gap-2 cursor-pointer"
+                  >
+                    <span class="material-symbols-rounded text-[16px]">key</span>
+                    <span>Save Advanced Credentials</span>
+                  </button>
+
+                  {#if showCookieHelp}
+                    <div class="p-3.5 rounded-xl bg-black/40 border border-white/[0.06] text-xs text-white/70 space-y-1.5 animate-fade-in font-sans">
+                      <p class="font-semibold text-white">How to copy YouTube Music session cookie:</p>
+                      <ol class="list-decimal list-inside space-y-1 text-white/60 text-[11px]">
+                        <li>Open <a href="https://music.youtube.com" target="_blank" class="text-[var(--md-sys-primary)] underline">music.youtube.com</a> and sign in.</li>
+                        <li>Press <kbd class="px-1.5 py-0.5 rounded bg-white/10 text-white font-mono text-[10px]">F12</kbd> &rarr; <span class="text-white">Application</span> &rarr; <span class="text-white">Cookies</span>.</li>
+                        <li>Copy the value of the <code class="text-[var(--md-sys-primary)] font-mono">SAPISID</code> cookie and paste it above.</li>
+                      </ol>
+                    </div>
+                  {/if}
+                </div>
+              {/if}
             </div>
           {/if}
 
@@ -325,7 +403,7 @@
           {/if}
         </div>
 
-        <!-- Saved Accounts Switcher -->
+        <!-- Saved Accounts Switcher (No Hardcoded Dummy Data) -->
         <div class="m3-acrylic-card rounded-3xl p-5 border border-white/[0.07] space-y-4">
           <div class="flex items-center justify-between pb-2 border-b border-white/[0.05]">
             <div class="flex items-center gap-2">
@@ -335,29 +413,37 @@
             <span class="text-xs text-white/50">{settingsState.savedAccounts.length} saved</span>
           </div>
 
-          <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            {#each settingsState.savedAccounts as acc, i}
-              {@const isCurrent = settingsState.ytmConnected && settingsState.ytmCookie === acc.cookie}
-              <button
-                type="button"
-                onclick={() => settingsState.switchAccount(i)}
-                class="flex items-center justify-between p-3.5 rounded-2xl border text-left transition-all cursor-pointer {isCurrent ? 'bg-[var(--md-sys-primary-container)]/30 border-[var(--md-sys-primary)] shadow-sm' : 'bg-black/20 border-white/[0.05] hover:bg-white/[0.04]'}"
-              >
-                <div class="flex items-center gap-3 min-w-0">
-                  <div class="w-10 h-10 rounded-full overflow-hidden border border-white/20 shrink-0">
-                    <img src={acc.avatar} alt={acc.name} class="w-full h-full object-cover" />
+          {#if settingsState.savedAccounts.length === 0}
+            <div class="py-6 flex flex-col items-center justify-center text-center text-white/40">
+              <span class="material-symbols-rounded text-3xl mb-1 text-white/20">no_accounts</span>
+              <p class="text-xs text-white/60 font-medium">No saved accounts yet</p>
+              <p class="text-[11px] text-white/40 mt-0.5">Signed-in accounts will appear here for fast one-click switching.</p>
+            </div>
+          {:else}
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              {#each settingsState.savedAccounts as acc, i}
+                {@const isCurrent = settingsState.ytmConnected && settingsState.ytmCookie === acc.cookie}
+                <button
+                  type="button"
+                  onclick={() => settingsState.switchAccount(i)}
+                  class="flex items-center justify-between p-3.5 rounded-2xl border text-left transition-all cursor-pointer {isCurrent ? 'bg-[var(--md-sys-primary-container)]/30 border-[var(--md-sys-primary)] shadow-sm' : 'bg-black/20 border-white/[0.05] hover:bg-white/[0.04]'}"
+                >
+                  <div class="flex items-center gap-3 min-w-0">
+                    <div class="w-10 h-10 rounded-full overflow-hidden border border-white/20 shrink-0">
+                      <img src={acc.avatar} alt={acc.name} class="w-full h-full object-cover" />
+                    </div>
+                    <div class="min-w-0 flex-1">
+                      <p class="text-xs font-bold text-white truncate">{acc.name}</p>
+                      <p class="text-[11px] text-white/50 font-mono truncate">{acc.email}</p>
+                    </div>
                   </div>
-                  <div class="min-w-0 flex-1">
-                    <p class="text-xs font-bold text-white truncate">{acc.name}</p>
-                    <p class="text-[11px] text-white/50 font-mono truncate">{acc.email}</p>
-                  </div>
-                </div>
-                {#if isCurrent}
-                  <span class="material-symbols-rounded text-[var(--md-sys-primary)] text-[20px] shrink-0">check_circle</span>
-                {/if}
-              </button>
-            {/each}
-          </div>
+                  {#if isCurrent}
+                    <span class="material-symbols-rounded text-[var(--md-sys-primary)] text-[20px] shrink-0">check_circle</span>
+                  {/if}
+                </button>
+              {/each}
+            </div>
+          {/if}
         </div>
 
         <!-- Sync Preferences Card -->

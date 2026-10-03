@@ -84,20 +84,7 @@ class SettingsState {
   ytmSyncFavorites = $state(true);
   ytmSyncHistory = $state(true);
   ytmAutoSync = $state(true);
-  savedAccounts = $state<Array<{ name: string; email: string; avatar: string; cookie: string }>>([
-    {
-      name: 'Abhinav (Personal)',
-      email: 'abhinav@gmail.com',
-      avatar: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=120&auto=format&fit=crop',
-      cookie: 'SAPISID=example_sapisid_token_1',
-    },
-    {
-      name: 'Aethon Hi-Fi Studio',
-      email: 'audiophile@studio.net',
-      avatar: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=120&auto=format&fit=crop',
-      cookie: 'SAPISID=example_sapisid_token_2',
-    }
-  ]);
+  savedAccounts = $state<Array<{ name: string; email: string; avatar: string; cookie: string }>>([]);
 
   // Internal state
   isLoaded = $state(false);
