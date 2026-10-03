@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount } from 'svelte';
+  import { onMount, tick } from 'svelte';
 
   export interface SelectOption<T = any> {
     value: T;
@@ -29,16 +29,37 @@
   }: Props = $props();
 
   let isOpen = $state(false);
+  let openUpward = $state(false);
   let containerEl = $state<HTMLDivElement>();
+  let popoverEl = $state<HTMLDivElement>();
 
   let selectedOption = $derived(
     options.find((opt) => opt.value === value) || options[0]
   );
 
-  function toggleOpen(e: MouseEvent) {
-    e.stopPropagation();
+  function checkDirection() {
+    if (containerEl) {
+      const rect = containerEl.getBoundingClientRect();
+      const spaceBelow = window.innerHeight - rect.bottom;
+      openUpward = spaceBelow < 260 && rect.top > 260;
+    }
+  }
+
+  async function toggleOpen(e: MouseEvent) {
     if (disabled) return;
-    isOpen = !isOpen;
+    if (!isOpen) {
+      checkDirection();
+      isOpen = true;
+      await tick();
+      if (popoverEl) {
+        const selected = popoverEl.querySelector('[aria-selected="true"]') as HTMLElement;
+        if (selected) {
+          selected.scrollIntoView({ block: 'nearest' });
+        }
+      }
+    } else {
+      isOpen = false;
+    }
   }
 
   function selectOption(opt: SelectOption) {
@@ -55,6 +76,7 @@
     } else if (e.key === 'ArrowDown') {
       e.preventDefault();
       if (!isOpen) {
+        checkDirection();
         isOpen = true;
       } else {
         const curIdx = options.findIndex((o) => o.value === value);
@@ -70,6 +92,11 @@
           selectOption(options[curIdx - 1]);
         }
       }
+    } else if (e.key === 'Enter' || e.key === ' ') {
+      if (isOpen) {
+        e.preventDefault();
+        isOpen = false;
+      }
     }
   }
 
@@ -79,8 +106,9 @@
         isOpen = false;
       }
     }
-    window.addEventListener('click', handleClickOutside);
-    return () => window.removeEventListener('click', handleClickOutside);
+    // Using capture phase ensures any other open dropdown closes immediately on click
+    window.addEventListener('click', handleClickOutside, { capture: true });
+    return () => window.removeEventListener('click', handleClickOutside, { capture: true });
   });
 </script>
 
@@ -129,7 +157,8 @@
       <!-- Sleek Frosted Glass Popover Menu -->
       {#if isOpen}
         <div
-          class="absolute right-0 top-full mt-2 w-64 max-h-60 overflow-y-auto z-50 rounded-2xl bg-[#181520]/95 backdrop-blur-2xl border border-white/15 p-1.5 shadow-2xl space-y-1 animate-dropdown scrollbar-none"
+          bind:this={popoverEl}
+          class="absolute right-0 {openUpward ? 'bottom-full mb-2' : 'top-full mt-2'} w-64 max-h-60 overflow-y-auto z-50 rounded-2xl bg-[#181520]/95 backdrop-blur-2xl border border-white/15 p-1.5 shadow-2xl space-y-1 animate-dropdown scrollbar-none"
           role="listbox"
         >
           {#each options as opt}
@@ -182,7 +211,8 @@
 
     {#if isOpen}
       <div
-        class="absolute right-0 top-full mt-2 w-64 max-h-60 overflow-y-auto z-50 rounded-2xl bg-[#181520]/95 backdrop-blur-2xl border border-white/15 p-1.5 shadow-2xl space-y-1 animate-dropdown scrollbar-none"
+        bind:this={popoverEl}
+        class="absolute right-0 {openUpward ? 'bottom-full mb-2' : 'top-full mt-2'} w-64 max-h-60 overflow-y-auto z-50 rounded-2xl bg-[#181520]/95 backdrop-blur-2xl border border-white/15 p-1.5 shadow-2xl space-y-1 animate-dropdown scrollbar-none"
         role="listbox"
       >
         {#each options as opt}

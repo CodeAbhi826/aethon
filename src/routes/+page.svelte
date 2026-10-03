@@ -18,6 +18,18 @@
     // Load local SQLite tracks on mount
     playerState.loadLibrary();
 
+    // Auto-collapse sidebar in compact / floating window modes (< 840px)
+    if (window.innerWidth < 840) {
+      playerState.sidebarCollapsed = true;
+    }
+
+    const handleResize = () => {
+      if (window.innerWidth < 780 && !playerState.sidebarCollapsed) {
+        playerState.sidebarCollapsed = true;
+      }
+    };
+    window.addEventListener('resize', handleResize);
+
     // Global keyboard shortcuts
     const handleKeyDown = (e: KeyboardEvent) => {
       const activeTag = (document.activeElement?.tagName || '').toLowerCase();
@@ -47,7 +59,10 @@
     };
 
     window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown);
+      window.removeEventListener('resize', handleResize);
+    };
   });
 </script>
 

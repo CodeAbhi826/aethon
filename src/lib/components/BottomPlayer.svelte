@@ -14,14 +14,14 @@
   }
 </script>
 
-<footer class="h-20 w-full m3-acrylic-dock px-4 md:px-8 py-2.5 flex items-center justify-between z-30 shrink-0 select-none">
+<footer class="h-20 w-full m3-acrylic-dock px-3 sm:px-6 md:px-8 py-2 flex items-center justify-between z-30 shrink-0 select-none gap-2 sm:gap-4">
   
   <!-- Left: Track Details & Album Thumbnail -->
-  <div class="flex items-center gap-3.5 min-w-[200px] md:min-w-[280px] max-w-[320px]">
+  <div class="flex items-center gap-2.5 sm:gap-3.5 min-w-0 max-w-[180px] sm:max-w-[260px] md:max-w-[320px] shrink">
     {#if playerState.currentTrack}
       <button
         onclick={() => playerState.isNowPlayingOpen = true}
-        class="cursor-pointer relative group w-14 h-14 rounded-2xl overflow-hidden shadow-lg shrink-0 border border-white/10"
+        class="cursor-pointer relative group w-11 h-11 sm:w-14 sm:h-14 rounded-xl sm:rounded-2xl overflow-hidden shadow-lg shrink-0 border border-white/10"
         title="Click to Expand Now Playing"
       >
         {#if playerState.currentTrack.cover_art}
@@ -32,21 +32,21 @@
           </div>
         {/if}
         <div class="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 flex items-center justify-center transition">
-          <span class="material-symbols-rounded text-white text-xl">open_in_full</span>
+          <span class="material-symbols-rounded text-white text-lg sm:text-xl">open_in_full</span>
         </div>
       </button>
 
       <div class="min-w-0 flex-1">
         <button
           onclick={() => playerState.isNowPlayingOpen = true}
-          class="text-sm font-bold text-white truncate hover:underline font-display text-left block w-full"
+          class="text-xs sm:text-sm font-bold text-white truncate hover:underline font-display text-left block w-full"
         >
           {playerState.currentTrack.title}
         </button>
-        <div class="text-xs text-[var(--md-sys-on-surface-variant)] truncate">
+        <div class="text-[11px] sm:text-xs text-[var(--md-sys-on-surface-variant)] truncate">
           {playerState.currentTrack.artist}
         </div>
-        <div class="flex items-center gap-1.5 mt-0.5">
+        <div class="flex items-center gap-1.5 mt-0.5 hidden sm:flex">
           <span class="text-[9px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full bg-[var(--md-sys-primary-container)] text-[var(--md-sys-on-primary-container)]">
             {playerState.currentTrack.format || 'Lossless'}
           </span>
@@ -55,59 +55,59 @@
 
       <button
         onclick={() => playerState.currentTrack && playerState.toggleFavorite(playerState.currentTrack.id)}
-        class="p-2 rounded-full hover:bg-white/10 text-[var(--md-sys-on-surface-variant)] transition shrink-0"
+        class="p-1.5 sm:p-2 rounded-full hover:bg-white/10 text-[var(--md-sys-on-surface-variant)] transition shrink-0 hidden xs:inline-flex"
         title="Favorite"
       >
-        <span class="material-symbols-rounded text-xl {playerState.currentTrack.favorite ? 'text-rose-400 filled' : ''}">
+        <span class="material-symbols-rounded text-lg sm:text-xl {playerState.currentTrack.favorite ? 'text-rose-400 filled' : ''}">
           favorite
         </span>
       </button>
     {:else}
-      <div class="flex items-center gap-3 text-[var(--md-sys-on-surface-variant)]">
-        <div class="w-14 h-14 rounded-2xl bg-white/5 border border-white/5 flex items-center justify-center shrink-0">
-          <span class="material-symbols-rounded text-xl opacity-40">music_note</span>
+      <div class="flex items-center gap-2.5 sm:gap-3 text-[var(--md-sys-on-surface-variant)]">
+        <div class="w-11 h-11 sm:w-14 sm:h-14 rounded-xl sm:rounded-2xl bg-white/5 border border-white/5 flex items-center justify-center shrink-0">
+          <span class="material-symbols-rounded text-lg sm:text-xl opacity-40">music_note</span>
         </div>
-        <div class="text-xs">
-          <div class="font-bold text-white/70">No track playing</div>
-          <div class="text-[10px] text-white/40">Select a song to start listening</div>
+        <div class="text-xs min-w-0">
+          <div class="font-bold text-white/70 truncate">No track playing</div>
+          <div class="text-[10px] text-white/40 truncate hidden sm:block">Select a song to start listening</div>
         </div>
       </div>
     {/if}
   </div>
 
   <!-- Center: Playback Transport & Precision Scrubber -->
-  <div class="flex flex-col items-center max-w-xl w-full px-4">
-    <div class="flex items-center gap-5 mb-1">
+  <div class="flex flex-col items-center max-w-xl flex-1 px-2 min-w-0">
+    <div class="flex items-center gap-3 sm:gap-5 mb-1">
       <button
         onclick={() => playerState.playPrevious()}
-        class="p-1 rounded-full text-[var(--md-sys-on-surface-variant)] hover:text-white transition"
+        class="p-1 rounded-full text-[var(--md-sys-on-surface-variant)] hover:text-white transition cursor-pointer"
         title="Previous Track"
       >
-        <span class="material-symbols-rounded text-2xl">skip_previous</span>
+        <span class="material-symbols-rounded text-xl sm:text-2xl">skip_previous</span>
       </button>
 
       <button
         onclick={() => playerState.togglePlay()}
-        class="w-11 h-11 rounded-full bg-[var(--md-sys-primary)] text-[var(--md-sys-on-primary)] flex items-center justify-center shadow-lg shadow-[var(--md-sys-glow)] hover:scale-105 active:scale-95 transition"
+        class="w-9 h-9 sm:w-11 sm:h-11 rounded-full bg-[var(--md-sys-primary)] text-[var(--md-sys-on-primary)] flex items-center justify-center shadow-lg shadow-[var(--md-sys-glow)] hover:scale-105 active:scale-95 transition cursor-pointer"
         title={playerState.playback.is_playing ? 'Pause' : 'Play'}
       >
-        <span class="material-symbols-rounded filled text-2xl">
+        <span class="material-symbols-rounded filled text-xl sm:text-2xl">
           {playerState.playback.is_playing ? 'pause' : 'play_arrow'}
         </span>
       </button>
 
       <button
         onclick={() => playerState.playNext()}
-        class="p-1 rounded-full text-[var(--md-sys-on-surface-variant)] hover:text-white transition"
+        class="p-1 rounded-full text-[var(--md-sys-on-surface-variant)] hover:text-white transition cursor-pointer"
         title="Next Track"
       >
-        <span class="material-symbols-rounded text-2xl">skip_next</span>
+        <span class="material-symbols-rounded text-xl sm:text-2xl">skip_next</span>
       </button>
     </div>
 
     <!-- Scrubber -->
-    <div class="flex items-center gap-2.5 w-full text-[11px] text-[var(--md-sys-on-surface-variant)] font-mono">
-      <span class="w-8 text-right">{playerState.formattedTime.current}</span>
+    <div class="flex items-center gap-2 w-full text-[10px] sm:text-[11px] text-[var(--md-sys-on-surface-variant)] font-mono">
+      <span class="w-7 sm:w-8 text-right shrink-0">{playerState.formattedTime.current}</span>
       <input
         type="range"
         min="0"
@@ -117,12 +117,12 @@
         oninput={handleSeek}
         class="w-full h-1 bg-white/10 rounded-lg appearance-none cursor-pointer"
       />
-      <span class="w-8">{playerState.formattedTime.total}</span>
+      <span class="w-7 sm:w-8 shrink-0">{playerState.formattedTime.total}</span>
     </div>
   </div>
 
   <!-- Right: Lyrics, Equalizer, Volume, Expand -->
-  <div class="flex items-center justify-end gap-3 min-w-[200px]">
+  <div class="flex items-center justify-end gap-1.5 sm:gap-3 shrink-0">
     <button
       onclick={() => playerState.isNowPlayingOpen = true}
       class="p-2 rounded-full hover:bg-white/10 text-[var(--md-sys-on-surface-variant)] hover:text-white transition"

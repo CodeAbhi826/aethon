@@ -151,9 +151,9 @@
 
 <div class="h-full flex flex-col md:flex-row overflow-hidden bg-[var(--md-sys-surface)]/60 text-[var(--md-sys-on-surface)]">
   
-  <!-- Left Navigation Rail (Dual-Pane Category Selector) -->
-  <aside class="w-full md:w-72 lg:w-80 shrink-0 border-r border-white/[0.06] bg-[var(--md-sys-surface-container-low)]/80 backdrop-blur-2xl flex flex-col overflow-y-auto p-4 space-y-1.5 scrollbar-none">
-    <div class="px-3 py-3 mb-2 border-b border-white/[0.05]">
+  <!-- Left Navigation Rail (Dual-Pane on desktop, compact horizontal pill rail on mobile/floating) -->
+  <aside class="w-full md:w-72 lg:w-80 shrink-0 border-b md:border-b-0 md:border-r border-white/[0.06] bg-[var(--md-sys-surface-container-low)]/80 backdrop-blur-2xl flex md:flex-col flex-row items-center md:items-stretch overflow-x-auto md:overflow-y-auto p-2 md:p-4 gap-1.5 scrollbar-none z-10">
+    <div class="px-3 py-3 mb-2 border-b border-white/[0.05] hidden md:block">
       <h2 class="font-display font-bold text-xl text-white tracking-tight flex items-center gap-2">
         <span class="material-symbols-rounded text-[var(--md-sys-primary)]">tune</span>
         Settings
@@ -166,24 +166,24 @@
       <button
         type="button"
         onclick={() => (activeCategory = cat.id)}
-        class="w-full flex items-center gap-3.5 px-3.5 py-3 rounded-2xl text-left transition-all group relative {isActive ? 'bg-[var(--md-sys-primary-container)] text-[var(--md-sys-on-primary-container)] font-semibold shadow-sm' : 'hover:bg-white/[0.05] text-white/70 hover:text-white'}"
+        class="flex items-center gap-2 md:gap-3.5 px-3 py-2 md:px-3.5 md:py-3 rounded-xl md:rounded-2xl text-left transition-all group relative shrink-0 md:shrink md:w-full cursor-pointer {isActive ? 'bg-[var(--md-sys-primary-container)] text-[var(--md-sys-on-primary-container)] font-semibold shadow-sm' : 'hover:bg-white/[0.05] text-white/70 hover:text-white'}"
       >
         <span
-          class="material-symbols-rounded text-[21px] transition-colors shrink-0 {isActive ? 'text-[var(--md-sys-primary)] font-semibold' : 'text-white/60 group-hover:text-white'}"
+          class="material-symbols-rounded text-[19px] md:text-[21px] transition-colors shrink-0 {isActive ? 'text-[var(--md-sys-primary)] font-semibold' : 'text-white/60 group-hover:text-white'}"
         >
           {cat.icon}
         </span>
         <div class="flex flex-col min-w-0 flex-1">
-          <span class="text-sm truncate">{cat.label}</span>
-          <span class="text-[11px] truncate opacity-65 font-normal">{cat.desc}</span>
+          <span class="text-xs md:text-sm font-medium md:font-normal truncate">{cat.label}</span>
+          <span class="text-[11px] truncate opacity-65 font-normal hidden md:inline">{cat.desc}</span>
         </div>
         {#if isActive}
-          <div class="w-1.5 h-5 rounded-full bg-[var(--md-sys-primary)] shrink-0"></div>
+          <div class="w-1.5 h-5 rounded-full bg-[var(--md-sys-primary)] shrink-0 hidden md:block"></div>
         {/if}
       </button>
     {/each}
 
-    <div class="pt-4 mt-auto border-t border-white/[0.05] px-3 text-[11px] text-white/40 flex items-center justify-between">
+    <div class="pt-4 mt-auto border-t border-white/[0.05] px-3 text-[11px] text-white/40 hidden md:flex items-center justify-between">
       <span>Aethon Audio Engine</span>
       <span class="font-mono text-emerald-400/80">PipeWire Bit-Perfect</span>
     </div>

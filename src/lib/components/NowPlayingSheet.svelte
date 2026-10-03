@@ -20,6 +20,30 @@
   let canvasEl = $state<HTMLCanvasElement>();
   let lyricsContainerEl = $state<HTMLDivElement>();
   let activeIndex = $state(-1);
+  let userIsScrolling = $state(false);
+  let userScrollTimeout: any = null;
+
+  // View mode switcher: auto (side-by-side on wide screens), or explicit focus
+  let activeView = $state<'auto' | 'turntable' | 'lyrics'>('auto');
+
+  function handleUserScroll() {
+    userIsScrolling = true;
+    if (userScrollTimeout) clearTimeout(userScrollTimeout);
+    userScrollTimeout = setTimeout(() => {
+      userIsScrolling = false;
+      if (activeIndex >= 0) {
+        scrollToActiveLyric(activeIndex, false);
+      }
+    }, 4500);
+  }
+
+  function resumeSync() {
+    userIsScrolling = false;
+    if (userScrollTimeout) clearTimeout(userScrollTimeout);
+    if (activeIndex >= 0) {
+      scrollToActiveLyric(activeIndex, true);
+    }
+  }
 
   // Sync lyrics highlight and auto-scroll
   $effect(() => {
@@ -35,16 +59,23 @@
       }
       if (foundIdx !== activeIndex) {
         activeIndex = foundIdx;
-        scrollToActiveLyric(foundIdx);
+        if (!userIsScrolling) {
+          scrollToActiveLyric(foundIdx, false);
+        }
       }
     }
   });
 
-  function scrollToActiveLyric(idx: number) {
+  function scrollToActiveLyric(idx: number, immediate: boolean) {
     if (!lyricsContainerEl || idx < 0) return;
     const lineEl = lyricsContainerEl.children[idx] as HTMLElement;
     if (lineEl) {
-      lineEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      const containerH = lyricsContainerEl.clientHeight;
+      const targetTop = lineEl.offsetTop - (containerH / 2) + (lineEl.clientHeight / 2);
+      lyricsContainerEl.scrollTo({
+        top: Math.max(0, targetTop),
+        behavior: immediate ? 'auto' : 'smooth',
+      });
     }
   }
 
@@ -64,28 +95,27 @@
       ctx.clearRect(0, 0, width, height);
 
       const isPlaying = playerState.playback.is_playing;
-      const bars = 48;
+      const bars = 44;
       const barWidth = width / bars - 2;
 
       for (let i = 0; i < bars; i++) {
-        let barHeight = 4;
+        let barHeight = 3;
         if (isPlaying) {
-          const freq = Math.sin(phase + i * 0.25) * 0.5 + 0.5;
-          const bassBoost = i < 12 ? Math.cos(phase * 1.5 + i * 0.1) * 0.4 + 0.6 : 0.5;
-          barHeight = (freq * bassBoost * (height - 8)) + 4;
+          const freq = Math.sin(phase + i * 0.28) * 0.5 + 0.5;
+          const bassBoost = i < 10 ? Math.cos(phase * 1.6 + i * 0.12) * 0.4 + 0.6 : 0.5;
+          barHeight = (freq * bassBoost * (height - 6)) + 3;
         }
 
         const x = i * (barWidth + 2);
         const y = height - barHeight;
 
-        // Gradient
         const grad = ctx.createLinearGradient(0, y, 0, height);
         grad.addColorStop(0, playerState.accentColor || '#d0bcff');
         grad.addColorStop(1, 'rgba(121, 220, 156, 0.4)');
 
         ctx.fillStyle = grad;
         ctx.beginPath();
-        ctx.roundRect(x, y, barWidth, barHeight, 3);
+        ctx.roundRect(x, y, barWidth, barHeight, 2.5);
         ctx.fill();
       }
 
@@ -97,12 +127,13 @@
 
     return () => {
       cancelAnimationFrame(animId);
+      if (userScrollTimeout) clearTimeout(userScrollTimeout);
     };
   });
 </script>
 
 {#if playerState.isNowPlayingOpen}
-  <div class="fixed inset-0 z-50 bg-[#0d0e11]/95 backdrop-blur-3xl flex flex-col p-4 sm:p-6 overflow-hidden animate-fade-in select-none">
+  <div class="fixed inset-0 z-50 bg-[#0d0e11]/95 backdrop-blur-3xl flex flex-col p-3 sm:p-5 overflow-hidden animate-fade-in select-none">
     
     <!-- Ambient glowing mesh background -->
     <div
@@ -110,202 +141,267 @@
       style="background: radial-gradient(circle, {playerState.accentColor} 0%, transparent 70%);"
     ></div>
 
-    <!-- Header bar with drag region & window controls preserved -->
-    <div data-tauri-drag-region class="flex items-center justify-between pb-3 border-b border-white/[0.06] z-10 shrink-0">
-      <div class="flex items-center gap-3">
+    <!-- Header bar with isolated drag region & window controls preserved -->
+    <header class="flex items-center justify-between pb-2.5 border-b border-white/[0.06] z-20 shrink-0 h-11">
+      <!-- Left: Minimize Sheet + Title -->
+      <div class="flex items-center gap-2.5 shrink-0">
         <button
           onclick={() => playerState.isNowPlayingOpen = false}
-          class="w-9 h-9 rounded-full bg-white/[0.06] hover:bg-white/[0.12] flex items-center justify-center text-white transition-colors"
-          title="Minimize Sheet"
+          class="w-8 h-8 rounded-full bg-white/[0.06] hover:bg-white/[0.12] flex items-center justify-center text-white transition-colors cursor-pointer"
+          title="Minimize Sheet (Esc)"
         >
-          <span class="material-symbols-rounded text-[22px]">keyboard_arrow_down</span>
+          <span class="material-symbols-rounded text-[20px]">keyboard_arrow_down</span>
         </button>
-        <span class="font-heading font-semibold text-sm text-[#9ea2b0] tracking-wide uppercase">Now Playing</span>
+        <span class="font-heading font-semibold text-xs sm:text-sm text-[#9ea2b0] tracking-wide uppercase">Now Playing</span>
       </div>
 
-      <div class="flex items-center gap-2">
-        <span class="text-xs px-2.5 py-1 rounded-full bg-white/[0.07] text-white border border-white/[0.08] font-mono">
+      <!-- Center: View Mode Segmented Switch + Drag Region -->
+      <div class="flex items-center gap-2 px-2 flex-1 justify-center min-w-0">
+        <!-- Responsive segmented pills -->
+        <div class="flex items-center bg-black/40 border border-white/10 rounded-full p-0.5 text-xs">
+          <button
+            type="button"
+            onclick={() => activeView = 'auto'}
+            class="px-2.5 py-1 rounded-full text-[11px] font-medium transition-all cursor-pointer {activeView === 'auto' ? 'bg-white/15 text-white shadow-sm font-semibold' : 'text-white/60 hover:text-white'}"
+            title="Auto / Split View"
+          >
+            Split
+          </button>
+          <button
+            type="button"
+            onclick={() => activeView = 'turntable'}
+            class="px-2.5 py-1 rounded-full text-[11px] font-medium transition-all cursor-pointer {activeView === 'turntable' ? 'bg-white/15 text-white shadow-sm font-semibold' : 'text-white/60 hover:text-white'}"
+            title="Vinyl Artwork Focus"
+          >
+            Vinyl
+          </button>
+          <button
+            type="button"
+            onclick={() => activeView = 'lyrics'}
+            class="px-2.5 py-1 rounded-full text-[11px] font-medium transition-all cursor-pointer {activeView === 'lyrics' ? 'bg-white/15 text-white shadow-sm font-semibold' : 'text-white/60 hover:text-white'}"
+            title="Apple Music Lyrics Focus"
+          >
+            Lyrics
+          </button>
+        </div>
+
+        <!-- Dedicated drag region spacer (isolated so buttons never get intercepted) -->
+        <div data-tauri-drag-region class="flex-1 h-8 cursor-default"></div>
+      </div>
+
+      <!-- Right: Equalizer + Format + Window Traffic Controls -->
+      <div class="flex items-center gap-1.5 shrink-0">
+        <span class="text-[11px] px-2 py-0.5 rounded-full bg-white/[0.07] text-white border border-white/[0.08] font-mono hidden sm:inline-block">
           {playerState.currentTrack?.format || 'Lossless'}
         </span>
         <button
           onclick={() => playerState.isEqualizerOpen = true}
-          class="w-9 h-9 rounded-full bg-white/[0.06] hover:bg-white/[0.12] flex items-center justify-center text-[#9ea2b0] hover:text-white transition-colors"
-          title="Equalizer"
+          class="w-7 h-7 sm:w-8 sm:h-8 rounded-full bg-white/[0.06] hover:bg-white/[0.12] flex items-center justify-center text-[#9ea2b0] hover:text-white transition-colors cursor-pointer"
+          title="10-Band Equalizer"
         >
-          <span class="material-symbols-rounded text-[20px]">tune</span>
+          <span class="material-symbols-rounded text-[18px]">tune</span>
         </button>
 
-        <div class="h-4 w-[1px] bg-white/10 mx-1"></div>
+        <div class="h-3.5 w-[1px] bg-white/10 mx-1"></div>
 
         <!-- Window Traffic Controls (Preserved in Fullscreen) -->
-        <div class="flex items-center gap-1">
+        <div class="flex items-center gap-0.5">
           <button
             onclick={handleMinimize}
             aria-label="Minimize Window"
-            class="w-7 h-7 rounded-md flex items-center justify-center text-[#9ea2b0] hover:text-white hover:bg-white/[0.08] transition-colors"
+            class="w-7 h-7 rounded-md flex items-center justify-center text-[#9ea2b0] hover:text-white hover:bg-white/[0.08] transition-colors cursor-pointer"
             title="Minimize Window"
           >
-            <span class="material-symbols-rounded text-[16px]">remove</span>
+            <span class="material-symbols-rounded text-[15px]">remove</span>
           </button>
           <button
             onclick={handleMaximize}
             aria-label="Maximize Window"
-            class="w-7 h-7 rounded-md flex items-center justify-center text-[#9ea2b0] hover:text-white hover:bg-white/[0.08] transition-colors"
+            class="w-7 h-7 rounded-md flex items-center justify-center text-[#9ea2b0] hover:text-white hover:bg-white/[0.08] transition-colors cursor-pointer"
             title="Maximize Window"
           >
-            <span class="material-symbols-rounded text-[15px]">crop_square</span>
+            <span class="material-symbols-rounded text-[14px]">crop_square</span>
           </button>
           <button
             onclick={handleClose}
             aria-label="Close Window"
-            class="w-7 h-7 rounded-md flex items-center justify-center text-[#9ea2b0] hover:text-white hover:bg-red-500/80 transition-colors"
+            class="w-7 h-7 rounded-md flex items-center justify-center text-[#9ea2b0] hover:text-white hover:bg-red-500/80 transition-colors cursor-pointer"
             title="Close Window"
           >
-            <span class="material-symbols-rounded text-[16px]">close</span>
+            <span class="material-symbols-rounded text-[15px]">close</span>
           </button>
         </div>
       </div>
-    </div>
+    </header>
 
-    <!-- Main 2-Column Display: Artwork/Turntable + Apple Music Synced Lyrics -->
-    <div class="flex-1 grid grid-cols-1 lg:grid-cols-2 gap-4 lg:gap-8 py-3 lg:py-6 overflow-hidden z-10 min-h-0">
+    <!-- Main Content Area: Responsive Grid / Flex based on View Mode and Window Height -->
+    <div class="flex-1 flex overflow-hidden z-10 min-h-0 py-2 sm:py-4 gap-4 lg:gap-8">
       
       <!-- Left Column: Spinning Vinyl / Turntable + Controls + Visualizer -->
-      <div class="flex flex-col items-center justify-center gap-3 sm:gap-5 max-w-lg mx-auto w-full min-h-0 overflow-y-auto scrollbar-none">
-        
-        <!-- Turntable Vinyl Container (Dynamically scaled for floating and fullscreen) -->
-        <div class="relative w-44 h-44 sm:w-56 sm:h-56 md:w-64 md:h-64 lg:w-80 lg:h-80 rounded-full flex items-center justify-center shadow-2xl p-2 bg-[#121316] border border-white/[0.1] shrink-0 transition-all">
-          <!-- Vinyl body with subtle groove gradients -->
-          <div
-            class="relative w-full h-full rounded-full bg-gradient-to-tr from-[#1b1c20] via-[#101114] to-[#202227] flex items-center justify-center overflow-hidden {playerState.playback.is_playing ? 'animate-spin-slow' : ''}"
-            style="animation-duration: 18s;"
-          >
-            <!-- Grooves -->
-            <div class="absolute inset-3 sm:inset-4 rounded-full border border-white/[0.05]"></div>
-            <div class="absolute inset-6 sm:inset-8 rounded-full border border-white/[0.04]"></div>
-            <div class="absolute inset-10 sm:inset-14 rounded-full border border-white/[0.03]"></div>
-            <div class="absolute inset-14 sm:inset-20 rounded-full border border-white/[0.05]"></div>
+      {#if activeView === 'auto' || activeView === 'turntable'}
+        <div
+          class="flex flex-col items-center justify-between mx-auto w-full min-h-0 transition-all {activeView === 'turntable' ? 'max-w-xl' : activeView === 'auto' ? 'hidden md:flex flex-1 max-w-md lg:max-w-lg' : 'hidden'}"
+        >
+          <!-- Vinyl Container: dynamic fluid scaling using CSS viewport clamps -->
+          <div class="flex-1 flex items-center justify-center w-full min-h-[140px] max-h-[44vh] shrink py-1">
+            <div class="relative w-36 h-36 sm:w-48 sm:h-48 md:w-56 md:h-56 lg:w-72 lg:h-72 max-h-[36vh] aspect-square rounded-full flex items-center justify-center shadow-2xl p-1.5 sm:p-2 bg-[#121316] border border-white/[0.1] transition-all">
+              <!-- Vinyl body with subtle groove gradients -->
+              <div
+                class="relative w-full h-full rounded-full bg-gradient-to-tr from-[#1b1c20] via-[#101114] to-[#202227] flex items-center justify-center overflow-hidden {playerState.playback.is_playing ? 'animate-spin-slow' : ''}"
+                style="animation-duration: 20s;"
+              >
+                <!-- Grooves -->
+                <div class="absolute inset-2 sm:inset-3 rounded-full border border-white/[0.05]"></div>
+                <div class="absolute inset-4 sm:inset-6 rounded-full border border-white/[0.04]"></div>
+                <div class="absolute inset-8 sm:inset-12 rounded-full border border-white/[0.03]"></div>
+                <div class="absolute inset-12 sm:inset-18 rounded-full border border-white/[0.05]"></div>
 
-            <!-- Stationary specular light sheen overlay -->
-            <div class="absolute inset-0 bg-gradient-to-tr from-white/[0.06] via-transparent to-white/[0.03] pointer-events-none rounded-full"></div>
+                <!-- Stationary specular light sheen overlay -->
+                <div class="absolute inset-0 bg-gradient-to-tr from-white/[0.06] via-transparent to-white/[0.03] pointer-events-none rounded-full"></div>
 
-            <!-- Center label with album cover art -->
-            <div class="w-16 h-16 sm:w-20 sm:h-20 md:w-24 md:h-24 lg:w-28 lg:h-28 rounded-full overflow-hidden border-2 border-white/[0.15] shadow-inner relative z-10 flex items-center justify-center bg-[#252730] transition-all">
-              {#if playerState.currentTrack?.cover_art}
-                <img src={playerState.currentTrack.cover_art} alt="Vinyl Center" class="w-full h-full object-cover" />
-              {:else}
-                <span class="material-symbols-rounded text-white/50 text-[28px] sm:text-[32px]">album</span>
-              {/if}
-              <!-- Center spindle hole -->
-              <div class="absolute w-3.5 h-3.5 sm:w-5 sm:h-5 rounded-full bg-[#121316] border border-white/20"></div>
+                <!-- Center label with album cover art -->
+                <div class="w-14 h-14 sm:w-18 sm:h-18 md:w-22 md:h-22 lg:w-26 lg:h-26 rounded-full overflow-hidden border-2 border-white/[0.15] shadow-inner relative z-10 flex items-center justify-center bg-[#252730] transition-all">
+                  {#if playerState.currentTrack?.cover_art}
+                    <img src={playerState.currentTrack.cover_art} alt="Vinyl Center" class="w-full h-full object-cover" />
+                  {:else}
+                    <span class="material-symbols-rounded text-white/50 text-[24px] sm:text-[28px]">album</span>
+                  {/if}
+                  <!-- Center spindle hole -->
+                  <div class="absolute w-3 h-3 sm:w-4 sm:h-4 rounded-full bg-[#121316] border border-white/20"></div>
+                </div>
+              </div>
             </div>
           </div>
+
+          <!-- Bottom controls cluster: Track metadata + Visualizer + Scrubber + Buttons -->
+          <div class="w-full shrink-0 space-y-2.5 sm:space-y-3.5 px-2 max-w-md">
+            <!-- Track metadata -->
+            <div class="text-center px-2">
+              <h2 class="font-heading font-extrabold text-base sm:text-lg md:text-xl text-white truncate leading-tight">
+                {playerState.currentTrack?.title || 'No Track Selected'}
+              </h2>
+              <p class="text-[#9ea2b0] text-xs sm:text-sm truncate font-medium mt-0.5">
+                {playerState.currentTrack?.artist || 'Select a song from your library or search'}
+              </p>
+            </div>
+
+            <!-- 60FPS Audio Visualizer Canvas -->
+            <div class="w-full px-2">
+              <canvas bind:this={canvasEl} width="340" height="32" class="w-full h-6 sm:h-8 rounded-lg"></canvas>
+            </div>
+
+            <!-- Scrubber -->
+            <div class="w-full px-2 flex items-center gap-2.5 text-[11px] font-mono text-[#6b6e7c]">
+              <span class="w-8 text-right">{playerState.formattedTime.current}</span>
+              <input
+                type="range"
+                min="0"
+                max={playerState.playback.duration || (playerState.currentTrack?.duration ?? 100)}
+                step="0.5"
+                value={playerState.playback.position}
+                oninput={(e) => playerState.seek(Number((e.target as HTMLInputElement).value))}
+                class="flex-1 h-1 sm:h-1.5 bg-white/[0.1] rounded-lg appearance-none cursor-pointer"
+              />
+              <span class="w-8">{playerState.formattedTime.total}</span>
+            </div>
+
+            <!-- Transport Controls -->
+            <div class="flex items-center justify-center gap-4 sm:gap-6 pt-0.5 pb-1">
+              <button
+                onclick={() => playerState.playPrevious()}
+                class="text-[#9ea2b0] hover:text-white transition-colors cursor-pointer"
+                title="Previous"
+              >
+                <span class="material-symbols-rounded text-[24px] sm:text-[28px]">skip_previous</span>
+              </button>
+
+              <button
+                onclick={() => playerState.togglePlay()}
+                class="w-11 h-11 sm:w-13 sm:h-13 rounded-full bg-white text-[#111215] flex items-center justify-center shadow-xl hover:scale-105 active:scale-95 transition-all cursor-pointer"
+                title={playerState.playback.is_playing ? 'Pause' : 'Play'}
+              >
+                <span class="material-symbols-rounded text-[26px] sm:text-[30px] filled">
+                  {playerState.playback.is_playing ? 'pause' : 'play_arrow'}
+                </span>
+              </button>
+
+              <button
+                onclick={() => playerState.playNext()}
+                class="text-[#9ea2b0] hover:text-white transition-colors cursor-pointer"
+                title="Next"
+              >
+                <span class="material-symbols-rounded text-[24px] sm:text-[28px]">skip_next</span>
+              </button>
+            </div>
+          </div>
+
         </div>
-
-        <!-- Track metadata -->
-        <div class="text-center px-4 w-full">
-          <h2 class="font-heading font-bold text-lg sm:text-xl md:text-2xl text-white truncate mb-0.5">
-            {playerState.currentTrack?.title || 'No Track Selected'}
-          </h2>
-          <p class="text-[#9ea2b0] text-xs sm:text-sm truncate font-medium">
-            {playerState.currentTrack?.artist || 'Select a song from your library or search'}
-          </p>
-        </div>
-
-        <!-- 60FPS Audio Visualizer Canvas -->
-        <div class="w-full px-4 sm:px-6">
-          <canvas bind:this={canvasEl} width="360" height="42" class="w-full h-8 sm:h-10 rounded-lg"></canvas>
-        </div>
-
-        <!-- Scrubber -->
-        <div class="w-full px-4 sm:px-6 flex items-center gap-3 text-xs font-mono text-[#6b6e7c]">
-          <span>{playerState.formattedTime.current}</span>
-          <input
-            type="range"
-            min="0"
-            max={playerState.playback.duration || (playerState.currentTrack?.duration ?? 100)}
-            step="0.5"
-            value={playerState.playback.position}
-            oninput={(e) => playerState.seek(Number((e.target as HTMLInputElement).value))}
-            class="flex-1 h-1.5 bg-white/[0.1] rounded-lg appearance-none cursor-pointer"
-          />
-          <span>{playerState.formattedTime.total}</span>
-        </div>
-
-        <!-- Transport Controls -->
-        <div class="flex items-center justify-center gap-5 sm:gap-6">
-          <button
-            onclick={() => playerState.playPrevious()}
-            class="text-[#9ea2b0] hover:text-white transition-colors"
-            title="Previous"
-          >
-            <span class="material-symbols-rounded text-[26px] sm:text-[28px]">skip_previous</span>
-          </button>
-
-          <button
-            onclick={() => playerState.togglePlay()}
-            class="w-12 h-12 sm:w-14 sm:h-14 rounded-full bg-white text-[#111215] flex items-center justify-center shadow-xl hover:scale-105 active:scale-95 transition-all"
-            title={playerState.playback.is_playing ? 'Pause' : 'Play'}
-          >
-            <span class="material-symbols-rounded text-[28px] sm:text-[32px] filled">
-              {playerState.playback.is_playing ? 'pause' : 'play_arrow'}
-            </span>
-          </button>
-
-          <button
-            onclick={() => playerState.playNext()}
-            class="text-[#9ea2b0] hover:text-white transition-colors"
-            title="Next"
-          >
-            <span class="material-symbols-rounded text-[26px] sm:text-[28px]">skip_next</span>
-          </button>
-        </div>
-
-      </div>
+      {/if}
 
       <!-- Right Column: Apple Music-Grade Synced Lyrics (LRCLIB) -->
-      <div class="h-full flex flex-col bg-white/[0.02] border border-white/[0.05] rounded-3xl p-4 sm:p-6 overflow-hidden min-h-0">
-        <div class="flex items-center justify-between pb-3 mb-2 border-b border-white/[0.05] shrink-0">
-          <span class="font-heading font-semibold text-xs tracking-wider uppercase text-[#9ea2b0] flex items-center gap-1.5">
-            <span class="material-symbols-rounded text-base text-[var(--md-sys-primary)]">lyrics</span>
-            Synchronized Lyrics (LRCLIB)
-          </span>
-          {#if playerState.lyrics.synced}
-            <span class="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
-              Live Synced
-            </span>
-          {/if}
-        </div>
-
+      {#if activeView === 'auto' || activeView === 'lyrics'}
         <div
-          bind:this={lyricsContainerEl}
-          class="flex-1 overflow-y-auto pr-2 space-y-4 py-8 lyrics-scroll-container scrollbar-none"
+          class="flex-1 flex flex-col bg-white/[0.02] border border-white/[0.05] rounded-3xl p-3 sm:p-5 overflow-hidden min-h-0 relative {activeView === 'auto' ? 'w-full md:flex-1' : 'w-full max-w-4xl mx-auto'}"
         >
-          {#if playerState.lyrics.synced && playerState.lyrics.lines.length > 0}
-            {#each playerState.lyrics.lines as line, i}
-              {@const isCur = i === activeIndex}
-              <button
-                type="button"
-                onclick={() => playerState.seek(line.time)}
-                class="w-full text-left font-display font-extrabold tracking-tight transition-all duration-300 py-2 px-3 sm:px-4 rounded-2xl block text-xl sm:text-2xl md:text-3xl leading-snug cursor-pointer {isCur ? 'active-lyric' : 'inactive-lyric hover:opacity-70'}"
-                style={isCur ? `--lyric-glow: ${playerState.accentColor || 'var(--md-sys-primary)'};` : ''}
-              >
-                {line.text}
-              </button>
-            {/each}
-          {:else if playerState.lyrics.plain_text}
-            <div class="text-[#9ea2b0] whitespace-pre-line text-base sm:text-lg font-medium leading-relaxed p-4">
-              {playerState.lyrics.plain_text}
+          <div class="flex items-center justify-between pb-2.5 mb-1 border-b border-white/[0.05] shrink-0">
+            <span class="font-heading font-semibold text-xs tracking-wider uppercase text-[#9ea2b0] flex items-center gap-1.5">
+              <span class="material-symbols-rounded text-base text-[var(--md-sys-primary)]">lyrics</span>
+              Synchronized Lyrics (LRCLIB)
+            </span>
+            <div class="flex items-center gap-2">
+              {#if userIsScrolling}
+                <button
+                  type="button"
+                  onclick={resumeSync}
+                  class="text-[10px] font-semibold px-2.5 py-0.5 rounded-full bg-[var(--md-sys-primary)] text-[var(--md-sys-on-primary)] flex items-center gap-1 animate-pulse cursor-pointer shadow-sm"
+                  title="Resume live lyric auto-scroll"
+                >
+                  <span class="material-symbols-rounded text-[12px]">sync</span>
+                  Resume Sync
+                </button>
+              {/if}
+              {#if playerState.lyrics.synced}
+                <span class="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
+                  Live Synced
+                </span>
+              {/if}
             </div>
-          {:else}
-            <div class="h-full flex flex-col items-center justify-center text-center text-[#6b6e7c] py-16">
-              <span class="material-symbols-rounded text-[44px] mb-2 opacity-40">lyrics</span>
-              <p class="text-sm sm:text-base font-semibold text-white/80">No synced lyrics available for this song.</p>
-              <p class="text-xs text-[#9ea2b0]/70 mt-1">Playback is active with bit-perfect PipeWire output.</p>
-            </div>
-          {/if}
+          </div>
+
+          <div
+            bind:this={lyricsContainerEl}
+            onwheel={handleUserScroll}
+            ontouchmove={handleUserScroll}
+            role="region"
+            aria-label="Synchronized lyrics view"
+            class="flex-1 overflow-y-auto px-2 sm:px-4 py-8 space-y-4 sm:space-y-6 lyrics-scroll-container scrollbar-none"
+          >
+            {#if playerState.lyrics.synced && playerState.lyrics.lines.length > 0}
+              {#each playerState.lyrics.lines as line, i}
+                {@const isCur = i === activeIndex}
+                <button
+                  type="button"
+                  onclick={() => { playerState.seek(line.time); resumeSync(); }}
+                  class="w-full text-left font-display font-extrabold tracking-tight transition-all duration-300 py-2 sm:py-2.5 px-3 sm:px-4 rounded-2xl block text-xl sm:text-2xl md:text-3xl lg:text-4xl leading-relaxed cursor-pointer select-none {isCur ? 'active-lyric' : 'inactive-lyric'}"
+                  style={isCur ? `--lyric-glow: ${playerState.accentColor || 'var(--md-sys-primary)'};` : ''}
+                >
+                  {line.text}
+                </button>
+              {/each}
+            {:else if playerState.lyrics.plain_text}
+              <div class="text-[#9ea2b0] whitespace-pre-line text-base sm:text-lg font-medium leading-relaxed p-4">
+                {playerState.lyrics.plain_text}
+              </div>
+            {:else}
+              <div class="h-full flex flex-col items-center justify-center text-center text-[#6b6e7c] py-16">
+                <span class="material-symbols-rounded text-[48px] mb-2 opacity-40">lyrics</span>
+                <p class="text-sm sm:text-base font-semibold text-white/80">No synced lyrics available for this song.</p>
+                <p class="text-xs text-[#9ea2b0]/70 mt-1">Playback is active with bit-perfect PipeWire output.</p>
+              </div>
+            {/if}
+          </div>
         </div>
-      </div>
+      {/if}
 
     </div>
   </div>
@@ -320,10 +416,10 @@
     animation: spinSlow 20s linear infinite;
   }
   .animate-fade-in {
-    animation: fadeIn 0.25s cubic-bezier(0.2, 0, 0, 1);
+    animation: fadeIn 0.22s cubic-bezier(0.2, 0, 0, 1);
   }
   @keyframes fadeIn {
-    from { opacity: 0; transform: scale(0.98); }
+    from { opacity: 0; transform: scale(0.985); }
     to { opacity: 1; transform: scale(1); }
   }
 
@@ -334,14 +430,24 @@
     transform: scale(0.98);
     color: rgba(255, 255, 255, 0.7);
     transform-origin: left center;
+    transition: all 0.35s cubic-bezier(0.25, 1, 0.5, 1);
+  }
+  .inactive-lyric:hover {
+    filter: blur(0px);
+    opacity: 0.85;
+    transform: scale(1.01);
+    color: #ffffff;
   }
   .active-lyric {
     filter: blur(0px);
     opacity: 1;
-    transform: scale(1.05);
+    transform: scale(1.04);
     color: #ffffff;
-    text-shadow: 0 0 20px var(--lyric-glow, #d0bcff), 0 0 45px var(--lyric-glow, #d0bcff);
+    text-shadow: 0 0 25px var(--lyric-glow, #d0bcff), 0 0 50px var(--lyric-glow, #d0bcff);
     transform-origin: left center;
+    background: rgba(255, 255, 255, 0.05);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    transition: all 0.35s cubic-bezier(0.25, 1, 0.5, 1);
   }
   .lyrics-scroll-container {
     scroll-behavior: smooth;
