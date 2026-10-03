@@ -54,6 +54,16 @@ impl Drop for MpvEngine {
 }
 
 impl MpvEngine {
+    pub fn dummy() -> Self {
+        let (cmd_tx, _cmd_rx) = mpsc::channel(1);
+        Self {
+            process: parking_lot::Mutex::new(None),
+            cmd_tx,
+            socket_path: String::new(),
+            state: Arc::new(RwLock::new(PlaybackState::default())),
+        }
+    }
+
     pub async fn new(app: Option<AppHandle>) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
         let pid = std::process::id();
         let socket_path = format!("/tmp/aethon-mpv-{}.sock", pid);
@@ -81,8 +91,8 @@ impl MpvEngine {
         crate::aethon_log!("Spawning MPV engine: {} (socket: {})", mpv_bin, socket_path);
 
         // 3. Spawn headless MPV process
-        let child = Command::new(mpv_bin)
-            .arg("--idle=yes")
+        let mut cmd = Command::new(mpv_bin);
+        cmd.arg("--idle=yes")
             .arg("--no-video")
             .arg("--no-terminal")
             .arg(format!("--input-ipc-server={}", socket_path))
@@ -91,8 +101,25 @@ impl MpvEngine {
             .arg("--gapless-audio=yes")
             .stdin(Stdio::null())
             .stdout(stdout_cfg)
-            .stderr(stderr_cfg)
-            .spawn()?;
+            .stderr(stderr_cfg);
+
+        // AppImage isolation: AppImage sets LD_LIBRARY_PATH pointing to bundled Ubuntu libs.
+        // Clean LD_LIBRARY_PATH so host mpv uses Arch Linux host libraries.
+        if let Ok(ld) = std::env::var("LD_LIBRARY_PATH") {
+            let filtered: Vec<&str> = ld
+                .split(':')
+                .filter(|p| !p.contains(".mount_") && !p.contains("/tmp/"))
+                .collect();
+            if filtered.is_empty() {
+                cmd.env_remove("LD_LIBRARY_PATH");
+            } else {
+                cmd.env("LD_LIBRARY_PATH", filtered.join(":"));
+            }
+        } else {
+            cmd.env_remove("LD_LIBRARY_PATH");
+        }
+
+        let child = cmd.spawn()?;
 
         // 4. Wait up to 3 seconds for socket to be created
         let mut connected = false;

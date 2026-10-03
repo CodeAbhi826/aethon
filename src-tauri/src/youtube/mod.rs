@@ -19,13 +19,38 @@ impl YouTubeService {
         let search_query = format!("ytsearch{}:{}", max_results, query);
 
         // Run yt-dlp to quickly extract search entries
-        let output = match Command::new("yt-dlp")
-            .arg("--flat-playlist")
+        let mut cmd = Command::new("yt-dlp");
+        cmd.arg("--flat-playlist")
             .arg("--print")
             .arg("%(id)s||%(title)s||%(uploader)s||%(duration)s")
-            .arg(&search_query)
-            .output()
-        {
+            .arg(&search_query);
+
+        // Sanitize environment when executed from AppImage
+        if let Ok(ld) = std::env::var("LD_LIBRARY_PATH") {
+            let filtered: Vec<&str> = ld
+                .split(':')
+                .filter(|p| !p.contains(".mount_") && !p.is_empty())
+                .collect();
+            if filtered.is_empty() {
+                cmd.env_remove("LD_LIBRARY_PATH");
+            } else {
+                cmd.env("LD_LIBRARY_PATH", filtered.join(":"));
+            }
+        } else {
+            cmd.env_remove("LD_LIBRARY_PATH");
+        }
+        if let Ok(py) = std::env::var("PYTHONPATH") {
+            if py.contains(".mount_") {
+                cmd.env_remove("PYTHONPATH");
+            }
+        }
+        if let Ok(pyh) = std::env::var("PYTHONHOME") {
+            if pyh.contains(".mount_") {
+                cmd.env_remove("PYTHONHOME");
+            }
+        }
+
+        let output = match cmd.output() {
             Ok(o) => o,
             Err(e) => {
                 eprintln!("[YouTubeService] yt-dlp error: {:?}", e);

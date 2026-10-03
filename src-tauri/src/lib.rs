@@ -49,11 +49,16 @@ pub fn run() {
                 Ok(engine) => Arc::new(engine),
                 Err(e) => {
                     eprintln!("[Aethon Warning] First attempt to start MPV failed: {:?}. Retrying...", e);
-                    std::thread::sleep(std::time::Duration::from_millis(400));
-                    let retry_engine = tauri::async_runtime::block_on(async {
+                    std::thread::sleep(std::time::Duration::from_millis(500));
+                    match tauri::async_runtime::block_on(async {
                         MpvEngine::new(Some(handle.clone())).await
-                    }).expect("Fatal: Could not initialize audio engine (is mpv installed?)");
-                    Arc::new(retry_engine)
+                    }) {
+                        Ok(retry_engine) => Arc::new(retry_engine),
+                        Err(err) => {
+                            eprintln!("[Aethon Error] MPV engine initialization failed: {:?}. Launching in safe mode.", err);
+                            Arc::new(MpvEngine::dummy())
+                        }
+                    }
                 }
             };
 
