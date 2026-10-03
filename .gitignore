@@ -11,3 +11,6 @@ vite.config.ts.timestamp-*
 src-tauri/target
 src-tauri/gen
 *.log
+*.AppImage
+*.deb
+*.rpm

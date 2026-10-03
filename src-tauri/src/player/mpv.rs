@@ -8,8 +8,6 @@ use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::net::UnixStream;
 use tokio::sync::mpsc;
 
-const SOCKET_PATH: &str = "/tmp/aethon-mpv.sock";
-
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PlaybackState {
     pub current_uri: Option<String>,
@@ -40,24 +38,46 @@ impl Default for PlaybackState {
 }
 
 pub struct MpvEngine {
-    _process: parking_lot::Mutex<Option<Child>>,
+    process: parking_lot::Mutex<Option<Child>>,
     cmd_tx: mpsc::Sender<String>,
+    pub socket_path: String,
     pub state: Arc<RwLock<PlaybackState>>,
+}
+
+impl Drop for MpvEngine {
+    fn drop(&mut self) {
+        if let Some(mut child) = self.process.lock().take() {
+            let _ = child.kill();
+        }
+        let _ = std::fs::remove_file(&self.socket_path);
+    }
 }
 
 impl MpvEngine {
     pub async fn new(app: Option<AppHandle>) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
+        let pid = std::process::id();
+        let socket_path = format!("/tmp/aethon-mpv-{}.sock", pid);
+
         // 1. Remove old socket file if it exists
-        if std::path::Path::new(SOCKET_PATH).exists() {
-            let _ = std::fs::remove_file(SOCKET_PATH);
+        if std::path::Path::new(&socket_path).exists() {
+            let _ = std::fs::remove_file(&socket_path);
         }
 
-        // 2. Spawn headless MPV process
-        let child = Command::new("mpv")
+        // 2. Locate mpv binary (handle AppImage PATH differences)
+        let mpv_bin = if std::path::Path::new("/usr/bin/mpv").exists() {
+            "/usr/bin/mpv"
+        } else if std::path::Path::new("/usr/local/bin/mpv").exists() {
+            "/usr/local/bin/mpv"
+        } else {
+            "mpv"
+        };
+
+        // 3. Spawn headless MPV process
+        let child = Command::new(mpv_bin)
             .arg("--idle=yes")
             .arg("--no-video")
             .arg("--no-terminal")
-            .arg(format!("--input-ipc-server={}", SOCKET_PATH))
+            .arg(format!("--input-ipc-server={}", socket_path))
             .arg("--ytdl=yes")
             .arg("--keep-open=yes")
             .arg("--gapless-audio=yes")
@@ -66,12 +86,12 @@ impl MpvEngine {
             .stderr(Stdio::null())
             .spawn()?;
 
-        // 3. Wait up to 3 seconds for socket to be created
+        // 4. Wait up to 3 seconds for socket to be created
         let mut connected = false;
         let mut stream = None;
         for _ in 0..30 {
             tokio::time::sleep(Duration::from_millis(100)).await;
-            if let Ok(s) = UnixStream::connect(SOCKET_PATH).await {
+            if let Ok(s) = UnixStream::connect(&socket_path).await {
                 stream = Some(s);
                 connected = true;
                 break;
@@ -180,8 +200,9 @@ impl MpvEngine {
         });
 
         let engine = Self {
-            _process: parking_lot::Mutex::new(Some(child)),
+            process: parking_lot::Mutex::new(Some(child)),
             cmd_tx,
+            socket_path,
             state,
         };
 
@@ -257,7 +278,6 @@ impl MpvEngine {
     }
 
     pub async fn set_equalizer(&self, gains: &[f64]) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        // Standard 10-band ISO frequencies
         let freqs = [31.25, 62.5, 125.0, 250.0, 500.0, 1000.0, 2000.0, 4000.0, 8000.0, 16000.0];
         let mut filters = Vec::new();
         for (i, &f) in freqs.iter().enumerate() {

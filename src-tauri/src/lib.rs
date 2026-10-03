@@ -18,10 +18,19 @@ pub fn run() {
             let handle = app.handle().clone();
             let db = Arc::new(Database::new().expect("Failed to initialize SQLite database"));
 
-            let mpv_engine = tauri::async_runtime::block_on(async {
+            let mpv = match tauri::async_runtime::block_on(async {
                 MpvEngine::new(Some(handle.clone())).await
-            }).expect("Failed to start MPV audio engine");
-            let mpv = Arc::new(mpv_engine);
+            }) {
+                Ok(engine) => Arc::new(engine),
+                Err(e) => {
+                    eprintln!("[Aethon Warning] First attempt to start MPV failed: {:?}. Retrying...", e);
+                    std::thread::sleep(std::time::Duration::from_millis(400));
+                    let retry_engine = tauri::async_runtime::block_on(async {
+                        MpvEngine::new(Some(handle.clone())).await
+                    }).expect("Fatal: Could not initialize audio engine (is mpv installed?)");
+                    Arc::new(retry_engine)
+                }
+            };
 
             app.manage(AppState { mpv, db });
             Ok(())
