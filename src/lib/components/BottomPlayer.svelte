@@ -21,7 +21,7 @@
     {#if playerState.currentTrack}
       <button
         onclick={() => playerState.isNowPlayingOpen = true}
-        class="cursor-pointer relative group w-13 h-13 rounded-2xl overflow-hidden shadow-lg shrink-0 border border-white/10"
+        class="cursor-pointer relative group w-14 h-14 rounded-2xl overflow-hidden shadow-lg shrink-0 border border-white/10"
         title="Click to Expand Now Playing"
       >
         {#if playerState.currentTrack.cover_art}
@@ -64,7 +64,7 @@
       </button>
     {:else}
       <div class="flex items-center gap-3 text-[var(--md-sys-on-surface-variant)]">
-        <div class="w-13 h-13 rounded-2xl bg-white/5 border border-white/5 flex items-center justify-center">
+        <div class="w-14 h-14 rounded-2xl bg-white/5 border border-white/5 flex items-center justify-center shrink-0">
           <span class="material-symbols-rounded text-xl opacity-40">music_note</span>
         </div>
         <div class="text-xs">
