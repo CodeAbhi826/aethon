@@ -65,6 +65,26 @@ pub fn run() {
             app.manage(AppState { mpv, db });
             Ok(())
         })
+        .on_window_event(|window, event| {
+            if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+                let app_handle = window.app_handle();
+                if let Some(state) = app_handle.try_state::<AppState>() {
+                    let is_close_to_tray = state
+                        .db
+                        .get_setting("closeToTray")
+                        .or_else(|_| state.db.get_setting("close_to_tray"))
+                        .ok()
+                        .flatten()
+                        .map(|val| val == "true")
+                        .unwrap_or(true);
+
+                    if is_close_to_tray {
+                        let _ = window.hide();
+                        api.prevent_close();
+                    }
+                }
+            }
+        })
         .invoke_handler(tauri::generate_handler![
             play_track,
             toggle_play,
@@ -79,6 +99,13 @@ pub fn run() {
             toggle_favorite,
             get_lyrics,
             search_youtube,
+            get_all_settings,
+            get_setting,
+            set_setting,
+            set_settings_batch,
+            get_stream_cache_size,
+            clear_stream_cache,
+            show_window,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

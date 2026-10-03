@@ -62,7 +62,10 @@
       {#each filteredTracks as track}
         {@const isCurrent = playerState.currentTrack?.id === track.id}
         <div
+          role="button"
+          tabindex="0"
           onclick={() => playerState.playTrack(track)}
+          onkeydown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); playerState.playTrack(track); } }}
           class="flex items-center justify-between p-3 rounded-2xl bg-[#1e2026]/70 hover:bg-[#262830] border {isCurrent ? 'border-emerald-400/40 bg-[#262830]' : 'border-white/[0.05] hover:border-white/[0.1]'} transition-all cursor-pointer group shadow-sm"
         >
           <div class="flex items-center gap-3.5 min-w-0 flex-1">

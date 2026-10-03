@@ -90,6 +90,13 @@ impl MpvEngine {
 
         crate::aethon_log!("Spawning MPV engine: {} (socket: {})", mpv_bin, socket_path);
 
+        // Prepare stream cache directory (~/.cache/aethon/streams/)
+        let mut cache_dir = dirs::cache_dir().unwrap_or_else(|| std::path::PathBuf::from("."));
+        cache_dir.push("aethon");
+        cache_dir.push("streams");
+        let _ = std::fs::create_dir_all(&cache_dir);
+        let cache_dir_str = cache_dir.to_string_lossy().to_string();
+
         // 3. Spawn headless MPV process
         let mut cmd = Command::new(mpv_bin);
         cmd.arg("--idle=yes")
@@ -99,6 +106,13 @@ impl MpvEngine {
             .arg("--ytdl=yes")
             .arg("--keep-open=yes")
             .arg("--gapless-audio=yes")
+            .arg("--cache=yes")
+            .arg("--cache-on-disk=yes")
+            .arg(format!("--demuxer-cache-dir={}", cache_dir_str))
+            .arg("--demuxer-cache-unlink-files=no")
+            .arg("--demuxer-max-bytes=104857600")
+            .arg("--demuxer-max-back-bytes=52428800")
+            .arg("--demuxer-readahead-secs=180")
             .stdin(Stdio::null())
             .stdout(stdout_cfg)
             .stderr(stderr_cfg);

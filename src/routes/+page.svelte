@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import { playerState } from '$lib/state.svelte';
+  import { settingsState } from '$lib/settingsState.svelte';
   import TitleBar from '$lib/components/TitleBar.svelte';
   import NavigationRail from '$lib/components/NavigationRail.svelte';
   import BottomPlayer from '$lib/components/BottomPlayer.svelte';
@@ -53,11 +54,13 @@
 <div class="h-screen w-screen flex flex-col bg-[var(--md-sys-surface)] text-[var(--md-sys-on-surface)] overflow-hidden relative font-sans">
   
   <!-- Ambient Animated Floating Mesh Background (From Mockup) -->
-  <div class="fixed inset-0 pointer-events-none overflow-hidden z-0">
-    <div class="ambient-orb orb-1 w-[600px] h-[600px] -top-32 -left-32" style="background: radial-gradient(circle, var(--md-sys-mesh-1) 0%, transparent 70%);"></div>
-    <div class="ambient-orb orb-2 w-[700px] h-[700px] top-1/4 -right-48" style="background: radial-gradient(circle, var(--md-sys-mesh-2) 0%, transparent 70%);"></div>
-    <div class="ambient-orb orb-3 w-[500px] h-[500px] -bottom-32 left-1/3" style="background: radial-gradient(circle, var(--md-sys-mesh-3) 0%, transparent 70%);"></div>
-  </div>
+  {#if settingsState.showFloatingOrbs}
+    <div class="fixed inset-0 pointer-events-none overflow-hidden z-0">
+      <div class="ambient-orb orb-1 w-[600px] h-[600px] -top-32 -left-32" style="background: radial-gradient(circle, var(--md-sys-mesh-1) 0%, transparent 70%);"></div>
+      <div class="ambient-orb orb-2 w-[700px] h-[700px] top-1/4 -right-48" style="background: radial-gradient(circle, var(--md-sys-mesh-2) 0%, transparent 70%);"></div>
+      <div class="ambient-orb orb-3 w-[500px] h-[500px] -bottom-32 left-1/3" style="background: radial-gradient(circle, var(--md-sys-mesh-3) 0%, transparent 70%);"></div>
+    </div>
+  {/if}
 
   <!-- Custom TitleBar with drag region and controls -->
   <TitleBar />

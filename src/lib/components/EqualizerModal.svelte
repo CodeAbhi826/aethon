@@ -14,6 +14,7 @@
   ];
 
   let canvasEl = $state<HTMLCanvasElement>();
+  let selectedPreset = $state('Flat');
 
   function setBand(idx: number, gain: number) {
     const newBands = [...playerState.equalizerBands];

@@ -43,6 +43,7 @@
     let phase = 0;
 
     const render = () => {
+      if (!canvasEl) return;
       const width = canvasEl.width;
       const height = canvasEl.height;
       ctx.clearRect(0, 0, width, height);

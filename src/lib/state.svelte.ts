@@ -1,6 +1,8 @@
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import type { Track, PlaybackState, LyricsResult, YouTubeTrack, TabType } from './types';
+import { extractAndApplyThemeFromImage, generateThemeFromHex, applyThemeTokens } from './theme';
+import { settingsState, registerThemeListener } from './settingsState.svelte';
 
 class PlayerState {
   currentTrack = $state<Track | null>(null);
@@ -38,6 +40,9 @@ class PlayerState {
 
   constructor() {
     this.initTauriListeners();
+    registerThemeListener(() => {
+      this.reapplyTheme();
+    });
   }
 
   async initTauriListeners() {
@@ -87,6 +92,8 @@ class PlayerState {
       this.fetchLyrics(track.title, track.artist, track.duration);
       if (track.cover_art) {
         this.applyMonetColorFromImage(track.cover_art);
+      } else {
+        this.reapplyTheme();
       }
     } catch (e) {
       console.error('Play error:', e);
@@ -113,6 +120,8 @@ class PlayerState {
       this.fetchLyrics(yt.title, yt.artist, yt.duration);
       if (yt.thumbnail) {
         this.applyMonetColorFromImage(yt.thumbnail);
+      } else {
+        this.reapplyTheme();
       }
     } catch (e) {
       console.error('YouTube play error:', e);
@@ -220,42 +229,38 @@ class PlayerState {
     return `${m}:${rem < 10 ? '0' : ''}${rem}`;
   }
 
-  private applyMonetColorFromImage(url: string) {
-    const img = new Image();
-    img.crossOrigin = 'anonymous';
-    img.src = url;
-    img.onload = () => {
-      try {
-        const canvas = document.createElement('canvas');
-        canvas.width = 64;
-        canvas.height = 64;
-        const ctx = canvas.getContext('2d');
-        if (!ctx) return;
-        ctx.drawImage(img, 0, 0, 64, 64);
-        const data = ctx.getImageData(0, 0, 64, 64).data;
-        let r = 0, g = 0, b = 0, count = 0;
-        for (let i = 0; i < data.length; i += 16) {
-          if (data[i + 3] > 128) {
-            r += data[i];
-            g += data[i + 1];
-            b += data[i + 2];
-            count++;
-          }
-        }
-        if (count > 0) {
-          r = Math.round(r / count);
-          g = Math.round(g / count);
-          b = Math.round(b / count);
-          const hex = `#${((1 << 24) + (r << 16) + (g << 8) + b).toString(16).slice(1)}`;
-          this.accentColor = hex;
-          document.documentElement.style.setProperty('--at-accent', hex);
-          document.documentElement.style.setProperty('--at-accent-container', `rgba(${r}, ${g}, ${b}, 0.35)`);
-          document.documentElement.style.setProperty('--at-on-accent-container', '#ffffff');
-        }
-      } catch (e) {
-        console.warn('Canvas color extraction error:', e);
-      }
-    };
+  reapplyTheme() {
+    if (!settingsState.dynamicTheme || settingsState.themePreset !== 'dynamic') {
+      return;
+    }
+    const cover = this.currentTrack?.cover_art;
+    if (cover) {
+      this.applyMonetColorFromImage(cover);
+    } else {
+      const tokens = generateThemeFromHex('#d0bcff', {
+        dynamicBg: settingsState.dynamicBackground,
+        accentIntensity: settingsState.accentIntensity,
+        pureOled: false,
+      });
+      applyThemeTokens(tokens);
+      this.accentColor = '#d0bcff';
+    }
+  }
+
+  async applyMonetColorFromImage(url: string) {
+    if (!settingsState.dynamicTheme || settingsState.themePreset !== 'dynamic') {
+      return;
+    }
+    try {
+      const hex = await extractAndApplyThemeFromImage(url, {
+        dynamicBg: settingsState.dynamicBackground,
+        accentIntensity: settingsState.accentIntensity,
+        pureOled: false,
+      });
+      this.accentColor = hex;
+    } catch (e) {
+      console.warn('Monet color extraction failed:', e);
+    }
   }
 }
 

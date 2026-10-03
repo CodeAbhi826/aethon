@@ -1,5 +1,6 @@
 use rusqlite::{params, Connection, Result};
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use std::path::PathBuf;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -31,6 +32,14 @@ impl Database {
         let db_path = db_dir.join("aethon.db");
 
         let conn = Connection::open(db_path)?;
+
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS settings (
+                key TEXT PRIMARY KEY,
+                value TEXT NOT NULL
+            );",
+            [],
+        )?;
 
         conn.execute(
             "CREATE TABLE IF NOT EXISTS tracks (
@@ -180,6 +189,59 @@ impl Database {
             "INSERT INTO play_history (track_id, played_at) VALUES (?1, ?2)",
             params![track_id, now],
         )?;
+        Ok(())
+    }
+
+    pub fn get_all_settings(&self) -> Result<HashMap<String, String>> {
+        let conn = self.conn.lock();
+        let mut stmt = conn.prepare("SELECT key, value FROM settings")?;
+        let rows = stmt.query_map([], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+        })?;
+
+        let mut map = HashMap::new();
+        for r in rows {
+            if let Ok((k, v)) = r {
+                map.insert(k, v);
+            }
+        }
+        Ok(map)
+    }
+
+    pub fn get_setting(&self, key: &str) -> Result<Option<String>> {
+        let conn = self.conn.lock();
+        let mut stmt = conn.prepare("SELECT value FROM settings WHERE key = ?1")?;
+        let mut rows = stmt.query(params![key])?;
+        if let Some(row) = rows.next()? {
+            Ok(Some(row.get(0)?))
+        } else {
+            Ok(None)
+        }
+    }
+
+    pub fn set_setting(&self, key: &str, value: &str) -> Result<()> {
+        let conn = self.conn.lock();
+        conn.execute(
+            "INSERT INTO settings (key, value) VALUES (?1, ?2)
+             ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+            params![key, value],
+        )?;
+        Ok(())
+    }
+
+    pub fn set_settings_batch(&self, settings: &HashMap<String, String>) -> Result<()> {
+        let mut conn = self.conn.lock();
+        let tx = conn.transaction()?;
+        {
+            let mut stmt = tx.prepare(
+                "INSERT INTO settings (key, value) VALUES (?1, ?2)
+                 ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+            )?;
+            for (k, v) in settings {
+                stmt.execute(params![k, v])?;
+            }
+        }
+        tx.commit()?;
         Ok(())
     }
 }

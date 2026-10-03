@@ -2,6 +2,8 @@ use crate::library::{Database, Scanner, Track};
 use crate::lyrics::{LyricsResult, LyricsService};
 use crate::player::{MpvEngine, PlaybackState};
 use crate::youtube::{YouTubeService, YouTubeTrack};
+use std::collections::HashMap;
+use std::path::PathBuf;
 use std::sync::Arc;
 use tauri::State;
 
@@ -114,3 +116,99 @@ pub async fn search_youtube(
         YouTubeService::search(&query, limit.unwrap_or(10))
     }).await.map_err(|e| e.to_string())
 }
+
+#[tauri::command]
+pub fn get_all_settings(state: State<'_, AppState>) -> Result<HashMap<String, String>, String> {
+    state.db.get_all_settings().map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn get_setting(key: String, state: State<'_, AppState>) -> Result<Option<String>, String> {
+    state.db.get_setting(&key).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn set_setting(key: String, value: String, state: State<'_, AppState>) -> Result<(), String> {
+    crate::aethon_log!("set_setting: {}={}", key, value);
+    state.db.set_setting(&key, &value).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn set_settings_batch(
+    settings: HashMap<String, String>,
+    state: State<'_, AppState>,
+) -> Result<(), String> {
+    crate::aethon_log!("set_settings_batch: {} settings keys", settings.len());
+    state.db.set_settings_batch(&settings).map_err(|e| e.to_string())
+}
+
+fn calculate_dir_size(path: &std::path::Path) -> u64 {
+    let mut total = 0;
+    if let Ok(entries) = std::fs::read_dir(path) {
+        for entry in entries.flatten() {
+            if let Ok(meta) = entry.metadata() {
+                if meta.is_file() {
+                    total += meta.len();
+                } else if meta.is_dir() {
+                    total += calculate_dir_size(&entry.path());
+                }
+            }
+        }
+    }
+    total
+}
+
+fn remove_dir_contents(path: &std::path::Path) -> u64 {
+    let mut freed = 0;
+    if let Ok(entries) = std::fs::read_dir(path) {
+        for entry in entries.flatten() {
+            let p = entry.path();
+            if let Ok(meta) = entry.metadata() {
+                let len = meta.len();
+                if meta.is_file() {
+                    if std::fs::remove_file(&p).is_ok() {
+                        freed += len;
+                    }
+                } else if meta.is_dir() {
+                    freed += remove_dir_contents(&p);
+                    let _ = std::fs::remove_dir(&p);
+                }
+            }
+        }
+    }
+    freed
+}
+
+#[tauri::command]
+pub fn get_stream_cache_size() -> Result<u64, String> {
+    let cache_dir = dirs::cache_dir()
+        .unwrap_or_else(|| PathBuf::from("."))
+        .join("aethon")
+        .join("streams");
+    if !cache_dir.exists() {
+        return Ok(0);
+    }
+    Ok(calculate_dir_size(&cache_dir))
+}
+
+#[tauri::command]
+pub fn clear_stream_cache() -> Result<u64, String> {
+    let cache_dir = dirs::cache_dir()
+        .unwrap_or_else(|| PathBuf::from("."))
+        .join("aethon")
+        .join("streams");
+    if !cache_dir.exists() {
+        return Ok(0);
+    }
+    let freed_bytes = remove_dir_contents(&cache_dir);
+    crate::aethon_log!("clear_stream_cache: freed {} bytes", freed_bytes);
+    Ok(freed_bytes)
+}
+
+#[tauri::command]
+pub fn show_window(window: tauri::Window) -> Result<(), String> {
+    window.show().map_err(|e| e.to_string())?;
+    window.set_focus().map_err(|e| e.to_string())?;
+    Ok(())
+}
+
