@@ -2,167 +2,215 @@
   import { playerState } from '../state.svelte';
   import type { Track } from '../types';
 
-  // Sample quick picks & keep listening if library is empty
   const sampleTracks: Track[] = [
     {
       id: 'sample_1',
-      title: 'Bling-Bang-Bang-Born',
-      artist: 'Creepy Nuts',
-      album: 'THE FIRST TAKE',
-      duration: 178,
+      title: 'Midnight City',
+      artist: 'M83',
+      album: 'Hurry Up, We\'re Dreaming',
+      duration: 244,
       file_path: 'sample_1',
-      cover_art: 'https://images.unsplash.com/photo-1614613535308-eb5fbd3d2c17?w=400&q=80',
+      cover_art: 'https://images.unsplash.com/photo-1614613535308-eb5fbd3d2c17?w=400&auto=format&fit=crop',
       format: 'FLAC 96k',
-      play_count: 42,
+      play_count: 52,
       favorite: true,
       date_added: Date.now() - 3600000,
     },
     {
       id: 'sample_2',
-      title: 'Idol (アイドル)',
-      artist: 'YOASOBI',
-      album: 'THE BOOK 3',
-      duration: 213,
+      title: 'Get Lucky',
+      artist: 'Daft Punk ft. Pharrell',
+      album: 'Random Access Memories',
+      duration: 248,
       file_path: 'sample_2',
-      cover_art: 'https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?w=400&q=80',
+      cover_art: 'https://images.unsplash.com/photo-1514525253161-7a46d19cd819?w=400&auto=format&fit=crop',
       format: 'FLAC',
-      play_count: 38,
+      play_count: 48,
       favorite: true,
       date_added: Date.now() - 7200000,
     },
     {
       id: 'sample_3',
-      title: 'Subtitle',
-      artist: 'Official HIGE DANDISM',
-      album: 'Rejoice',
-      duration: 305,
+      title: 'Resonance',
+      artist: 'HOME',
+      album: 'Odyssey',
+      duration: 212,
       file_path: 'sample_3',
-      cover_art: 'https://images.unsplash.com/photo-1514525253161-7a46d19cd819?w=400&q=80',
+      cover_art: 'https://images.unsplash.com/photo-1518709268805-4e9042af9f23?w=400&auto=format&fit=crop',
       format: 'ALAC',
-      play_count: 29,
+      play_count: 39,
       favorite: false,
       date_added: Date.now() - 14400000,
     },
     {
       id: 'sample_4',
-      title: 'Sparkle (Movie ver.)',
-      artist: 'RADWIMPS',
-      album: 'Your Name OST',
-      duration: 537,
+      title: 'Blinding Lights',
+      artist: 'The Weeknd',
+      album: 'After Hours',
+      duration: 200,
       file_path: 'sample_4',
-      cover_art: 'https://images.unsplash.com/photo-1470225620780-dba8ba36b745?w=400&q=80',
+      cover_art: 'https://images.unsplash.com/photo-1508700115892-45ecd05ae2ad?w=400&auto=format&fit=crop',
       format: 'FLAC 96k',
-      play_count: 51,
+      play_count: 61,
       favorite: true,
       date_added: Date.now() - 28800000,
+    },
+    {
+      id: 'sample_5',
+      title: 'Clair de Lune',
+      artist: 'Claude Debussy',
+      album: 'Suite Bergamasque',
+      duration: 304,
+      file_path: 'sample_5',
+      cover_art: 'https://images.unsplash.com/photo-1507838153414-b4b713384a76?w=400&auto=format&fit=crop',
+      format: 'FLAC 192k',
+      play_count: 34,
+      favorite: false,
+      date_added: Date.now() - 40000000,
+    },
+    {
+      id: 'sample_6',
+      title: 'After Dark',
+      artist: 'Mr.Kitty',
+      album: 'Time',
+      duration: 259,
+      file_path: 'sample_6',
+      cover_art: 'https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?w=400&auto=format&fit=crop',
+      format: 'Opus 256k',
+      play_count: 45,
+      favorite: true,
+      date_added: Date.now() - 50000000,
     },
   ];
 
   let displayTracks = $derived(
-    playerState.library.length > 0 ? playerState.library.slice(0, 8) : sampleTracks
+    playerState.library.length > 0 ? playerState.library.slice(0, 6) : sampleTracks
   );
 </script>
 
-<div class="p-6 space-y-8 max-w-7xl mx-auto">
+<div class="px-6 py-6 space-y-8 max-w-7xl mx-auto pb-28">
   
-  <!-- Hero / Quick Picks (ArchiveTune skeleton) -->
-  <section>
-    <div class="flex items-center justify-between mb-4">
-      <div>
-        <h2 class="font-heading font-bold text-xl text-white">Quick Picks</h2>
-        <p class="text-xs text-[#9ea2b0]">Jump back into your frequent listening</p>
+  <!-- Friendly Greeting Header (From Mockup) -->
+  <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+    <div>
+      <div class="flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-[var(--md-sys-primary)] font-display">
+        <span class="material-symbols-rounded text-base">waving_hand</span>
+        <span>Welcome Back</span>
       </div>
-      <button
-        onclick={() => playerState.activeTab = 'library'}
-        class="text-xs font-semibold text-[#9ea2b0] hover:text-white transition-colors"
-      >
-        View All
-      </button>
+      <h1 class="text-3xl md:text-4xl font-extrabold text-white tracking-tight font-display mt-0.5">Good evening</h1>
     </div>
 
-    <!-- 2x2 or 4x1 Quick Picks Grid -->
-    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-      {#each displayTracks.slice(0, 4) as track}
-        <div
+    <!-- Quick Audio Engine Chip -->
+    <div class="flex items-center gap-2 px-3 py-1.5 rounded-full m3-acrylic-card border border-white/10 text-xs">
+      <span class="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
+      <span class="text-[var(--md-sys-on-surface-variant)]">PipeWire Bit-Perfect:</span>
+      <span class="font-mono font-bold text-[var(--md-sys-primary)]">Ready</span>
+    </div>
+  </div>
+
+  <!-- Quick Picks (ArchiveTune Homescreen.kt Skeleton) -->
+  <section class="space-y-3.5">
+    <div class="flex items-center justify-between">
+      <h2 class="text-sm font-bold uppercase tracking-wider text-[var(--md-sys-on-surface-variant)] flex items-center gap-2">
+        <span class="material-symbols-rounded text-sm text-[var(--md-sys-primary)]">bolt</span>
+        Quick Picks
+      </h2>
+      <span class="text-xs text-[var(--md-sys-on-surface-variant)]">{displayTracks.length} tracks ready</span>
+    </div>
+
+    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3.5">
+      {#each displayTracks as track}
+        <button
           onclick={() => playerState.playTrack(track)}
-          class="flex items-center gap-3.5 p-3 rounded-2xl bg-[#1e2026]/70 hover:bg-[#262830] border border-white/[0.05] hover:border-white/[0.1] transition-all cursor-pointer group shadow-sm"
+          class="p-3 rounded-2xl m3-acrylic-card hover:bg-white/10 border border-white/5 cursor-pointer transition flex items-center gap-3.5 group text-left w-full"
         >
-          <div class="relative w-14 h-14 rounded-xl overflow-hidden shrink-0 bg-[#252730] border border-white/[0.06]">
-            {#if track.cover_art}
-              <img src={track.cover_art} alt="Cover" class="w-full h-full object-cover group-hover:scale-105 transition-transform" />
-            {:else}
-              <div class="w-full h-full flex items-center justify-center">
-                <span class="material-symbols-rounded text-[#9ea2b0]">music_note</span>
-              </div>
-            {/if}
-            <div class="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity">
-              <span class="material-symbols-rounded text-white text-[24px] filled">play_arrow</span>
+          <div class="relative w-14 h-14 rounded-xl overflow-hidden shadow shrink-0 border border-white/10">
+            <img src={track.cover_art} alt={track.title} class="w-full h-full object-cover group-hover:scale-105 transition" />
+            <div class="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 flex items-center justify-center transition">
+              <span class="material-symbols-rounded text-white text-xl filled">play_arrow</span>
             </div>
           </div>
 
           <div class="min-w-0 flex-1">
-            <h4 class="font-heading font-semibold text-sm text-white truncate group-hover:text-emerald-300 transition-colors">
+            <div class="text-xs font-bold text-white truncate group-hover:text-[var(--md-sys-primary)] transition">
               {track.title}
-            </h4>
-            <p class="text-xs text-[#9ea2b0] truncate mt-0.5">{track.artist}</p>
-            <span class="inline-block text-[10px] font-mono px-1.5 py-0.2 rounded bg-white/[0.06] text-[#9ea2b0] mt-1">
-              {track.format}
-            </span>
-          </div>
-        </div>
-      {/each}
-    </div>
-  </section>
-
-  <!-- Keep Listening Carousel -->
-  <section>
-    <div class="flex items-center justify-between mb-4">
-      <h2 class="font-heading font-bold text-xl text-white">Keep Listening</h2>
-      <span class="text-xs text-[#6b6e7c]">Albums & Playlists</span>
-    </div>
-
-    <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-4">
-      {#each displayTracks as track}
-        <div
-          onclick={() => playerState.playTrack(track)}
-          class="flex flex-col p-3 rounded-2xl bg-[#1e2026]/50 hover:bg-[#24262f] border border-white/[0.04] hover:border-white/[0.08] transition-all cursor-pointer group"
-        >
-          <div class="relative w-full aspect-square rounded-xl overflow-hidden mb-3 bg-[#262830] border border-white/[0.06] shadow-md">
-            {#if track.cover_art}
-              <img src={track.cover_art} alt="Cover" class="w-full h-full object-cover group-hover:scale-105 transition-transform" />
-            {:else}
-              <div class="w-full h-full flex items-center justify-center">
-                <span class="material-symbols-rounded text-white/40 text-[32px]">album</span>
-              </div>
-            {/if}
-            <div class="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity">
-              <div class="w-10 h-10 rounded-full bg-white text-[#111215] flex items-center justify-center shadow-lg">
-                <span class="material-symbols-rounded text-[24px] filled">play_arrow</span>
-              </div>
+            </div>
+            <div class="text-[11px] text-[var(--md-sys-on-surface-variant)] truncate mt-0.5">
+              {track.artist}
+            </div>
+            <div class="flex items-center gap-1.5 mt-1">
+              <span class="text-[9px] font-mono px-1.5 py-0.2 rounded bg-[var(--md-sys-surface-container)] text-[var(--md-sys-primary)]">
+                {track.format}
+              </span>
             </div>
           </div>
-
-          <h4 class="font-heading font-semibold text-xs text-white truncate">{track.title}</h4>
-          <p class="text-[11px] text-[#9ea2b0] truncate mt-0.5">{track.artist}</p>
-        </div>
+        </button>
       {/each}
     </div>
   </section>
 
-  <!-- Speed Dial / Top Artists -->
-  <section>
-    <h2 class="font-heading font-bold text-lg text-white mb-3">Featured Artists</h2>
-    <div class="flex items-center gap-3 overflow-x-auto pb-2 scrollbar-none">
-      {#each ['YOASOBI', 'Official HIGE DANDISM', 'RADWIMPS', 'Creepy Nuts', 'Aimer', 'Kenshi Yonezu', 'Vaundy'] as artist}
+  <!-- Speed Dial (From Mockup) -->
+  <section class="space-y-3 pt-2">
+    <div class="flex items-center justify-between">
+      <h2 class="text-sm font-bold uppercase tracking-wider text-[var(--md-sys-on-surface-variant)] flex items-center gap-2">
+        <span class="material-symbols-rounded text-sm text-[var(--md-sys-primary)]">dialpad</span>
+        Speed Dial
+      </h2>
+      <span class="text-xs text-[var(--md-sys-on-surface-variant)]">Frequently played stations & artists</span>
+    </div>
+
+    <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-6 gap-3">
+      {#each [
+        { name: 'M83 Radio', type: 'Station', img: 'https://images.unsplash.com/photo-1614613535308-eb5fbd3d2c17?w=160&auto=format&fit=crop' },
+        { name: 'Daft Punk', type: 'Artist Mix', img: 'https://images.unsplash.com/photo-1514525253161-7a46d19cd819?w=160&auto=format&fit=crop' },
+        { name: 'Chillwave Synth', type: 'Mood Radio', img: 'https://images.unsplash.com/photo-1518709268805-4e9042af9f23?w=160&auto=format&fit=crop' },
+        { name: 'The Weeknd', type: 'Artist Mix', img: 'https://images.unsplash.com/photo-1508700115892-45ecd05ae2ad?w=160&auto=format&fit=crop' },
+        { name: 'Piano Masters', type: 'Classical', img: 'https://images.unsplash.com/photo-1507838153414-b4b713384a76?w=160&auto=format&fit=crop' },
+        { name: 'Dark Wave', type: 'Synth', img: 'https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?w=160&auto=format&fit=crop' },
+      ] as dial, i}
         <button
-          onclick={() => {
-            playerState.activeTab = 'search';
-            playerState.searchYouTube(artist);
-          }}
-          class="flex items-center gap-2.5 px-4 py-2 rounded-full bg-[#1e2026] hover:bg-[#282a33] border border-white/[0.06] text-xs font-medium text-white transition-all shrink-0 hover:scale-105"
+          onclick={() => playerState.playTrack(sampleTracks[i % sampleTracks.length])}
+          class="p-3 rounded-2xl m3-acrylic-card hover:bg-white/10 border border-white/5 cursor-pointer transition text-center group flex flex-col items-center"
         >
-          <span class="w-2 h-2 rounded-full bg-emerald-400"></span>
-          <span>{artist}</span>
+          <div class="w-16 h-16 rounded-full overflow-hidden mb-2 shadow-md border border-white/10 relative">
+            <img src={dial.img} alt={dial.name} class="w-full h-full object-cover group-hover:scale-110 transition duration-500" />
+            <div class="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 flex items-center justify-center transition">
+              <span class="material-symbols-rounded filled text-white text-xl">play_arrow</span>
+            </div>
+          </div>
+          <div class="text-xs font-bold text-white truncate max-w-full">{dial.name}</div>
+          <div class="text-[10px] text-[var(--md-sys-on-surface-variant)]">{dial.type}</div>
+        </button>
+      {/each}
+    </div>
+  </section>
+
+  <!-- Keep Listening -->
+  <section class="space-y-3 pt-2">
+    <div class="flex items-center justify-between">
+      <h2 class="text-sm font-bold uppercase tracking-wider text-[var(--md-sys-on-surface-variant)] flex items-center gap-2">
+        <span class="material-symbols-rounded text-sm text-[var(--md-sys-primary)]">resume</span>
+        Keep Listening
+      </h2>
+      <button onclick={() => playerState.activeTab = 'library'} class="text-xs font-bold text-[var(--md-sys-primary)] hover:underline">
+        View All
+      </button>
+    </div>
+
+    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+      {#each displayTracks.slice(0, 3) as track}
+        <button
+          onclick={() => playerState.playTrack(track)}
+          class="p-4 rounded-3xl m3-acrylic-card hover:bg-white/10 border border-white/5 cursor-pointer transition flex items-center gap-4 group text-left w-full"
+        >
+          <div class="w-16 h-16 rounded-2xl overflow-hidden shadow-lg border border-white/10 shrink-0">
+            <img src={track.cover_art} alt={track.title} class="w-full h-full object-cover group-hover:scale-105 transition" />
+          </div>
+          <div class="min-w-0 flex-1">
+            <div class="text-xs font-bold uppercase tracking-wider text-[var(--md-sys-primary)] font-display">Album</div>
+            <div class="text-sm font-extrabold text-white truncate font-display">{track.title}</div>
+            <div class="text-xs text-[var(--md-sys-on-surface-variant)] truncate">{track.artist}</div>
+          </div>
         </button>
       {/each}
     </div>

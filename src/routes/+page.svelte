@@ -50,13 +50,14 @@
   });
 </script>
 
-<div class="h-screen w-screen flex flex-col bg-[#111215] text-white overflow-hidden relative font-sans">
+<div class="h-screen w-screen flex flex-col bg-[var(--md-sys-surface)] text-[var(--md-sys-on-surface)] overflow-hidden relative font-sans">
   
-  <!-- Subtle Ambient Glow Mesh -->
-  <div
-    class="absolute -top-32 -right-32 w-96 h-96 rounded-full blur-[120px] opacity-20 pointer-events-none transition-colors duration-1000"
-    style="background: radial-gradient(circle, {playerState.accentColor} 0%, transparent 70%);"
-  ></div>
+  <!-- Ambient Animated Floating Mesh Background (From Mockup) -->
+  <div class="fixed inset-0 pointer-events-none overflow-hidden z-0">
+    <div class="ambient-orb orb-1 w-[600px] h-[600px] -top-32 -left-32" style="background: radial-gradient(circle, var(--md-sys-mesh-1) 0%, transparent 70%);"></div>
+    <div class="ambient-orb orb-2 w-[700px] h-[700px] top-1/4 -right-48" style="background: radial-gradient(circle, var(--md-sys-mesh-2) 0%, transparent 70%);"></div>
+    <div class="ambient-orb orb-3 w-[500px] h-[500px] -bottom-32 left-1/3" style="background: radial-gradient(circle, var(--md-sys-mesh-3) 0%, transparent 70%);"></div>
+  </div>
 
   <!-- Custom TitleBar with drag region and controls -->
   <TitleBar />

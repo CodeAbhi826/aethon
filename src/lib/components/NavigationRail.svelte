@@ -2,47 +2,115 @@
   import { playerState } from '../state.svelte';
   import type { TabType } from '../types';
 
-  const navItems: { id: TabType; label: string; icon: string }[] = [
+  interface NavItem {
+    id: TabType;
+    label: string;
+    icon: string;
+    color?: string;
+  }
+
+  const browseItems: NavItem[] = [
     { id: 'home', label: 'Home', icon: 'home' },
     { id: 'search', label: 'Search', icon: 'search' },
     { id: 'library', label: 'Library', icon: 'library_music' },
-    { id: 'stats', label: 'Stats', icon: 'leaderboard' },
-    { id: 'settings', label: 'Settings', icon: 'settings' },
+  ];
+
+  const discoverItems: NavItem[] = [
+    { id: 'search', label: 'Moods & Genres', icon: 'style', color: 'text-amber-400' },
+    { id: 'library', label: 'Local Songs', icon: 'folder', color: 'text-emerald-400' },
+    { id: 'stats', label: 'Listening Stats', icon: 'analytics', color: 'text-purple-400' },
   ];
 </script>
 
 <aside
-  class="h-full bg-[#141519]/70 backdrop-blur-2xl border-r border-white/[0.06] flex flex-col justify-between py-4 transition-all duration-300 ease-out z-20 shrink-0 {playerState.sidebarCollapsed ? 'w-16 px-2' : 'w-52 px-3'}"
+  class="h-full m3-acrylic border-r border-white/5 flex flex-col justify-between py-3 transition-all duration-300 ease-in-out z-20 shrink-0 select-none {playerState.sidebarCollapsed ? 'w-16 px-2' : 'w-56 px-3'}"
 >
-  <!-- Main Nav Buttons -->
-  <div class="flex flex-col gap-1.5">
-    {#each navItems as item}
-      {@const isActive = playerState.activeTab === item.id}
+  <div class="space-y-4 overflow-y-auto scrollbar-none">
+    
+    <!-- Header label -->
+    {#if !playerState.sidebarCollapsed}
+      <div class="px-3 pt-1 text-[10px] font-bold uppercase tracking-wider text-[var(--md-sys-outline)] font-display">
+        Navigation
+      </div>
+    {/if}
+
+    <!-- Group 1: Browse -->
+    <div class="space-y-1">
+      {#if !playerState.sidebarCollapsed}
+        <div class="px-3 pb-1 text-[10px] font-bold uppercase tracking-wider text-[var(--md-sys-outline)]/80 font-display">
+          Browse
+        </div>
+      {/if}
+
+      {#each browseItems as item}
+        {@const isActive = playerState.activeTab === item.id}
+        <button
+          onclick={() => playerState.activeTab = item.id}
+          title={playerState.sidebarCollapsed ? item.label : undefined}
+          class="w-full flex items-center gap-3.5 px-3.5 py-2.5 rounded-full text-xs font-semibold transition-all duration-200 {isActive ? 'bg-[var(--md-sys-primary-container)] text-[var(--md-sys-on-primary-container)] shadow-sm' : 'text-[var(--md-sys-on-surface-variant)] hover:bg-white/5 hover:text-white'}"
+        >
+          <span class="material-symbols-rounded text-xl shrink-0 {isActive ? 'filled' : ''}">
+            {item.icon}
+          </span>
+          {#if !playerState.sidebarCollapsed}
+            <span class="truncate">{item.label}</span>
+          {/if}
+        </button>
+      {/each}
+    </div>
+
+    <!-- Group 2: Discover -->
+    <div class="pt-2 border-t border-white/5 space-y-1">
+      {#if !playerState.sidebarCollapsed}
+        <div class="px-3 pb-1 text-[10px] font-bold uppercase tracking-wider text-[var(--md-sys-outline)]/80 font-display">
+          Discover
+        </div>
+      {/if}
+
+      {#each discoverItems as item}
+        {@const isActive = playerState.activeTab === item.id}
+        <button
+          onclick={() => playerState.activeTab = item.id}
+          title={playerState.sidebarCollapsed ? item.label : undefined}
+          class="w-full flex items-center gap-3.5 px-3.5 py-2 rounded-full text-xs font-semibold transition-all duration-200 {isActive ? 'bg-[var(--md-sys-primary-container)] text-[var(--md-sys-on-primary-container)]' : 'text-[var(--md-sys-on-surface-variant)] hover:bg-white/5 hover:text-white'}"
+        >
+          <span class="material-symbols-rounded text-xl shrink-0 {item.color || ''}">
+            {item.icon}
+          </span>
+          {#if !playerState.sidebarCollapsed}
+            <span class="truncate">{item.label}</span>
+          {/if}
+        </button>
+      {/each}
+
       <button
-        onclick={() => playerState.activeTab = item.id}
-        title={playerState.sidebarCollapsed ? item.label : undefined}
-        class="flex items-center gap-3.5 px-3 py-2.5 rounded-2xl text-sm font-medium transition-all duration-150 {isActive ? 'bg-[#e6e0e9] text-[#1d192b] font-semibold shadow-md' : 'text-[#9ea2b0] hover:text-white hover:bg-white/[0.05]'}"
+        onclick={() => playerState.isNowPlayingOpen = true}
+        title="Synced Lyrics"
+        class="w-full flex items-center gap-3.5 px-3.5 py-2 rounded-full text-xs font-semibold transition-all duration-200 text-[var(--md-sys-on-surface-variant)] hover:bg-white/5 hover:text-white"
       >
-        <span class="material-symbols-rounded text-[22px] {isActive ? 'filled' : ''}">
-          {item.icon}
+        <span class="material-symbols-rounded text-xl shrink-0 text-[var(--md-sys-primary)]">
+          lyrics
         </span>
         {#if !playerState.sidebarCollapsed}
-          <span class="truncate">{item.label}</span>
+          <span class="truncate">Synced Lyrics</span>
         {/if}
       </button>
-    {/each}
+    </div>
+
   </div>
 
-  <!-- Bottom actions / Library scan indicator -->
-  <div class="flex flex-col gap-2 pt-4 border-t border-white/[0.06]">
+  <!-- Bottom: Settings & Sync -->
+  <div class="pt-2 border-t border-white/5 space-y-1">
     <button
-      onclick={() => playerState.scanLibrary()}
-      title="Rescan Local Music Library"
-      class="flex items-center gap-3.5 px-3 py-2 rounded-xl text-xs font-medium text-[#9ea2b0] hover:text-white hover:bg-white/[0.05] transition-colors"
+      onclick={() => playerState.activeTab = 'settings'}
+      title="Settings"
+      class="w-full flex items-center gap-3.5 px-3.5 py-2.5 rounded-full text-xs font-semibold transition-all duration-200 {playerState.activeTab === 'settings' ? 'bg-[var(--md-sys-primary-container)] text-[var(--md-sys-on-primary-container)]' : 'text-[var(--md-sys-on-surface-variant)] hover:bg-white/5 hover:text-white'}"
     >
-      <span class="material-symbols-rounded text-[18px]">sync</span>
+      <span class="material-symbols-rounded text-xl shrink-0 {playerState.activeTab === 'settings' ? 'filled' : ''}">
+        settings
+      </span>
       {#if !playerState.sidebarCollapsed}
-        <span class="truncate">Sync Library</span>
+        <span class="truncate">Settings</span>
       {/if}
     </button>
   </div>
