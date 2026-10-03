@@ -39,25 +39,11 @@
         <span class="material-symbols-rounded text-white text-[16px]">graphic_eq</span>
       </div>
       <span class="font-heading font-bold text-sm tracking-wide text-white">Aethon</span>
-      <span class="text-[10px] uppercase font-semibold tracking-wider px-1.5 py-0.5 rounded-full bg-white/[0.06] text-[#9ea2b0] border border-white/[0.04]">
-        Linux
-      </span>
     </div>
   </div>
 
-  <!-- Center: Now Playing subtle marquee indicator if song is active -->
-  <div data-tauri-drag-region class="flex items-center justify-center flex-1 max-w-md mx-4">
-    {#if playerState.currentTrack}
-      <button
-        onclick={() => playerState.isNowPlayingOpen = true}
-        class="flex items-center gap-2.5 px-3 py-1 rounded-full bg-white/[0.04] hover:bg-white/[0.08] border border-white/[0.06] transition-all text-xs max-w-full truncate"
-      >
-        <span class="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
-        <span class="font-medium text-white truncate">{playerState.currentTrack.title}</span>
-        <span class="text-[#9ea2b0] truncate">• {playerState.currentTrack.artist}</span>
-      </button>
-    {/if}
-  </div>
+  <!-- Center: Pure clean drag region (no music pill) -->
+  <div data-tauri-drag-region class="flex-1 h-full mx-4 cursor-default"></div>
 
   <!-- Right: Window traffic controls (Linux / Wayland custom frame) -->
   <div class="flex items-center gap-1">

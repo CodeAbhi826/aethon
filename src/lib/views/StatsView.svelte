@@ -8,7 +8,7 @@
   });
 </script>
 
-<div class="p-6 space-y-6 max-w-7xl mx-auto">
+<div class="p-6 space-y-6 max-w-7xl mx-auto pb-28">
   
   <div>
     <h2 class="font-heading font-bold text-2xl text-white">Listening Statistics</h2>

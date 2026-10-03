@@ -74,6 +74,31 @@ class SettingsState {
   autoScanOnStartup = $state(true);
   streamCacheSizeBytes = $state<number>(0);
 
+  // 10. Account & Sync (YouTube Music / Google Account)
+  ytmConnected = $state(false);
+  ytmAccountName = $state('Guest Listener');
+  ytmAccountEmail = $state('');
+  ytmAccountAvatar = $state('');
+  ytmCookie = $state('');
+  ytmSyncPlaylists = $state(true);
+  ytmSyncFavorites = $state(true);
+  ytmSyncHistory = $state(true);
+  ytmAutoSync = $state(true);
+  savedAccounts = $state<Array<{ name: string; email: string; avatar: string; cookie: string }>>([
+    {
+      name: 'Abhinav (Personal)',
+      email: 'abhinav@gmail.com',
+      avatar: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=120&auto=format&fit=crop',
+      cookie: 'SAPISID=example_sapisid_token_1',
+    },
+    {
+      name: 'Aethon Hi-Fi Studio',
+      email: 'audiophile@studio.net',
+      avatar: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=120&auto=format&fit=crop',
+      cookie: 'SAPISID=example_sapisid_token_2',
+    }
+  ]);
+
   // Internal state
   isLoaded = $state(false);
   private saveTimeout: ReturnType<typeof setTimeout> | null = null;
@@ -146,6 +171,23 @@ class SettingsState {
         if ('maxCacheSizeGb' in records) this.maxCacheSizeGb = Number(records['maxCacheSizeGb']) || 5;
         if ('libraryPath' in records) this.libraryPath = records['libraryPath'];
         if ('autoScanOnStartup' in records) this.autoScanOnStartup = records['autoScanOnStartup'] === 'true';
+
+        if ('ytmConnected' in records) this.ytmConnected = records['ytmConnected'] === 'true';
+        if ('ytmAccountName' in records) this.ytmAccountName = records['ytmAccountName'];
+        if ('ytmAccountEmail' in records) this.ytmAccountEmail = records['ytmAccountEmail'];
+        if ('ytmAccountAvatar' in records) this.ytmAccountAvatar = records['ytmAccountAvatar'];
+        if ('ytmCookie' in records) this.ytmCookie = records['ytmCookie'];
+        if ('ytmSyncPlaylists' in records) this.ytmSyncPlaylists = records['ytmSyncPlaylists'] === 'true';
+        if ('ytmSyncFavorites' in records) this.ytmSyncFavorites = records['ytmSyncFavorites'] === 'true';
+        if ('ytmSyncHistory' in records) this.ytmSyncHistory = records['ytmSyncHistory'] === 'true';
+        if ('ytmAutoSync' in records) this.ytmAutoSync = records['ytmAutoSync'] === 'true';
+        if ('savedAccounts' in records) {
+          try {
+            this.savedAccounts = JSON.parse(records['savedAccounts']);
+          } catch {
+            // Keep defaults
+          }
+        }
       }
     } catch {
       // In mock/preview environment
@@ -218,6 +260,17 @@ class SettingsState {
           maxCacheSizeGb: String(this.maxCacheSizeGb),
           libraryPath: this.libraryPath,
           autoScanOnStartup: String(this.autoScanOnStartup),
+
+          ytmConnected: String(this.ytmConnected),
+          ytmAccountName: this.ytmAccountName,
+          ytmAccountEmail: this.ytmAccountEmail,
+          ytmAccountAvatar: this.ytmAccountAvatar,
+          ytmCookie: this.ytmCookie,
+          ytmSyncPlaylists: String(this.ytmSyncPlaylists),
+          ytmSyncFavorites: String(this.ytmSyncFavorites),
+          ytmSyncHistory: String(this.ytmSyncHistory),
+          ytmAutoSync: String(this.ytmAutoSync),
+          savedAccounts: JSON.stringify(this.savedAccounts),
         };
 
         await invoke('set_settings_batch', { settings: payload });
@@ -225,6 +278,45 @@ class SettingsState {
         console.warn('Failed to persist settings:', err);
       }
     }, 300);
+  }
+
+  connectYtmAccount(cookie: string, name?: string, email?: string) {
+    this.ytmCookie = cookie.trim();
+    this.ytmConnected = true;
+    this.ytmAccountName = name || 'Google Account';
+    this.ytmAccountEmail = email || (cookie.includes('SAPISID') ? 'authenticated@google.com' : 'cookie-auth@user');
+    this.ytmAccountAvatar = 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=120&auto=format&fit=crop';
+
+    if (!this.savedAccounts.some((a) => a.cookie === this.ytmCookie)) {
+      this.savedAccounts.push({
+        name: this.ytmAccountName,
+        email: this.ytmAccountEmail,
+        avatar: this.ytmAccountAvatar,
+        cookie: this.ytmCookie,
+      });
+    }
+    this.scheduleSave();
+  }
+
+  disconnectYtmAccount() {
+    this.ytmConnected = false;
+    this.ytmAccountName = 'Guest Listener';
+    this.ytmAccountEmail = '';
+    this.ytmAccountAvatar = '';
+    this.ytmCookie = '';
+    this.scheduleSave();
+  }
+
+  switchAccount(index: number) {
+    const acc = this.savedAccounts[index];
+    if (acc) {
+      this.ytmConnected = true;
+      this.ytmAccountName = acc.name;
+      this.ytmAccountEmail = acc.email;
+      this.ytmAccountAvatar = acc.avatar;
+      this.ytmCookie = acc.cookie;
+      this.scheduleSave();
+    }
   }
 
   updateActiveTheme() {

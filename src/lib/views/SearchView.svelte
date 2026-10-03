@@ -28,7 +28,7 @@
   }
 </script>
 
-<div class="p-6 space-y-6 max-w-7xl mx-auto">
+<div class="p-6 space-y-6 max-w-7xl mx-auto pb-28">
   
   <!-- Search Input Bar -->
   <div class="relative max-w-2xl">
