@@ -72,6 +72,14 @@ impl MpvEngine {
             "mpv"
         };
 
+        let (stdout_cfg, stderr_cfg) = if crate::is_verbose() {
+            (Stdio::inherit(), Stdio::inherit())
+        } else {
+            (Stdio::null(), Stdio::null())
+        };
+
+        crate::aethon_log!("Spawning MPV engine: {} (socket: {})", mpv_bin, socket_path);
+
         // 3. Spawn headless MPV process
         let child = Command::new(mpv_bin)
             .arg("--idle=yes")
@@ -82,8 +90,8 @@ impl MpvEngine {
             .arg("--keep-open=yes")
             .arg("--gapless-audio=yes")
             .stdin(Stdio::null())
-            .stdout(Stdio::null())
-            .stderr(Stdio::null())
+            .stdout(stdout_cfg)
+            .stderr(stderr_cfg)
             .spawn()?;
 
         // 4. Wait up to 3 seconds for socket to be created
@@ -219,6 +227,7 @@ impl MpvEngine {
     }
 
     pub async fn send_cmd(&self, json_cmd: &str) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        crate::aethon_log!("MPV IPC >> {}", json_cmd);
         self.cmd_tx.send(json_cmd.to_string()).await?;
         Ok(())
     }

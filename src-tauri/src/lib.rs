@@ -7,11 +7,36 @@ pub mod youtube;
 use commands::*;
 use library::Database;
 use player::MpvEngine;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use tauri::Manager;
 
+pub static VERBOSE: AtomicBool = AtomicBool::new(false);
+
+pub fn is_verbose() -> bool {
+    VERBOSE.load(Ordering::Relaxed)
+}
+
+#[macro_export]
+macro_rules! aethon_log {
+    ($($arg:tt)*) => {
+        if $crate::is_verbose() {
+            eprintln!("\x1b[36m[Aethon Verbose]\x1b[0m {}", format_args!($($arg)*));
+        }
+    };
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    let verbose_enabled = std::env::args().any(|arg| {
+        arg == "--verbose" || arg == "-v" || arg == "--debug"
+    });
+    VERBOSE.store(verbose_enabled, Ordering::Relaxed);
+
+    if verbose_enabled {
+        eprintln!("\x1b[32m[Aethon]\x1b[0m Verbose debug logging enabled via CLI flag (--verbose / -v)");
+    }
+
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .setup(|app| {
