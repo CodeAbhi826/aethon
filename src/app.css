@@ -1,0 +1,103 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --at-bg: #111215;
+  --at-surface: #18191d;
+  --at-surface-elevated: #22232a;
+  --at-surface-high: #2a2c35;
+  --at-card: #1e2026;
+  --at-text: #ffffff;
+  --at-text-secondary: #9ea2b0;
+  --at-text-tertiary: #6b6e7c;
+  --at-accent: #d0bcff;
+  --at-accent-container: #4f378b;
+  --at-on-accent-container: #eaddff;
+  --at-primary: #79dc9c;
+  --at-primary-container: #00522b;
+  --at-pill-bg: #262830;
+  --at-border: rgba(255, 255, 255, 0.07);
+}
+
+body {
+  background-color: var(--at-bg);
+  color: var(--at-text);
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  user-select: none;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+.font-heading {
+  font-family: 'Plus Jakarta Sans', 'Inter', sans-serif;
+}
+
+.font-mono {
+  font-family: 'JetBrains Mono', monospace;
+}
+
+.material-symbols-rounded {
+  font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+  vertical-align: middle;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.material-symbols-rounded.filled {
+  font-variation-settings: 'FILL' 1, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+}
+
+/* Rounded Cards & Capsules */
+.at-card {
+  background: var(--at-card);
+  border: 1px solid var(--at-border);
+  border-radius: 1.5rem;
+}
+
+.at-pill {
+  background: var(--at-pill-bg);
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  border-radius: 9999px;
+  transition: all 0.2s cubic-bezier(0.2, 0, 0, 1);
+}
+.at-pill:hover {
+  background: #31333d;
+  border-color: rgba(255, 255, 255, 0.12);
+}
+.at-pill.active {
+  background: #e6e0e9;
+  color: #1d192b;
+  font-weight: 600;
+}
+
+/* Docked Mini-Player */
+.at-mini-player {
+  background: #1a1c22;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 1.75rem;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.6);
+}
+
+/* Scrollbars */
+::-webkit-scrollbar {
+  width: 5px;
+  height: 5px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.12);
+  border-radius: 9999px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.22);
+}
+.scrollbar-none::-webkit-scrollbar {
+  display: none;
+}
+
+input[type=range] {
+  accent-color: #ffffff;
+}

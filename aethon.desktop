@@ -1,0 +1,10 @@
+[Desktop Entry]
+Name=Aethon
+Comment=Modern Lossless Music Player for Arch Linux
+Exec=aethon %U
+Icon=aethon
+Terminal=false
+Type=Application
+Categories=AudioVideo;Audio;Player;Music;
+MimeType=audio/flac;audio/x-flac;audio/mpeg;audio/mp4;audio/ogg;audio/x-wav;
+Keywords=music;player;lossless;flac;archivetune;
