@@ -48,6 +48,8 @@ export const THEME_PRESETS: Record<string, { name: string; hex: string; desc: st
   crimson: { name: 'Crimson Velvet', hex: '#ff8ba7', desc: 'Warm passionate rose velvet' },
   amber: { name: 'Sunset Amber', hex: '#ffc078', desc: 'Cozy golden acoustic warmth' },
   oled: { name: 'Pure Obsidian OLED', hex: '#e2e2e6', desc: 'Absolute #000000 true black contrast' },
+  cupertino: { name: 'Apple Cupertino Dark', hex: '#0a84ff', desc: 'Modern macOS system accent & deep graphite' },
+  tokyonight: { name: 'Tokyo Night Neon', hex: '#7aa2f7', desc: 'Cyberpunk neon indigo aesthetic' },
 };
 
 function hexToRgba(hex: string, alpha: number): string {

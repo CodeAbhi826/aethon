@@ -22,37 +22,79 @@
 >
   <div class="space-y-4 overflow-y-auto scrollbar-none">
     
-    <!-- Header label -->
-    {#if !playerState.sidebarCollapsed}
-      <div class="px-3 pt-1 text-[10px] font-bold uppercase tracking-wider text-[var(--md-sys-outline)] font-display">
-        Menu
-      </div>
-    {/if}
-
-    <!-- Main Navigation Items -->
+    <!-- Discover Group -->
     <div class="space-y-1">
-      {#each browseItems as item}
-        {@const isActive = playerState.activeTab === item.id}
-        <button
-          onclick={() => playerState.activeTab = item.id}
-          title={playerState.sidebarCollapsed ? item.label : undefined}
-          class="w-full flex items-center gap-3.5 px-3.5 py-2.5 rounded-full text-xs font-semibold transition-all duration-200 cursor-pointer {isActive ? 'bg-[var(--md-sys-primary-container)] text-[var(--md-sys-on-primary-container)] shadow-sm' : 'text-[var(--md-sys-on-surface-variant)] hover:bg-white/5 hover:text-white'}"
-        >
-          <span class="material-symbols-rounded text-xl shrink-0 {isActive ? 'filled' : ''}">
-            {item.icon}
-          </span>
-          {#if !playerState.sidebarCollapsed}
-            <span class="truncate">{item.label}</span>
-          {/if}
-        </button>
-      {/each}
+      {#if !playerState.sidebarCollapsed}
+        <div class="px-3 pt-1 pb-1 text-[10px] font-bold uppercase tracking-wider text-[var(--md-sys-outline)] font-display">
+          Discover
+        </div>
+      {/if}
+      <button
+        onclick={() => playerState.activeTab = 'home'}
+        title={playerState.sidebarCollapsed ? 'Home' : undefined}
+        class="w-full flex items-center gap-3.5 px-3.5 py-2.5 rounded-full text-xs font-semibold transition-all duration-200 cursor-pointer {playerState.activeTab === 'home' ? 'bg-[var(--md-sys-primary-container)] text-[var(--md-sys-on-primary-container)] shadow-sm' : 'text-[var(--md-sys-on-surface-variant)] hover:bg-white/5 hover:text-white'}"
+      >
+        <span class="material-symbols-rounded text-xl shrink-0 {playerState.activeTab === 'home' ? 'filled' : ''}">
+          home
+        </span>
+        {#if !playerState.sidebarCollapsed}
+          <span class="truncate">Home</span>
+        {/if}
+      </button>
+
+      <button
+        onclick={() => playerState.activeTab = 'search'}
+        title={playerState.sidebarCollapsed ? 'Search & Explore' : undefined}
+        class="w-full flex items-center gap-3.5 px-3.5 py-2.5 rounded-full text-xs font-semibold transition-all duration-200 cursor-pointer {playerState.activeTab === 'search' ? 'bg-[var(--md-sys-primary-container)] text-[var(--md-sys-on-primary-container)] shadow-sm' : 'text-[var(--md-sys-on-surface-variant)] hover:bg-white/5 hover:text-white'}"
+      >
+        <span class="material-symbols-rounded text-xl shrink-0 {playerState.activeTab === 'search' ? 'filled' : ''}">
+          explore
+        </span>
+        {#if !playerState.sidebarCollapsed}
+          <span class="truncate">Explore & Search</span>
+        {/if}
+      </button>
     </div>
 
-    <!-- Quick Actions -->
+    <!-- Library Group -->
+    <div class="pt-2 border-t border-white/5 space-y-1">
+      {#if !playerState.sidebarCollapsed}
+        <div class="px-3 pt-1 pb-1 text-[10px] font-bold uppercase tracking-wider text-[var(--md-sys-outline)] font-display">
+          Library
+        </div>
+      {/if}
+      <button
+        onclick={() => playerState.activeTab = 'library'}
+        title={playerState.sidebarCollapsed ? 'Your Library' : undefined}
+        class="w-full flex items-center gap-3.5 px-3.5 py-2.5 rounded-full text-xs font-semibold transition-all duration-200 cursor-pointer {playerState.activeTab === 'library' ? 'bg-[var(--md-sys-primary-container)] text-[var(--md-sys-on-primary-container)] shadow-sm' : 'text-[var(--md-sys-on-surface-variant)] hover:bg-white/5 hover:text-white'}"
+      >
+        <span class="material-symbols-rounded text-xl shrink-0 {playerState.activeTab === 'library' ? 'filled' : ''}">
+          library_music
+        </span>
+        {#if !playerState.sidebarCollapsed}
+          <span class="truncate">Your Library</span>
+        {/if}
+      </button>
+
+      <button
+        onclick={() => playerState.activeTab = 'stats'}
+        title={playerState.sidebarCollapsed ? 'Listening Stats' : undefined}
+        class="w-full flex items-center gap-3.5 px-3.5 py-2.5 rounded-full text-xs font-semibold transition-all duration-200 cursor-pointer {playerState.activeTab === 'stats' ? 'bg-[var(--md-sys-primary-container)] text-[var(--md-sys-on-primary-container)] shadow-sm' : 'text-[var(--md-sys-on-surface-variant)] hover:bg-white/5 hover:text-white'}"
+      >
+        <span class="material-symbols-rounded text-xl shrink-0 {playerState.activeTab === 'stats' ? 'filled' : ''}">
+          insights
+        </span>
+        {#if !playerState.sidebarCollapsed}
+          <span class="truncate">Listening Stats</span>
+        {/if}
+      </button>
+    </div>
+
+    <!-- Studio & DSP Launchers -->
     <div class="pt-2 border-t border-white/5 space-y-1">
       {#if !playerState.sidebarCollapsed}
         <div class="px-3 pb-1 text-[10px] font-bold uppercase tracking-wider text-[var(--md-sys-outline)]/80 font-display">
-          Quick Access
+          Playback
         </div>
       {/if}
 
@@ -75,7 +117,7 @@
         class="w-full flex items-center gap-3.5 px-3.5 py-2 rounded-full text-xs font-semibold transition-all duration-200 text-[var(--md-sys-on-surface-variant)] hover:bg-white/5 hover:text-white cursor-pointer"
       >
         <span class="material-symbols-rounded text-xl shrink-0 text-cyan-400">
-          tune
+          equalizer
         </span>
         {#if !playerState.sidebarCollapsed}
           <span class="truncate">Equalizer</span>

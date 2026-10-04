@@ -99,16 +99,14 @@
             </div>
 
             <div class="min-w-0 flex-1">
-              <h4 class="font-heading font-semibold text-sm text-white truncate group-hover:text-emerald-300 transition-colors">
+              <h4 class="font-heading font-semibold text-sm text-white truncate group-hover:text-[var(--md-sys-primary)] transition-colors">
                 {yt.title}
               </h4>
-              <p class="text-xs text-[#9ea2b0] truncate mt-0.5">{yt.artist}</p>
-              <div class="flex items-center gap-2 mt-1">
-                <span class="text-[10px] font-mono px-1.5 py-0.5 rounded bg-red-500/15 text-red-300 font-semibold border border-red-500/20">
-                  YouTube Music • Opus 256k
-                </span>
+              <div class="flex items-center gap-1.5 text-xs text-[#9ea2b0] truncate mt-1">
+                <span class="truncate">{yt.artist}</span>
                 {#if yt.duration > 0}
-                  <span class="text-[10px] font-mono text-[#6b6e7c]">
+                  <span class="text-[#6b6e7c] shrink-0">•</span>
+                  <span class="font-mono text-[11px] text-[#6b6e7c] shrink-0">
                     {Math.floor(yt.duration / 60)}:{Math.floor(yt.duration % 60) < 10 ? '0' : ''}{Math.floor(yt.duration % 60)}
                   </span>
                 {/if}
@@ -119,10 +117,46 @@
       </div>
     </div>
   {:else}
-    <div class="flex flex-col items-center justify-center py-20 text-[#6b6e7c]">
-      <span class="material-symbols-rounded text-[48px] mb-3 opacity-40">travel_explore</span>
-      <p class="text-sm font-medium">Search songs, artists, and YouTube Music streams</p>
-      <p class="text-xs text-[#4c4f5e] mt-1">High Quality Opus 48kHz audio streamed directly via InnerTube & MPV.</p>
+    <!-- Apple Music style Browse & Explore Categories -->
+    <div class="space-y-4 pt-2">
+      <div class="flex items-center justify-between">
+        <h3 class="text-sm font-bold uppercase tracking-wider text-[var(--md-sys-on-surface-variant)] flex items-center gap-2">
+          <span class="material-symbols-rounded text-sm text-[var(--md-sys-primary)]">grid_view</span>
+          Browse Categories
+        </h3>
+        <span class="text-xs text-[var(--md-sys-on-surface-variant)]">Discover music by mood & genre</span>
+      </div>
+
+      <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3.5">
+        {#each [
+          { title: 'Top Charts India', query: 'Top 50 India Songs', bg: 'bg-gradient-to-br from-amber-600/30 to-orange-950/40', border: 'border-orange-500/20', icon: 'trending_up', text: 'text-orange-400' },
+          { title: 'Bollywood Romance', query: 'Bollywood Romantic Songs', bg: 'bg-gradient-to-br from-rose-600/30 to-pink-950/40', border: 'border-rose-500/20', icon: 'favorite', text: 'text-rose-400' },
+          { title: 'Punjabi Hits', query: 'Punjabi Hits 2026', bg: 'bg-gradient-to-br from-purple-600/30 to-indigo-950/40', border: 'border-purple-500/20', icon: 'music_note', text: 'text-purple-400' },
+          { title: 'Lo-Fi Chill Beats', query: 'Indian Lo-Fi Chill Beats', bg: 'bg-gradient-to-br from-cyan-600/30 to-blue-950/40', border: 'border-cyan-500/20', icon: 'nightlife', text: 'text-cyan-400' },
+          { title: 'Indie India', query: 'Indian Indie Songs', bg: 'bg-gradient-to-br from-emerald-600/30 to-teal-950/40', border: 'border-emerald-500/20', icon: 'graphic_eq', text: 'text-emerald-400' },
+          { title: 'South Indian Hits', query: 'South Indian Hits', bg: 'bg-gradient-to-br from-yellow-600/30 to-amber-950/40', border: 'border-yellow-500/20', icon: 'audiotrack', text: 'text-yellow-400' },
+          { title: 'Workout Energy', query: 'Gym Workout Music Bollywood', bg: 'bg-gradient-to-br from-red-600/30 to-rose-950/40', border: 'border-red-500/20', icon: 'bolt', text: 'text-red-400' },
+          { title: 'Acoustic & Unplugged', query: 'Acoustic Hindi Unplugged', bg: 'bg-gradient-to-br from-sky-600/30 to-slate-950/40', border: 'border-sky-500/20', icon: 'piano', text: 'text-sky-400' },
+        ] as cat}
+          <button
+            onclick={() => handleSearch(cat.query)}
+            class="p-4 rounded-2xl {cat.bg} border {cat.border} hover:scale-[1.02] hover:brightness-110 transition-all text-left group cursor-pointer relative overflow-hidden flex flex-col justify-between h-28 shadow-sm"
+          >
+            <div class="flex items-center justify-between">
+              <span class="material-symbols-rounded {cat.text} text-2xl group-hover:scale-110 transition-transform">
+                {cat.icon}
+              </span>
+              <span class="material-symbols-rounded text-white/20 group-hover:text-white/60 text-lg transition-colors">
+                arrow_forward
+              </span>
+            </div>
+            <div>
+              <div class="font-heading font-bold text-sm text-white">{cat.title}</div>
+              <div class="text-[10px] text-white/50 mt-0.5">Explore curated playlist</div>
+            </div>
+          </button>
+        {/each}
+      </div>
     </div>
   {/if}
 

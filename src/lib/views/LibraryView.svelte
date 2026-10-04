@@ -43,7 +43,7 @@
         onclick={() => activeFilter = 'flac'}
         class="px-3.5 py-1.5 rounded-full text-xs font-medium transition-all {activeFilter === 'flac' ? 'bg-white text-[#111215] font-semibold' : 'bg-[#1e2026] text-[#9ea2b0] hover:text-white border border-white/[0.05]'}"
       >
-        FLAC Lossless
+        Local Audio
       </button>
       <button
         onclick={() => playerState.scanLibrary()}
@@ -86,13 +86,11 @@
               <h4 class="font-heading font-semibold text-sm text-white truncate {isCurrent ? 'text-emerald-300' : 'group-hover:text-white'}">
                 {track.title}
               </h4>
-              <p class="text-xs text-[#9ea2b0] truncate mt-0.5">{track.artist} — {track.album}</p>
-              <div class="flex items-center gap-2 mt-1">
-                <span class="text-[10px] font-mono px-1.5 py-0.2 rounded bg-white/[0.06] text-[#9ea2b0]">
-                  {track.format}
-                </span>
+              <div class="flex items-center gap-1.5 text-xs text-[#9ea2b0] truncate mt-1">
+                <span class="truncate">{track.artist} • {track.album}</span>
                 {#if track.duration > 0}
-                  <span class="text-[10px] font-mono text-[#6b6e7c]">
+                  <span class="text-[#6b6e7c] shrink-0">•</span>
+                  <span class="font-mono text-[11px] text-[#6b6e7c] shrink-0">
                     {Math.floor(track.duration / 60)}:{Math.floor(track.duration % 60) < 10 ? '0' : ''}{Math.floor(track.duration % 60)}
                   </span>
                 {/if}

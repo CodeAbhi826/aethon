@@ -155,13 +155,14 @@
             <div class="text-xs font-bold text-white truncate group-hover:text-[var(--md-sys-primary)] transition">
               {track.title}
             </div>
-            <div class="text-[11px] text-[var(--md-sys-on-surface-variant)] truncate mt-0.5">
-              {track.artist}
-            </div>
-            <div class="flex items-center gap-1.5 mt-1">
-              <span class="text-[9px] font-mono px-1.5 py-0.2 rounded bg-[var(--md-sys-surface-container)] text-[var(--md-sys-primary)]">
-                {track.format}
-              </span>
+            <div class="text-[11px] text-[var(--md-sys-on-surface-variant)] truncate mt-0.5 flex items-center gap-1.5">
+              <span class="truncate">{track.artist}</span>
+              {#if track.duration > 0}
+                <span class="text-white/20 shrink-0">•</span>
+                <span class="font-mono text-[10px] text-white/50 shrink-0">
+                  {Math.floor(track.duration / 60)}:{Math.floor(track.duration % 60) < 10 ? '0' : ''}{Math.floor(track.duration % 60)}
+                </span>
+              {/if}
             </div>
           </div>
         </button>
@@ -169,14 +170,14 @@
     </div>
   </section>
 
-  <!-- Speed Dial (From Mockup) -->
+  <!-- Speed Dial (ArchiveTune Style Artist & Station Radios) -->
   <section class="space-y-3 pt-2">
     <div class="flex items-center justify-between">
       <h2 class="text-sm font-bold uppercase tracking-wider text-[var(--md-sys-on-surface-variant)] flex items-center gap-2">
         <span class="material-symbols-rounded text-sm text-[var(--md-sys-primary)]">dialpad</span>
         Speed Dial
       </h2>
-      <span class="text-xs text-[var(--md-sys-on-surface-variant)]">Frequently played stations & artists</span>
+      <span class="text-xs text-[var(--md-sys-on-surface-variant)]">Instant station radios</span>
     </div>
 
     <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-6 gap-3">
@@ -205,31 +206,78 @@
     </div>
   </section>
 
-  <!-- Keep Listening -->
-  <section class="space-y-3 pt-2">
+  <!-- India Top Charts (Ranked 1 to 6) -->
+  <section class="space-y-3.5 pt-2">
     <div class="flex items-center justify-between">
       <h2 class="text-sm font-bold uppercase tracking-wider text-[var(--md-sys-on-surface-variant)] flex items-center gap-2">
-        <span class="material-symbols-rounded text-sm text-[var(--md-sys-primary)]">resume</span>
-        Keep Listening
+        <span class="material-symbols-rounded text-sm text-[var(--md-sys-primary)]">leaderboard</span>
+        Top Charts • India Daily
       </h2>
-      <button onclick={() => playerState.activeTab = 'library'} class="text-xs font-bold text-[var(--md-sys-primary)] hover:underline">
-        View All
+      <button onclick={() => { playerState.activeTab = 'search'; playerState.searchYouTube('Top 50 India Songs'); }} class="text-xs font-bold text-[var(--md-sys-primary)] hover:underline">
+        Explore Chart
       </button>
     </div>
 
-    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-      {#each displayTracks.slice(0, 3) as track}
+    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+      {#each (liveTrending.length > 0 ? liveTrending : trendingIndiaTracks).slice(0, 6) as track, idx}
         <button
           onclick={() => playerState.playTrack(track)}
-          class="p-4 rounded-3xl m3-acrylic-card hover:bg-white/10 border border-white/5 cursor-pointer transition flex items-center gap-4 group text-left w-full"
+          class="p-3 rounded-2xl m3-acrylic-card hover:bg-white/10 border border-white/5 cursor-pointer transition flex items-center gap-3.5 group text-left w-full"
         >
-          <div class="w-16 h-16 rounded-2xl overflow-hidden shadow-lg border border-white/10 shrink-0">
+          <div class="w-6 text-center font-heading font-black text-sm {idx === 0 ? 'text-amber-400' : idx === 1 ? 'text-slate-300' : idx === 2 ? 'text-amber-600' : 'text-white/40'} shrink-0">
+            {idx + 1}
+          </div>
+          <div class="relative w-12 h-12 rounded-xl overflow-hidden shadow shrink-0 border border-white/10">
             <img src={track.cover_art} alt={track.title} class="w-full h-full object-cover group-hover:scale-105 transition" />
+            <div class="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 flex items-center justify-center transition">
+              <span class="material-symbols-rounded text-white text-lg filled">play_arrow</span>
+            </div>
           </div>
           <div class="min-w-0 flex-1">
-            <div class="text-xs font-bold uppercase tracking-wider text-[var(--md-sys-primary)] font-display">Album</div>
-            <div class="text-sm font-extrabold text-white truncate font-display">{track.title}</div>
-            <div class="text-xs text-[var(--md-sys-on-surface-variant)] truncate">{track.artist}</div>
+            <div class="text-xs font-bold text-white truncate group-hover:text-[var(--md-sys-primary)] transition">
+              {track.title}
+            </div>
+            <div class="text-[11px] text-[var(--md-sys-on-surface-variant)] truncate mt-0.5">
+              {track.artist}
+            </div>
+          </div>
+        </button>
+      {/each}
+    </div>
+  </section>
+
+  <!-- Mood & Activity Mixes (Apple Music Style) -->
+  <section class="space-y-3 pt-2">
+    <div class="flex items-center justify-between">
+      <h2 class="text-sm font-bold uppercase tracking-wider text-[var(--md-sys-on-surface-variant)] flex items-center gap-2">
+        <span class="material-symbols-rounded text-sm text-[var(--md-sys-primary)]">genres</span>
+        Mood & Activity Mixes
+      </h2>
+      <span class="text-xs text-[var(--md-sys-on-surface-variant)]">Tailored listening</span>
+    </div>
+
+    <div class="grid grid-cols-2 sm:grid-cols-4 gap-3.5">
+      {#each [
+        { title: 'Late Night Chill', desc: 'Mellow soothing Hindi & acoustic', query: 'Late Night Hindi Chill Songs', gradient: 'from-indigo-600/30 to-violet-950/40', border: 'border-indigo-500/20', icon: 'dark_mode' },
+        { title: 'Punjabi Energy', desc: 'High octane bhangra & bass', query: 'Punjabi Workout Energy Hits', gradient: 'from-red-600/30 to-amber-950/40', border: 'border-red-500/20', icon: 'local_fire_department' },
+        { title: 'Deep Focus & Study', desc: 'Instrumental sitar & lo-fi beats', query: 'Indian Classical Study Focus Lo-Fi', gradient: 'from-teal-600/30 to-emerald-950/40', border: 'border-teal-500/20', icon: 'psychology' },
+        { title: 'Acoustic Coffeehouse', desc: 'Warm guitars & unplugged vocals', query: 'Bollywood Acoustic Unplugged', gradient: 'from-amber-600/30 to-orange-950/40', border: 'border-amber-500/20', icon: 'coffee' },
+      ] as mood}
+        <button
+          onclick={() => { playerState.activeTab = 'search'; playerState.searchYouTube(mood.query); }}
+          class="p-4 rounded-2xl bg-gradient-to-br {mood.gradient} border {mood.border} hover:scale-[1.02] hover:brightness-110 transition-all text-left group cursor-pointer h-28 flex flex-col justify-between shadow-sm"
+        >
+          <div class="flex items-center justify-between">
+            <span class="material-symbols-rounded text-white/80 text-xl group-hover:scale-110 transition-transform">
+              {mood.icon}
+            </span>
+            <span class="material-symbols-rounded text-white/30 group-hover:text-white/80 text-base transition-colors">
+              play_circle
+            </span>
+          </div>
+          <div>
+            <div class="font-heading font-bold text-xs text-white truncate">{mood.title}</div>
+            <div class="text-[10px] text-white/60 truncate mt-0.5">{mood.desc}</div>
           </div>
         </button>
       {/each}
