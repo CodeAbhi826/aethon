@@ -44,6 +44,7 @@ class PlayerState {
   selectedArtist = $state<string | null>(null);
   selectedAlbum = $state<{ title: string; artist: string; cover?: string; year?: string } | null>(null);
   lastMprisPlaying = false;
+  pendingResumePosition: number | null = null;
 
   // Derived properties
   formattedTime = $derived.by(() => {
@@ -163,13 +164,31 @@ class PlayerState {
   async initTauriListeners() {
     try {
       await listen<PlaybackState>('player-state', (event) => {
+        if (!event.payload.current_uri && this.currentTrack) {
+          // MPV has no file loaded yet. Do not wipe out restored track position/duration.
+          this.playback = {
+            ...event.payload,
+            position: this.playback.position,
+            duration: this.playback.duration || (this.currentTrack.duration ?? 0),
+          };
+          return;
+        }
+
         this.playback = event.payload;
         if (event.payload.is_playing || event.payload.position > 0.1) {
           this.isLoading = false;
         }
+
+        if (this.pendingResumePosition !== null && (event.payload.is_playing || event.payload.position > 0)) {
+          const target = this.pendingResumePosition;
+          this.pendingResumePosition = null;
+          this.seek(target);
+          return;
+        }
+
         if (this.currentTrack) {
           this.updateMediaSession(this.currentTrack);
-          if (typeof localStorage !== 'undefined' && event.payload.position > 0) {
+          if (typeof localStorage !== 'undefined' && event.payload.position > 0 && this.pendingResumePosition === null) {
             try {
               localStorage.setItem('aethon_last_position', String(event.payload.position));
               localStorage.setItem('aethon_last_track_id', this.currentTrack.id);
@@ -393,6 +412,7 @@ class PlayerState {
 
   async playTrack(track: Track) {
     if (this.currentTrack && this.currentTrack.id !== track.id) {
+      this.pendingResumePosition = null;
       this.history.unshift(this.currentTrack);
       if (this.history.length > 50) this.history.pop();
       if (typeof localStorage !== 'undefined') {
@@ -441,6 +461,7 @@ class PlayerState {
       date_added: Date.now(),
     };
     if (this.currentTrack && this.currentTrack.id !== syntheticTrack.id) {
+      this.pendingResumePosition = null;
       this.history.unshift(this.currentTrack);
       if (this.history.length > 50) this.history.pop();
       if (typeof localStorage !== 'undefined') {
@@ -477,11 +498,18 @@ class PlayerState {
   async togglePlay() {
     if (!this.playback.is_playing && this.currentTrack && (!this.playback.current_uri || this.playback.current_uri !== this.currentTrack.file_path)) {
       const resumePos = this.playback.position;
+      if (resumePos > 0) {
+        this.pendingResumePosition = resumePos;
+      }
       await this.playTrack(this.currentTrack);
       if (resumePos > 0) {
         setTimeout(() => {
-          this.seek(resumePos);
-        }, 300);
+          if (this.pendingResumePosition !== null) {
+            const target = this.pendingResumePosition;
+            this.pendingResumePosition = null;
+            this.seek(target);
+          }
+        }, 500);
       }
       return;
     }
@@ -493,6 +521,7 @@ class PlayerState {
   }
 
   async seek(seconds: number) {
+    this.pendingResumePosition = null;
     this.playback.position = seconds;
     if (typeof localStorage !== 'undefined') {
       try {
