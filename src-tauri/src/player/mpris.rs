@@ -1,9 +1,7 @@
 use parking_lot::Mutex;
 use std::process::{Child, Command, Stdio};
-use std::sync::Arc;
-use tauri::{AppHandle, Emitter};
+use tauri::{AppHandle, Emitter, Manager};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
-use tokio::net::UnixListener;
 use tokio::sync::mpsc;
 
 const MPRIS_SCRIPT: &str = include_str!("../../scripts/mpris_bridge.py");

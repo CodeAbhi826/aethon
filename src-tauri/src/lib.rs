@@ -9,7 +9,7 @@ use library::Database;
 use player::MpvEngine;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
-use tauri::Manager;
+use tauri::{Emitter, Manager};
 
 pub static VERBOSE: AtomicBool = AtomicBool::new(false);
 
