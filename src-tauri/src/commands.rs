@@ -112,9 +112,7 @@ pub async fn search_youtube(
     limit: Option<usize>,
 ) -> Result<Vec<YouTubeTrack>, String> {
     crate::aethon_log!("search_youtube: query='{}'", query);
-    tokio::task::spawn_blocking(move || {
-        YouTubeService::search(&query, limit.unwrap_or(10))
-    }).await.map_err(|e| e.to_string())
+    Ok(YouTubeService::search(&query, limit.unwrap_or(10)).await)
 }
 
 #[tauri::command]

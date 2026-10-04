@@ -104,6 +104,7 @@ impl MpvEngine {
             .arg("--no-terminal")
             .arg(format!("--input-ipc-server={}", socket_path))
             .arg("--ytdl=yes")
+            .arg("--ytdl-format=bestaudio/best")
             .arg("--keep-open=yes")
             .arg("--gapless-audio=yes")
             .arg("--cache=yes")
@@ -117,8 +118,8 @@ impl MpvEngine {
             .stdout(stdout_cfg)
             .stderr(stderr_cfg);
 
-        // AppImage isolation: AppImage sets LD_LIBRARY_PATH pointing to bundled Ubuntu libs.
-        // Clean LD_LIBRARY_PATH so host mpv uses Arch Linux host libraries.
+        // AppImage isolation: AppImage sets LD_LIBRARY_PATH and Python env pointing to bundled Ubuntu libs.
+        // Clean them so host mpv and yt-dlp use Arch Linux native host libraries and python runtime.
         if let Ok(ld) = std::env::var("LD_LIBRARY_PATH") {
             let filtered: Vec<&str> = ld
                 .split(':')
@@ -131,6 +132,22 @@ impl MpvEngine {
             }
         } else {
             cmd.env_remove("LD_LIBRARY_PATH");
+        }
+
+        if let Ok(py) = std::env::var("PYTHONPATH") {
+            if py.contains(".mount_") {
+                cmd.env_remove("PYTHONPATH");
+            }
+        } else {
+            cmd.env_remove("PYTHONPATH");
+        }
+
+        if let Ok(pyh) = std::env::var("PYTHONHOME") {
+            if pyh.contains(".mount_") {
+                cmd.env_remove("PYTHONHOME");
+            }
+        } else {
+            cmd.env_remove("PYTHONHOME");
         }
 
         let child = cmd.spawn()?;
