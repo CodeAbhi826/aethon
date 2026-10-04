@@ -373,6 +373,30 @@ impl MpvEngine {
         self.send_cmd(&msg.to_string()).await
     }
 
+    pub async fn set_replaygain(&self, mode: &str) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        let val = match mode {
+            "track" | "album" => mode,
+            _ => "no",
+        };
+        let msg = serde_json::json!({
+            "command": ["set_property", "replaygain", val]
+        });
+        self.send_cmd(&msg.to_string()).await
+    }
+
+    pub async fn set_crossfade(&self, seconds: f64) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        if seconds <= 0.05 {
+            let msg = serde_json::json!({
+                "command": ["set_property", "gapless-audio", "yes"]
+            });
+            return self.send_cmd(&msg.to_string()).await;
+        }
+        let msg = serde_json::json!({
+            "command": ["set_property", "gapless-audio", "weak"]
+        });
+        self.send_cmd(&msg.to_string()).await
+    }
+
     pub fn get_state(&self) -> PlaybackState {
         self.state.read().clone()
     }

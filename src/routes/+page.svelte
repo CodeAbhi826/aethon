@@ -16,6 +16,10 @@
   import ArtistView from '$lib/views/ArtistView.svelte';
   import AlbumView from '$lib/views/AlbumView.svelte';
   import QueueDrawer from '$lib/components/QueueDrawer.svelte';
+  import TrackContextMenu from '$lib/components/TrackContextMenu.svelte';
+  import NewPlaylistModal from '$lib/components/NewPlaylistModal.svelte';
+  import AddToPlaylistModal from '$lib/components/AddToPlaylistModal.svelte';
+  import MiniPlayer from '$lib/components/MiniPlayer.svelte';
 
   onMount(() => {
     // Load local SQLite tracks on mount
@@ -119,5 +123,15 @@
 
   <!-- Up Next Queue Drawer -->
   <QueueDrawer />
+
+  <!-- Track Context Menu -->
+  <TrackContextMenu />
+
+  <!-- Playlist Modals -->
+  <NewPlaylistModal />
+  <AddToPlaylistModal />
+
+  <!-- Desktop Mini Player -->
+  <MiniPlayer />
 
 </div>

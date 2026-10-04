@@ -687,12 +687,53 @@
             onchange={() => settingsState.scheduleSave()}
           />
 
+          <!-- Crossfade Slider -->
+          <div class="py-2 space-y-2 border-t border-white/[0.05]">
+            <div class="flex items-center justify-between">
+              <div class="flex items-center gap-3">
+                <div class="w-8 h-8 rounded-xl bg-purple-500/20 text-purple-300 flex items-center justify-center">
+                  <span class="material-symbols-rounded text-[20px]">graphic_eq</span>
+                </div>
+                <div>
+                  <p class="text-sm font-semibold text-white">Crossfade Duration</p>
+                  <p class="text-xs text-white/50">Blend smoothly between ending and starting tracks</p>
+                </div>
+              </div>
+              <span class="text-xs font-mono px-2.5 py-1 rounded-full bg-white/10 text-white font-medium">
+                {settingsState.crossfadeDuration === 0 ? 'Off (Gapless)' : `${settingsState.crossfadeDuration}s`}
+              </span>
+            </div>
+
+            <div class="pt-1 px-1">
+              <input
+                type="range"
+                min="0"
+                max="10"
+                step="0.5"
+                bind:value={settingsState.crossfadeDuration}
+                oninput={() => {
+                  playerState.setCrossfade(settingsState.crossfadeDuration);
+                  settingsState.scheduleSave();
+                }}
+                class="w-full h-1.5 bg-white/10 rounded-lg appearance-none cursor-pointer accent-[var(--md-sys-primary,#d0bcff)]"
+              />
+              <div class="flex justify-between text-[10px] text-white/40 mt-1">
+                <span>0s (Gapless)</span>
+                <span>5s</span>
+                <span>10s</span>
+              </div>
+            </div>
+          </div>
+
           <CupertinoSwitch
             bind:checked={settingsState.replayGain}
             label="ReplayGain Volume Normalization"
             description="Prevent jarring volume differences between tracks and albums"
             icon="volume_up"
-            onchange={() => settingsState.scheduleSave()}
+            onchange={() => {
+              playerState.setReplayGain(settingsState.replayGain ? settingsState.replayGainMode : 'no');
+              settingsState.scheduleSave();
+            }}
           />
 
           {#if settingsState.replayGain}
@@ -705,7 +746,10 @@
               label="ReplayGain Calculation Mode"
               description="Track-level or full album dynamic range preservation"
               icon="tune"
-              onchange={() => settingsState.scheduleSave()}
+              onchange={() => {
+                playerState.setReplayGain(settingsState.replayGainMode);
+                settingsState.scheduleSave();
+              }}
             />
           {/if}
 

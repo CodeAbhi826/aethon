@@ -1,6 +1,6 @@
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
-import type { Track, PlaybackState, LyricsResult, YouTubeTrack, TabType } from './types';
+import type { Track, PlaybackState, LyricsResult, YouTubeTrack, TabType, Playlist } from './types';
 import { extractAndApplyThemeFromImage, generateThemeFromHex, applyThemeTokens } from './theme';
 import { settingsState, registerThemeListener } from './settingsState.svelte';
 
@@ -15,6 +15,9 @@ class PlayerState {
   });
   queue = $state<Track[]>([]);
   library = $state<Track[]>([]);
+  playlists = $state<Playlist[]>([]);
+  selectedPlaylist = $state<Playlist | null>(null);
+  playlistTracks = $state<Track[]>([]);
   lyrics = $state<LyricsResult>({ synced: false, lines: [] });
   youtubeResults = $state<YouTubeTrack[]>([]);
   isSearching = $state(false);
@@ -22,6 +25,12 @@ class PlayerState {
   isNowPlayingOpen = $state(false);
   isEqualizerOpen = $state(false);
   isQueueOpen = $state(false);
+  isMiniPlayerOpen = $state(false);
+  activeContextMenu = $state<{ track: Track; x: number; y: number } | null>(null);
+  isNewPlaylistModalOpen = $state(false);
+  isAddToPlaylistModalOpen = $state(false);
+  targetTrackForPlaylist = $state<Track | null>(null);
+  downloadingTrackIds = $state<string[]>([]);
   sidebarCollapsed = $state(false);
   accentColor = $state('#d0bcff');
   equalizerBands = $state<number[]>([0, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
@@ -49,6 +58,8 @@ class PlayerState {
   constructor() {
     this.initTauriListeners();
     this.initMediaSession();
+    this.loadLibrary();
+    this.loadPlaylists();
     registerThemeListener(() => {
       this.reapplyTheme();
     });
@@ -112,6 +123,140 @@ class PlayerState {
     } catch (e) {
       console.warn('Error loading library from SQLite:', e);
     }
+  }
+
+  async loadPlaylists() {
+    try {
+      const pls = await invoke<Playlist[]>('get_playlists');
+      this.playlists = pls;
+    } catch (e) {
+      console.warn('Error loading playlists from SQLite:', e);
+    }
+  }
+
+  async createPlaylist(name: string, description?: string) {
+    if (!name.trim()) return null;
+    try {
+      const pl = await invoke<Playlist>('create_playlist', {
+        name: name.trim(),
+        description: description?.trim() || null,
+      });
+      this.playlists = [pl, ...this.playlists];
+      return pl;
+    } catch (e) {
+      console.error('Create playlist error:', e);
+      return null;
+    }
+  }
+
+  async deletePlaylist(id: string) {
+    try {
+      await invoke('delete_playlist', { playlistId: id });
+      this.playlists = this.playlists.filter((p) => p.id !== id);
+      if (this.selectedPlaylist?.id === id) {
+        this.selectedPlaylist = null;
+        this.playlistTracks = [];
+      }
+    } catch (e) {
+      console.error('Delete playlist error:', e);
+    }
+  }
+
+  async selectPlaylist(playlist: Playlist) {
+    this.selectedPlaylist = playlist;
+    try {
+      const tracks = await invoke<Track[]>('get_playlist_tracks', { playlistId: playlist.id });
+      this.playlistTracks = tracks;
+    } catch (e) {
+      console.error('Error fetching playlist tracks:', e);
+      this.playlistTracks = [];
+    }
+  }
+
+  async addToPlaylist(playlistId: string, track: Track) {
+    try {
+      await invoke('add_to_playlist', { playlistId, trackId: track.id });
+      await this.loadPlaylists();
+      if (this.selectedPlaylist?.id === playlistId) {
+        await this.selectPlaylist(this.selectedPlaylist);
+      }
+    } catch (e) {
+      console.error('Error adding track to playlist:', e);
+    }
+  }
+
+  async removeFromPlaylist(playlistId: string, trackId: string) {
+    try {
+      await invoke('remove_from_playlist', { playlistId, trackId });
+      await this.loadPlaylists();
+      if (this.selectedPlaylist?.id === playlistId) {
+        this.playlistTracks = this.playlistTracks.filter((t) => t.id !== trackId);
+      }
+    } catch (e) {
+      console.error('Error removing track from playlist:', e);
+    }
+  }
+
+  openContextMenu(track: Track, x: number, y: number) {
+    this.activeContextMenu = { track, x, y };
+  }
+
+  closeContextMenu() {
+    this.activeContextMenu = null;
+  }
+
+  openAddToPlaylist(track: Track) {
+    this.targetTrackForPlaylist = track;
+    this.isAddToPlaylistModalOpen = true;
+  }
+
+  async downloadTrack(track: Track) {
+    if (this.downloadingTrackIds.includes(track.id)) return;
+    this.downloadingTrackIds = [...this.downloadingTrackIds, track.id];
+    try {
+      const downloaded = await invoke<Track>('download_track', {
+        id: track.id,
+        title: track.title,
+        artist: track.artist,
+        url: track.file_path,
+        thumbnail: track.cover_art || null,
+      });
+      if (!this.library.some((t) => t.id === downloaded.id)) {
+        this.library = [downloaded, ...this.library];
+      }
+    } catch (e) {
+      console.error('Download track error:', e);
+    } finally {
+      this.downloadingTrackIds = this.downloadingTrackIds.filter((id) => id !== track.id);
+    }
+  }
+
+  async revealInFileManager(filePath: string) {
+    try {
+      await invoke('reveal_in_file_manager', { path: filePath });
+    } catch (e) {
+      console.error('Reveal in file manager error:', e);
+    }
+  }
+
+  async setCrossfade(seconds: number) {
+    try {
+      await invoke('set_crossfade', { seconds });
+    } catch (e) {
+      console.error('Set crossfade error:', e);
+    }
+  }
+
+  async setReplayGain(mode: string) {
+    try {
+      await invoke('set_replaygain', { mode });
+    } catch (e) {
+      console.error('Set replaygain error:', e);
+    }
+  }
+
+  toggleMiniPlayer() {
+    this.isMiniPlayerOpen = !this.isMiniPlayerOpen;
   }
 
   async scanLibrary(path?: string) {

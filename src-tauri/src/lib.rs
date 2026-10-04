@@ -109,6 +109,16 @@ pub fn run() {
             window_minimize,
             window_toggle_maximize,
             window_close,
+            create_playlist,
+            delete_playlist,
+            get_playlists,
+            add_to_playlist,
+            remove_from_playlist,
+            get_playlist_tracks,
+            set_crossfade,
+            set_replaygain,
+            reveal_in_file_manager,
+            download_track,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

@@ -63,3 +63,12 @@ export interface AlbumDetails {
   year?: string;
   tracks: Track[];
 }
+
+export interface Playlist {
+  id: string;
+  name: string;
+  description?: string | null;
+  created_at: number;
+  track_count: number;
+}
+

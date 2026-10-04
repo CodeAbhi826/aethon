@@ -20,6 +20,15 @@ pub struct Track {
     pub date_added: i64,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Playlist {
+    pub id: String,
+    pub name: String,
+    pub description: Option<String>,
+    pub created_at: i64,
+    pub track_count: i64,
+}
+
 pub struct Database {
     conn: parking_lot::Mutex<Connection>,
 }
@@ -243,6 +252,122 @@ impl Database {
         }
         tx.commit()?;
         Ok(())
+    }
+
+    pub fn create_playlist(&self, name: &str, description: Option<&str>) -> Result<Playlist> {
+        let conn = self.conn.lock();
+        let id = format!("pl_{}", chrono_now());
+        let now = chrono_now();
+        conn.execute(
+            "INSERT INTO playlists (id, name, description, created_at) VALUES (?1, ?2, ?3, ?4)",
+            params![id, name, description, now],
+        )?;
+        Ok(Playlist {
+            id,
+            name: name.to_string(),
+            description: description.map(|s| s.to_string()),
+            created_at: now,
+            track_count: 0,
+        })
+    }
+
+    pub fn delete_playlist(&self, playlist_id: &str) -> Result<()> {
+        let conn = self.conn.lock();
+        conn.execute("DELETE FROM playlist_tracks WHERE playlist_id = ?1", params![playlist_id])?;
+        conn.execute("DELETE FROM playlists WHERE id = ?1", params![playlist_id])?;
+        Ok(())
+    }
+
+    pub fn get_playlists(&self) -> Result<Vec<Playlist>> {
+        let conn = self.conn.lock();
+        let mut stmt = conn.prepare(
+            "SELECT p.id, p.name, p.description, p.created_at, COUNT(pt.track_id) as track_count
+             FROM playlists p
+             LEFT JOIN playlist_tracks pt ON p.id = pt.playlist_id
+             GROUP BY p.id
+             ORDER BY p.name COLLATE NOCASE ASC"
+        )?;
+
+        let rows = stmt.query_map([], |row| {
+            Ok(Playlist {
+                id: row.get(0)?,
+                name: row.get(1)?,
+                description: row.get(2)?,
+                created_at: row.get(3)?,
+                track_count: row.get(4)?,
+            })
+        })?;
+
+        let mut list = Vec::new();
+        for r in rows {
+            if let Ok(pl) = r {
+                list.push(pl);
+            }
+        }
+        Ok(list)
+    }
+
+    pub fn add_to_playlist(&self, playlist_id: &str, track_id: &str) -> Result<()> {
+        let conn = self.conn.lock();
+        let max_pos: i64 = conn.query_row(
+            "SELECT COALESCE(MAX(position), 0) FROM playlist_tracks WHERE playlist_id = ?1",
+            params![playlist_id],
+            |row| row.get(0),
+        ).unwrap_or(0);
+
+        conn.execute(
+            "INSERT INTO playlist_tracks (playlist_id, track_id, position)
+             VALUES (?1, ?2, ?3)
+             ON CONFLICT(playlist_id, track_id) DO NOTHING",
+            params![playlist_id, track_id, max_pos + 1],
+        )?;
+        Ok(())
+    }
+
+    pub fn remove_from_playlist(&self, playlist_id: &str, track_id: &str) -> Result<()> {
+        let conn = self.conn.lock();
+        conn.execute(
+            "DELETE FROM playlist_tracks WHERE playlist_id = ?1 AND track_id = ?2",
+            params![playlist_id, track_id],
+        )?;
+        Ok(())
+    }
+
+    pub fn get_playlist_tracks(&self, playlist_id: &str) -> Result<Vec<Track>> {
+        let conn = self.conn.lock();
+        let mut stmt = conn.prepare(
+            "SELECT t.id, t.title, t.artist, t.album, t.duration, t.file_path, t.cover_art, t.format, t.bitrate, t.sample_rate, t.play_count, t.favorite, t.date_added
+             FROM playlist_tracks pt
+             JOIN tracks t ON pt.track_id = t.id
+             WHERE pt.playlist_id = ?1
+             ORDER BY pt.position ASC"
+        )?;
+
+        let rows = stmt.query_map(params![playlist_id], |row| {
+            Ok(Track {
+                id: row.get(0)?,
+                title: row.get(1)?,
+                artist: row.get(2)?,
+                album: row.get(3)?,
+                duration: row.get(4)?,
+                file_path: row.get(5)?,
+                cover_art: row.get(6)?,
+                format: row.get(7)?,
+                bitrate: row.get(8)?,
+                sample_rate: row.get(9)?,
+                play_count: row.get(10)?,
+                favorite: row.get::<_, i64>(11)? == 1,
+                date_added: row.get(12)?,
+            })
+        })?;
+
+        let mut tracks = Vec::new();
+        for r in rows {
+            if let Ok(track) = r {
+                tracks.push(track);
+            }
+        }
+        Ok(tracks)
     }
 }
 

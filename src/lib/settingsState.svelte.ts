@@ -25,6 +25,7 @@ class SettingsState {
 
   // 3. Audio & Playback
   gaplessAudio = $state(true);
+  crossfadeDuration = $state(0);
   replayGain = $state(false);
   replayGainMode = $state<'track' | 'album' | 'off'>('track');
   exclusiveDeviceMode = $state(false);
@@ -117,6 +118,7 @@ class SettingsState {
         if ('dimDisplayOnStandby' in records) this.dimDisplayOnStandby = records['dimDisplayOnStandby'] === 'true';
 
         if ('gaplessAudio' in records) this.gaplessAudio = records['gaplessAudio'] === 'true';
+        if ('crossfadeDuration' in records) this.crossfadeDuration = Number(records['crossfadeDuration']) || 0;
         if ('replayGain' in records) this.replayGain = records['replayGain'] === 'true';
         if ('replayGainMode' in records) this.replayGainMode = records['replayGainMode'] as any;
         if ('exclusiveDeviceMode' in records) this.exclusiveDeviceMode = records['exclusiveDeviceMode'] === 'true';
@@ -206,6 +208,7 @@ class SettingsState {
           dimDisplayOnStandby: String(this.dimDisplayOnStandby),
 
           gaplessAudio: String(this.gaplessAudio),
+          crossfadeDuration: String(this.crossfadeDuration),
           replayGain: String(this.replayGain),
           replayGainMode: this.replayGainMode,
           exclusiveDeviceMode: String(this.exclusiveDeviceMode),

@@ -1,4 +1,4 @@
-use crate::library::{Database, Scanner, Track};
+use crate::library::{Database, Playlist, Scanner, Track};
 use crate::lyrics::{LyricsResult, LyricsService};
 use crate::player::{MpvEngine, PlaybackState};
 use crate::youtube::{YouTubeService, YouTubeTrack};
@@ -228,4 +228,196 @@ pub fn window_toggle_maximize(window: tauri::Window) -> Result<(), String> {
 pub fn window_close(window: tauri::Window) -> Result<(), String> {
     window.close().map_err(|e| e.to_string())
 }
+
+#[tauri::command]
+pub fn create_playlist(
+    name: String,
+    description: Option<String>,
+    state: State<'_, AppState>,
+) -> Result<Playlist, String> {
+    crate::aethon_log!("create_playlist: name='{}'", name);
+    state.db.create_playlist(&name, description.as_deref()).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn delete_playlist(
+    playlist_id: String,
+    state: State<'_, AppState>,
+) -> Result<(), String> {
+    crate::aethon_log!("delete_playlist: id='{}'", playlist_id);
+    state.db.delete_playlist(&playlist_id).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn get_playlists(state: State<'_, AppState>) -> Result<Vec<Playlist>, String> {
+    state.db.get_playlists().map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn add_to_playlist(
+    playlist_id: String,
+    track_id: String,
+    state: State<'_, AppState>,
+) -> Result<(), String> {
+    crate::aethon_log!("add_to_playlist: pl='{}', track='{}'", playlist_id, track_id);
+    state.db.add_to_playlist(&playlist_id, &track_id).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn remove_from_playlist(
+    playlist_id: String,
+    track_id: String,
+    state: State<'_, AppState>,
+) -> Result<(), String> {
+    crate::aethon_log!("remove_from_playlist: pl='{}', track='{}'", playlist_id, track_id);
+    state.db.remove_from_playlist(&playlist_id, &track_id).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn get_playlist_tracks(
+    playlist_id: String,
+    state: State<'_, AppState>,
+) -> Result<Vec<Track>, String> {
+    state.db.get_playlist_tracks(&playlist_id).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn set_crossfade(seconds: f64, state: State<'_, AppState>) -> Result<(), String> {
+    crate::aethon_log!("set_crossfade: {:.1}s", seconds);
+    state.mpv.set_crossfade(seconds).await.map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn set_replaygain(mode: String, state: State<'_, AppState>) -> Result<(), String> {
+    crate::aethon_log!("set_replaygain: {}", mode);
+    state.mpv.set_replaygain(&mode).await.map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn reveal_in_file_manager(path: String) -> Result<(), String> {
+    crate::aethon_log!("reveal_in_file_manager: path='{}'", path);
+    if path.starts_with("http://") || path.starts_with("https://") {
+        return Ok(());
+    }
+    let p = std::path::Path::new(&path);
+    let target = if p.is_dir() {
+        p
+    } else {
+        p.parent().unwrap_or(p)
+    };
+    let _ = std::process::Command::new("xdg-open")
+        .arg(target)
+        .spawn()
+        .map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn download_track(
+    id: String,
+    title: String,
+    artist: String,
+    url: String,
+    thumbnail: Option<String>,
+    state: State<'_, AppState>,
+) -> Result<Track, String> {
+    crate::aethon_log!("download_track: id='{}', title='{}', artist='{}'", id, title, artist);
+    let db = Arc::clone(&state.db);
+
+    tokio::task::spawn_blocking(move || {
+        let music_dir = dirs::audio_dir()
+            .unwrap_or_else(|| dirs::home_dir().unwrap_or_else(|| PathBuf::from(".")).join("Music"))
+            .join("Aethon Downloads");
+        let _ = std::fs::create_dir_all(&music_dir);
+
+        let sanitized_title = title.replace('/', "-").replace('\\', "-");
+        let out_path = music_dir.join(format!("{}.mp3", sanitized_title));
+        let out_template = music_dir.join("%(title)s.%(ext)s");
+
+        let mut cmd = std::process::Command::new("yt-dlp");
+        cmd.arg("-x")
+            .arg("--audio-format").arg("mp3")
+            .arg("--audio-quality").arg("0")
+            .arg("--embed-thumbnail")
+            .arg("--add-metadata")
+            .arg("--no-playlist")
+            .arg("-o").arg(out_template.to_string_lossy().to_string())
+            .arg(&url);
+
+        if let Ok(ld) = std::env::var("LD_LIBRARY_PATH") {
+            let filtered: Vec<&str> = ld
+                .split(':')
+                .filter(|p| !p.contains(".mount_") && !p.is_empty())
+                .collect();
+            if filtered.is_empty() {
+                cmd.env_remove("LD_LIBRARY_PATH");
+            } else {
+                cmd.env("LD_LIBRARY_PATH", filtered.join(":"));
+            }
+        }
+        if let Ok(py) = std::env::var("PYTHONPATH") {
+            if py.contains(".mount_") {
+                cmd.env_remove("PYTHONPATH");
+            }
+        }
+        if let Ok(pyh) = std::env::var("PYTHONHOME") {
+            if pyh.contains(".mount_") {
+                cmd.env_remove("PYTHONHOME");
+            }
+        }
+
+        let output = cmd.output().map_err(|e| format!("Failed to spawn yt-dlp: {}", e))?;
+        if !output.status.success() {
+            let err = String::from_utf8_lossy(&output.stderr);
+            return Err(format!("yt-dlp download failed: {}", err));
+        }
+
+        let actual_path = if out_path.exists() {
+            out_path
+        } else {
+            let mut newest = None;
+            let mut newest_time = std::time::UNIX_EPOCH;
+            if let Ok(entries) = std::fs::read_dir(&music_dir) {
+                for entry in entries.flatten() {
+                    if let Ok(meta) = entry.metadata() {
+                        if meta.is_file() {
+                            if let Ok(mod_time) = meta.modified() {
+                                if mod_time > newest_time {
+                                    newest_time = mod_time;
+                                    newest = Some(entry.path());
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            newest.unwrap_or(out_path)
+        };
+
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_secs() as i64)
+            .unwrap_or(0);
+
+        let track = Track {
+            id: format!("dl_{}", id),
+            title: title.clone(),
+            artist: artist.clone(),
+            album: "Aethon Downloads".to_string(),
+            duration: 0.0,
+            file_path: actual_path.to_string_lossy().to_string(),
+            cover_art: thumbnail,
+            format: "MP3 320k".to_string(),
+            bitrate: Some(320),
+            sample_rate: Some(44100),
+            play_count: 0,
+            favorite: false,
+            date_added: now,
+        };
+
+        let _ = db.upsert_track(&track);
+        Ok(track)
+    }).await.map_err(|e| e.to_string())?
+}
+
 

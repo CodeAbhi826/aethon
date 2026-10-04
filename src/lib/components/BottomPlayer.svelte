@@ -209,6 +209,14 @@
     </div>
 
     <button
+      onclick={() => playerState.toggleMiniPlayer()}
+      class="p-2 rounded-full hover:bg-white/10 {playerState.isMiniPlayerOpen ? 'text-[var(--md-sys-primary)]' : 'text-[var(--md-sys-on-surface-variant)] hover:text-white'} transition"
+      title="Mini Player"
+    >
+      <span class="material-symbols-rounded text-xl">picture_in_picture_alt</span>
+    </button>
+
+    <button
       onclick={() => playerState.isNowPlayingOpen = !playerState.isNowPlayingOpen}
       class="p-2 rounded-full hover:bg-white/10 text-[var(--md-sys-on-surface-variant)] hover:text-white transition"
       title="Expand Player"
