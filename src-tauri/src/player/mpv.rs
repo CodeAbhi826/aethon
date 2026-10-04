@@ -345,13 +345,28 @@ impl MpvEngine {
     }
 
     pub async fn set_equalizer(&self, gains: &[f64]) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        let is_flat = gains.iter().all(|&g| g.abs() < 0.05);
+        if is_flat {
+            crate::aethon_log!("set_equalizer: flat preset active, bypassing audio filters");
+            let msg = serde_json::json!({
+                "command": ["set_property", "af", ""]
+            });
+            return self.send_cmd(&msg.to_string()).await;
+        }
+
         let freqs = [31.25, 62.5, 125.0, 250.0, 500.0, 1000.0, 2000.0, 4000.0, 8000.0, 16000.0];
         let mut filters = Vec::new();
         for (i, &f) in freqs.iter().enumerate() {
             let gain = gains.get(i).copied().unwrap_or(0.0).clamp(-12.0, 12.0);
-            filters.push(format!("equalizer=f={:.1}:width_type=o:width=1.0:g={:.1}", f, gain));
+            if gain.abs() >= 0.05 {
+                filters.push(format!("equalizer=f={:.1}:width_type=o:width=1.0:g={:.1}", f, gain));
+            }
         }
-        let filter_chain = filters.join(",");
+        let filter_chain = if filters.is_empty() {
+            String::new()
+        } else {
+            filters.join(",")
+        };
         let msg = serde_json::json!({
             "command": ["set_property", "af", filter_chain]
         });
