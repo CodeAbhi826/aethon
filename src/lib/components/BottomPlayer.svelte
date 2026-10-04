@@ -43,12 +43,17 @@
         >
           {playerState.currentTrack.title}
         </button>
-        <div class="text-[11px] sm:text-xs text-[var(--md-sys-on-surface-variant)] truncate">
-          {playerState.currentTrack.artist}
+        <div class="text-[11px] sm:text-xs text-[var(--md-sys-on-surface-variant)]/75 truncate mt-0.5">
+          <button
+            onclick={() => playerState.openArtist(playerState.currentTrack?.artist || '')}
+            class="hover:underline hover:text-white transition text-left"
+          >
+            {playerState.currentTrack.artist}
+          </button>
         </div>
         <div class="flex items-center gap-1.5 mt-0.5 hidden sm:flex">
           <span class="text-[9px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full bg-[var(--md-sys-primary-container)] text-[var(--md-sys-on-primary-container)]">
-            {playerState.currentTrack.format || 'Lossless'}
+            {playerState.currentTrack.format || 'Opus 256k'}
           </span>
         </div>
       </div>
@@ -77,7 +82,15 @@
 
   <!-- Center: Playback Transport & Precision Scrubber -->
   <div class="flex flex-col items-center max-w-xl flex-1 px-2 min-w-0">
-    <div class="flex items-center gap-3 sm:gap-5 mb-1">
+    <div class="flex items-center gap-2.5 sm:gap-4 mb-1">
+      <button
+        onclick={() => playerState.toggleShuffle()}
+        class="p-1 rounded-full {playerState.shuffleMode ? 'text-[var(--md-sys-primary)]' : 'text-[var(--md-sys-on-surface-variant)]/60 hover:text-white'} transition cursor-pointer"
+        title={playerState.shuffleMode ? 'Shuffle On' : 'Shuffle Off'}
+      >
+        <span class="material-symbols-rounded text-base sm:text-lg">shuffle</span>
+      </button>
+
       <button
         onclick={() => playerState.playPrevious()}
         class="p-1 rounded-full text-[var(--md-sys-on-surface-variant)] hover:text-white transition cursor-pointer"
@@ -107,6 +120,16 @@
       >
         <span class="material-symbols-rounded text-xl sm:text-2xl">skip_next</span>
       </button>
+
+      <button
+        onclick={() => playerState.toggleRepeat()}
+        class="p-1 rounded-full {playerState.repeatMode !== 'off' ? 'text-[var(--md-sys-primary)]' : 'text-[var(--md-sys-on-surface-variant)]/60 hover:text-white'} transition cursor-pointer"
+        title={`Repeat: ${playerState.repeatMode}`}
+      >
+        <span class="material-symbols-rounded text-base sm:text-lg">
+          {playerState.repeatMode === 'one' ? 'repeat_one' : 'repeat'}
+        </span>
+      </button>
     </div>
 
     <!-- Scrubber -->
@@ -125,8 +148,21 @@
     </div>
   </div>
 
-  <!-- Right: Lyrics, Equalizer, Volume, Expand -->
-  <div class="flex items-center justify-end gap-1.5 sm:gap-3 shrink-0">
+  <!-- Right: Queue, Lyrics, Equalizer, Volume, Expand -->
+  <div class="flex items-center justify-end gap-1 sm:gap-2.5 shrink-0">
+    <button
+      onclick={() => playerState.isQueueOpen = !playerState.isQueueOpen}
+      class="p-2 rounded-full hover:bg-white/10 text-[var(--md-sys-on-surface-variant)] hover:text-white transition relative cursor-pointer"
+      title="Playing Next Queue"
+    >
+      <span class="material-symbols-rounded text-xl {playerState.isQueueOpen ? 'text-[var(--md-sys-primary)]' : ''}">queue_music</span>
+      {#if playerState.queue.length > 0}
+        <span class="absolute top-1 right-1 w-3.5 h-3.5 rounded-full bg-[var(--md-sys-primary)] text-[var(--md-sys-on-primary)] text-[8px] font-bold flex items-center justify-center">
+          {playerState.queue.length > 9 ? '9+' : playerState.queue.length}
+        </span>
+      {/if}
+    </button>
+
     <button
       onclick={() => playerState.isNowPlayingOpen = true}
       class="p-2 rounded-full hover:bg-white/10 text-[var(--md-sys-on-surface-variant)] hover:text-white transition"

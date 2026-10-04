@@ -13,6 +13,9 @@
   import LibraryView from '$lib/views/LibraryView.svelte';
   import StatsView from '$lib/views/StatsView.svelte';
   import SettingsView from '$lib/views/SettingsView.svelte';
+  import ArtistView from '$lib/views/ArtistView.svelte';
+  import AlbumView from '$lib/views/AlbumView.svelte';
+  import QueueDrawer from '$lib/components/QueueDrawer.svelte';
 
   onMount(() => {
     // Load local SQLite tracks on mount
@@ -50,7 +53,9 @@
       } else if (e.code === 'ArrowDown') {
         playerState.setVolume(Math.max(0, playerState.playback.volume - 5));
       } else if (e.key === 'Escape') {
-        if (playerState.isEqualizerOpen) {
+        if (playerState.isQueueOpen) {
+          playerState.isQueueOpen = false;
+        } else if (playerState.isEqualizerOpen) {
           playerState.isEqualizerOpen = false;
         } else if (playerState.isNowPlayingOpen) {
           playerState.isNowPlayingOpen = false;
@@ -95,6 +100,10 @@
         <StatsView />
       {:else if playerState.activeTab === 'settings'}
         <SettingsView />
+      {:else if playerState.activeTab === 'artist'}
+        <ArtistView />
+      {:else if playerState.activeTab === 'album'}
+        <AlbumView />
       {/if}
     </main>
   </div>
@@ -107,5 +116,8 @@
 
   <!-- 10-Band Equalizer Modal -->
   <EqualizerModal />
+
+  <!-- Up Next Queue Drawer -->
+  <QueueDrawer />
 
 </div>

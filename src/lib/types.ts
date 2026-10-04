@@ -46,4 +46,20 @@ export interface YouTubeTrack {
   stream_url: string;
 }
 
-export type TabType = 'home' | 'search' | 'library' | 'stats' | 'settings';
+export type TabType = 'home' | 'search' | 'library' | 'stats' | 'settings' | 'artist' | 'album';
+
+export interface ArtistDetails {
+  name: string;
+  avatar?: string;
+  monthlyListeners?: string;
+  topTracks: Track[];
+  albums: { title: string; year?: string; cover?: string }[];
+}
+
+export interface AlbumDetails {
+  title: string;
+  artist: string;
+  cover?: string;
+  year?: string;
+  tracks: Track[];
+}

@@ -21,10 +21,17 @@ class PlayerState {
   activeTab = $state<TabType>('home');
   isNowPlayingOpen = $state(false);
   isEqualizerOpen = $state(false);
+  isQueueOpen = $state(false);
   sidebarCollapsed = $state(false);
   accentColor = $state('#d0bcff');
   equalizerBands = $state<number[]>([0, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
   isLoading = $state(false);
+  shuffleMode = $state(false);
+  repeatMode = $state<'off' | 'all' | 'one'>('off');
+  autoplayRadio = $state(true);
+  history = $state<Track[]>([]);
+  selectedArtist = $state<string | null>(null);
+  selectedAlbum = $state<{ title: string; artist: string; cover?: string; year?: string } | null>(null);
 
   // Derived properties
   formattedTime = $derived.by(() => {
@@ -41,9 +48,38 @@ class PlayerState {
 
   constructor() {
     this.initTauriListeners();
+    this.initMediaSession();
     registerThemeListener(() => {
       this.reapplyTheme();
     });
+  }
+
+  initMediaSession() {
+    if (typeof navigator !== 'undefined' && 'mediaSession' in navigator) {
+      navigator.mediaSession.setActionHandler('play', () => this.togglePlay());
+      navigator.mediaSession.setActionHandler('pause', () => this.togglePlay());
+      navigator.mediaSession.setActionHandler('previoustrack', () => this.playPrevious());
+      navigator.mediaSession.setActionHandler('nexttrack', () => this.playNext());
+      navigator.mediaSession.setActionHandler('seekto', (details) => {
+        if (details.seekTime !== undefined) {
+          this.seek(details.seekTime);
+        }
+      });
+    }
+  }
+
+  updateMediaSession(track: Track) {
+    if (typeof navigator !== 'undefined' && 'mediaSession' in navigator) {
+      navigator.mediaSession.metadata = new MediaMetadata({
+        title: track.title,
+        artist: track.artist,
+        album: track.album || 'Aethon',
+        artwork: track.cover_art ? [
+          { src: track.cover_art, sizes: '512x512', type: 'image/jpeg' }
+        ] : [],
+      });
+      navigator.mediaSession.playbackState = this.playback.is_playing ? 'playing' : 'paused';
+    }
   }
 
   async initTauriListeners() {
@@ -90,8 +126,13 @@ class PlayerState {
   }
 
   async playTrack(track: Track) {
+    if (this.currentTrack && this.currentTrack.id !== track.id) {
+      this.history.unshift(this.currentTrack);
+      if (this.history.length > 50) this.history.pop();
+    }
     this.currentTrack = track;
     this.isLoading = true;
+    this.updateMediaSession(track);
     try {
       await invoke('play_track', { uri: track.file_path, trackId: track.id });
       this.fetchLyrics(track.title, track.artist, track.duration);
@@ -120,8 +161,13 @@ class PlayerState {
       favorite: false,
       date_added: Date.now(),
     };
+    if (this.currentTrack && this.currentTrack.id !== syntheticTrack.id) {
+      this.history.unshift(this.currentTrack);
+      if (this.history.length > 50) this.history.pop();
+    }
     this.currentTrack = syntheticTrack;
     this.isLoading = true;
+    this.updateMediaSession(syntheticTrack);
     try {
       await invoke('play_track', { uri: yt.stream_url, trackId: null });
       this.fetchLyrics(yt.title, yt.artist, yt.duration);
@@ -205,14 +251,102 @@ class PlayerState {
     }
   }
 
-  playNext() {
+  addToQueue(track: Track) {
+    this.queue = [...this.queue, track];
+  }
+
+  playNextInQueue(track: Track) {
+    this.queue = [track, ...this.queue];
+  }
+
+  removeFromQueue(idx: number) {
+    this.queue = this.queue.filter((_, i) => i !== idx);
+  }
+
+  clearQueue() {
+    this.queue = [];
+  }
+
+  toggleShuffle() {
+    this.shuffleMode = !this.shuffleMode;
+  }
+
+  toggleRepeat() {
+    if (this.repeatMode === 'off') this.repeatMode = 'all';
+    else if (this.repeatMode === 'all') this.repeatMode = 'one';
+    else this.repeatMode = 'off';
+  }
+
+  openArtist(artistName: string) {
+    if (!artistName) return;
+    this.selectedArtist = artistName;
+    this.activeTab = 'artist';
+  }
+
+  openAlbum(title: string, artist: string, cover?: string, year?: string) {
+    if (!title) return;
+    this.selectedAlbum = { title, artist, cover, year };
+    this.activeTab = 'album';
+  }
+
+  async playNext() {
+    if (this.repeatMode === 'one' && this.currentTrack) {
+      this.seek(0);
+      return;
+    }
+
     if (this.queue.length > 0) {
-      const next = this.queue.shift();
-      if (next) this.playTrack(next);
-    } else if (this.library.length > 0 && this.currentTrack) {
+      const next = this.queue[0];
+      this.queue = this.queue.slice(1);
+      if (next) {
+        await this.playTrack(next);
+        return;
+      }
+    }
+
+    // Autoplay Radio continuation (ArchiveTune / Spotify / Apple Music style)
+    if (this.autoplayRadio && this.currentTrack) {
+      try {
+        const query = `${this.currentTrack.artist} songs`;
+        const res = await invoke<YouTubeTrack[]>('search_youtube', { query, limit: 6 });
+        if (res && res.length > 0) {
+          const suggestions: Track[] = res
+            .filter((yt) => `yt_${yt.id}` !== this.currentTrack?.id)
+            .map((yt) => ({
+              id: `yt_${yt.id}`,
+              title: yt.title,
+              artist: yt.artist || 'Radio Pick',
+              album: 'Autoplay Radio',
+              duration: yt.duration || 210,
+              file_path: yt.stream_url,
+              cover_art: yt.thumbnail,
+              format: 'Opus 256k',
+              play_count: 0,
+              favorite: false,
+              date_added: Date.now(),
+            }));
+
+          if (suggestions.length > 0) {
+            const nextTrack = suggestions[0];
+            this.queue = suggestions.slice(1);
+            await this.playTrack(nextTrack);
+            return;
+          }
+        }
+      } catch (e) {
+        console.warn('Autoplay radio suggestion failed:', e);
+      }
+    }
+
+    if (this.library.length > 0 && this.currentTrack) {
       const idx = this.library.findIndex((t) => t.id === this.currentTrack?.id);
-      if (idx !== -1 && idx < this.library.length - 1) {
+      if (this.shuffleMode) {
+        const randomIdx = Math.floor(Math.random() * this.library.length);
+        this.playTrack(this.library[randomIdx]);
+      } else if (idx !== -1 && idx < this.library.length - 1) {
         this.playTrack(this.library[idx + 1]);
+      } else if (this.repeatMode === 'all') {
+        this.playTrack(this.library[0]);
       }
     }
   }
@@ -221,6 +355,13 @@ class PlayerState {
     if (this.playback.position > 3) {
       this.seek(0);
       return;
+    }
+    if (this.history.length > 0) {
+      const prev = this.history.shift();
+      if (prev) {
+        this.playTrack(prev);
+        return;
+      }
     }
     if (this.library.length > 0 && this.currentTrack) {
       const idx = this.library.findIndex((t) => t.id === this.currentTrack?.id);
