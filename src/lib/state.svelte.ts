@@ -18,6 +18,8 @@ class PlayerState {
   playlists = $state<Playlist[]>([]);
   selectedPlaylist = $state<Playlist | null>(null);
   playlistTracks = $state<Track[]>([]);
+  playHistoryTracks = $state<Track[]>([]);
+  currentMood = $state<string>('All');
   lyrics = $state<LyricsResult>({ synced: false, lines: [] });
   youtubeResults = $state<YouTubeTrack[]>([]);
   isSearching = $state(false);
@@ -60,6 +62,7 @@ class PlayerState {
     this.initMediaSession();
     this.loadLibrary();
     this.loadPlaylists();
+    this.loadPlayHistory();
     registerThemeListener(() => {
       this.reapplyTheme();
     });
@@ -93,6 +96,48 @@ class PlayerState {
     }
   }
 
+  async updateMpris(track: Track, isPlaying: boolean) {
+    if (!settingsState.mprisIntegration) return;
+    try {
+      await invoke('update_mpris_metadata', {
+        title: track.title,
+        artist: track.artist,
+        album: track.album || 'Aethon',
+        cover: track.cover_art || '',
+        durationUs: Math.round((track.duration || this.playback.duration || 0) * 1_000_000),
+        isPlaying,
+      });
+    } catch (e) {
+      console.warn('update_mpris_metadata error:', e);
+    }
+  }
+
+  async notifyTrackChange(track: Track) {
+    if (!settingsState.trackChangeNotifications) return;
+    if (typeof document !== 'undefined' && !document.hasFocus()) {
+      try {
+        await invoke('send_desktop_notification', {
+          title: track.title,
+          artist: track.artist,
+          coverArt: track.cover_art || null,
+        });
+      } catch (e) {
+        console.warn('send_desktop_notification error:', e);
+      }
+    }
+  }
+
+  async loadPlayHistory() {
+    try {
+      const history = await invoke<Track[]>('get_play_history', { limit: 20 });
+      if (history && history.length > 0) {
+        this.playHistoryTracks = history;
+      }
+    } catch (e) {
+      console.warn('get_play_history error:', e);
+    }
+  }
+
   async initTauriListeners() {
     try {
       await listen<PlaybackState>('player-state', (event) => {
@@ -100,10 +145,33 @@ class PlayerState {
         if (event.payload.is_playing || event.payload.position > 0.1) {
           this.isLoading = false;
         }
+        if (this.currentTrack) {
+          this.updateMediaSession(this.currentTrack);
+        }
       });
 
       await listen('track-ended', () => {
         this.playNext();
+      });
+
+      await listen('mpris-next', () => {
+        this.playNext();
+      });
+
+      await listen('mpris-prev', () => {
+        this.playPrevious();
+      });
+
+      await listen('mpris-playpause', () => {
+        this.togglePlay();
+      });
+
+      await listen('tray-next', () => {
+        this.playNext();
+      });
+
+      await listen('tray-prev', () => {
+        this.playPrevious();
       });
 
       // Initial state sync
@@ -278,9 +346,12 @@ class PlayerState {
     this.currentTrack = track;
     this.isLoading = true;
     this.updateMediaSession(track);
+    this.updateMpris(track, true);
+    this.notifyTrackChange(track);
     try {
       await invoke('play_track', { uri: track.file_path, trackId: track.id });
       this.fetchLyrics(track.title, track.artist, track.duration);
+      this.loadPlayHistory();
       if (track.cover_art) {
         this.applyMonetColorFromImage(track.cover_art);
       } else {
@@ -297,7 +368,7 @@ class PlayerState {
       id: `yt_${yt.id}`,
       title: yt.title,
       artist: yt.artist,
-      album: 'YouTube Music Stream',
+      album: 'Lossless Online Stream',
       duration: yt.duration,
       file_path: yt.stream_url,
       cover_art: yt.thumbnail,
@@ -313,16 +384,19 @@ class PlayerState {
     this.currentTrack = syntheticTrack;
     this.isLoading = true;
     this.updateMediaSession(syntheticTrack);
+    this.updateMpris(syntheticTrack, true);
+    this.notifyTrackChange(syntheticTrack);
     try {
       await invoke('play_track', { uri: yt.stream_url, trackId: null });
       this.fetchLyrics(yt.title, yt.artist, yt.duration);
+      this.loadPlayHistory();
       if (yt.thumbnail) {
         this.applyMonetColorFromImage(yt.thumbnail);
       } else {
         this.reapplyTheme();
       }
     } catch (e) {
-      console.error('YouTube play error:', e);
+      console.error('Stream play error:', e);
       this.isLoading = false;
     }
   }
@@ -449,7 +523,7 @@ class PlayerState {
       }
     }
 
-    // Autoplay Radio continuation (ArchiveTune / Spotify / Apple Music style)
+    // Autoplay Radio continuation (dynamic online stream recommendations)
     if (this.autoplayRadio && this.currentTrack) {
       try {
         const query = `${this.currentTrack.artist} songs`;

@@ -201,6 +201,74 @@ impl Database {
         Ok(())
     }
 
+    pub fn get_play_history(&self, limit: usize) -> Result<Vec<Track>> {
+        let conn = self.conn.lock();
+        let mut stmt = conn.prepare(
+            "SELECT t.id, t.title, t.artist, t.album, t.duration, t.file_path, t.cover_art, t.format, t.bitrate, t.sample_rate, t.play_count, t.favorite, t.date_added
+             FROM play_history ph
+             JOIN tracks t ON ph.track_id = t.id
+             GROUP BY t.id
+             ORDER BY MAX(ph.played_at) DESC
+             LIMIT ?1",
+        )?;
+
+        let rows = stmt.query_map(params![limit as i64], |row| {
+            Ok(Track {
+                id: row.get(0)?,
+                title: row.get(1)?,
+                artist: row.get(2)?,
+                album: row.get(3)?,
+                duration: row.get(4)?,
+                file_path: row.get(5)?,
+                cover_art: row.get(6)?,
+                format: row.get(7)?,
+                bitrate: row.get(8)?,
+                sample_rate: row.get(9)?,
+                play_count: row.get(10)?,
+                favorite: row.get::<_, i64>(11)? == 1,
+                date_added: row.get(12)?,
+            })
+        })?;
+
+        let mut tracks = Vec::new();
+        for r in rows {
+            if let Ok(track) = r {
+                tracks.push(track);
+            }
+        }
+
+        if tracks.is_empty() {
+            let mut fallback_stmt = conn.prepare(
+                "SELECT id, title, artist, album, duration, file_path, cover_art, format, bitrate, sample_rate, play_count, favorite, date_added
+                 FROM tracks ORDER BY play_count DESC, date_added DESC LIMIT ?1",
+            )?;
+            let fallback_rows = fallback_stmt.query_map(params![limit as i64], |row| {
+                Ok(Track {
+                    id: row.get(0)?,
+                    title: row.get(1)?,
+                    artist: row.get(2)?,
+                    album: row.get(3)?,
+                    duration: row.get(4)?,
+                    file_path: row.get(5)?,
+                    cover_art: row.get(6)?,
+                    format: row.get(7)?,
+                    bitrate: row.get(8)?,
+                    sample_rate: row.get(9)?,
+                    play_count: row.get(10)?,
+                    favorite: row.get::<_, i64>(11)? == 1,
+                    date_added: row.get(12)?,
+                })
+            })?;
+            for r in fallback_rows {
+                if let Ok(track) = r {
+                    tracks.push(track);
+                }
+            }
+        }
+
+        Ok(tracks)
+    }
+
     pub fn get_all_settings(&self) -> Result<HashMap<String, String>> {
         let conn = self.conn.lock();
         let mut stmt = conn.prepare("SELECT key, value FROM settings")?;

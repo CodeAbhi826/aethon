@@ -10,6 +10,7 @@ use tauri::State;
 pub struct AppState {
     pub mpv: Arc<MpvEngine>,
     pub db: Arc<Database>,
+    pub mpris: Arc<crate::player::MprisManager>,
 }
 
 #[tauri::command]
@@ -418,6 +419,48 @@ pub async fn download_track(
         let _ = db.upsert_track(&track);
         Ok(track)
     }).await.map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+pub fn get_play_history(
+    limit: Option<usize>,
+    state: State<'_, AppState>,
+) -> Result<Vec<Track>, String> {
+    state.db.get_play_history(limit.unwrap_or(20)).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn send_desktop_notification(
+    title: String,
+    artist: String,
+    cover_art: Option<String>,
+) -> Result<(), String> {
+    crate::aethon_log!("send_desktop_notification: title={}, artist={}", title, artist);
+    let mut cmd = std::process::Command::new("notify-send");
+    cmd.arg("-a").arg("Aethon");
+    cmd.arg("-c").arg("media");
+    if let Some(ref icon) = cover_art {
+        cmd.arg("-i").arg(icon);
+    } else {
+        cmd.arg("-i").arg("multimedia-audio-player");
+    }
+    cmd.arg(&title).arg(format!("{} • Aethon", artist));
+    let _ = cmd.spawn();
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn update_mpris_metadata(
+    title: String,
+    artist: String,
+    album: String,
+    cover: String,
+    duration_us: i64,
+    is_playing: bool,
+    state: State<'_, AppState>,
+) -> Result<(), String> {
+    crate::aethon_log!("update_mpris_metadata: title={}, artist={}, playing={}", title, artist, is_playing);
+    state.mpris.update_metadata(&title, &artist, &album, &cover, duration_us, is_playing).await
 }
 
 

@@ -42,13 +42,13 @@ export interface ThemeOptions {
 
 export const THEME_PRESETS: Record<string, { name: string; hex: string; desc: string }> = {
   dynamic: { name: 'Dynamic Monet', hex: '#d0bcff', desc: 'Adapts in real-time to current album art' },
-  violet: { name: 'ArchiveTune Violet', hex: '#d0bcff', desc: 'Signature expressive Material 3 purple' },
+  violet: { name: 'Expressive Violet', hex: '#d0bcff', desc: 'Signature expressive Material 3 purple' },
   emerald: { name: 'Bit-Perfect Emerald', hex: '#80e2a7', desc: 'Hi-Res audio green aesthetic' },
   sapphire: { name: 'Sapphire Ocean', hex: '#8ec5fc', desc: 'Vibrant cool blue tones' },
   crimson: { name: 'Crimson Velvet', hex: '#ff8ba7', desc: 'Warm passionate rose velvet' },
   amber: { name: 'Sunset Amber', hex: '#ffc078', desc: 'Cozy golden acoustic warmth' },
   oled: { name: 'Pure Obsidian OLED', hex: '#e2e2e6', desc: 'Absolute #000000 true black contrast' },
-  cupertino: { name: 'Apple Cupertino Dark', hex: '#0a84ff', desc: 'Modern macOS system accent & deep graphite' },
+  cupertino: { name: 'Cupertino Graphite', hex: '#0a84ff', desc: 'Modern minimal system accent & deep graphite' },
   tokyonight: { name: 'Tokyo Night Neon', hex: '#7aa2f7', desc: 'Cyberpunk neon indigo aesthetic' },
 };
 
@@ -182,7 +182,7 @@ export function applyThemeTokens(colors: ThemeColors) {
   root.style.setProperty('--md-sys-acrylic-card', colors.acrylicCard);
   root.style.setProperty('--md-sys-acrylic-dock', colors.acrylicDock);
 
-  // ArchiveTune accent compatibility variables
+  // Accent compatibility variables
   root.style.setProperty('--at-accent', colors.primary);
   root.style.setProperty('--at-accent-container', colors.primaryContainer);
   root.style.setProperty('--at-on-accent-container', colors.onPrimaryContainer);

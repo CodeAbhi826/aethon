@@ -2,6 +2,7 @@
   import { onMount } from 'svelte';
   import { invoke } from '@tauri-apps/api/core';
   import { playerState } from '../state.svelte';
+  import { settingsState } from '../settingsState.svelte';
 
   async function handleMinimize() {
     try {
@@ -36,6 +37,20 @@
   // View mode switcher: auto (side-by-side on wide screens), or explicit focus
   let activeView = $state<'auto' | 'turntable' | 'lyrics'>('auto');
 
+  // Lyric timing offset and translation controls
+  let isOffsetOpen = $state(false);
+  let isRomanizedMode = $state(false);
+
+  function adjustOffset(delta: number) {
+    settingsState.lyricOffsetSeconds = Math.round((settingsState.lyricOffsetSeconds + delta) * 10) / 10;
+    settingsState.scheduleSave();
+  }
+
+  function resetOffset() {
+    settingsState.lyricOffsetSeconds = 0.0;
+    settingsState.scheduleSave();
+  }
+
   function handleUserScroll() {
     userIsScrolling = true;
     if (userScrollTimeout) clearTimeout(userScrollTimeout);
@@ -55,9 +70,21 @@
     }
   }
 
-  // Sync lyrics highlight and auto-scroll
+  // Calculate word-by-word progressive text fill for active line
+  function getWordProgress(lineIdx: number, wordIdx: number, totalWords: number, lineTime: number): number {
+    if (lineIdx !== activeIndex) return 0;
+    const nextLineTime = playerState.lyrics.lines[lineIdx + 1]?.time ?? (lineTime + 4.0);
+    const lineDur = Math.max(0.2, nextLineTime - lineTime);
+    const curPos = playerState.playback.position + settingsState.lyricOffsetSeconds;
+    const lineProgress = Math.min(1, Math.max(0, (curPos - lineTime) / lineDur));
+    const wordStart = wordIdx / totalWords;
+    const wordEnd = (wordIdx + 1) / totalWords;
+    return Math.min(1, Math.max(0, (lineProgress - wordStart) / (wordEnd - wordStart)));
+  }
+
+  // Sync lyrics highlight and auto-scroll (with user offset)
   $effect(() => {
-    const pos = playerState.playback.position;
+    const pos = playerState.playback.position + settingsState.lyricOffsetSeconds;
     if (playerState.lyrics.synced && playerState.lyrics.lines.length > 0) {
       let foundIdx = -1;
       for (let i = 0; i < playerState.lyrics.lines.length; i++) {
@@ -147,7 +174,7 @@
     
     <!-- Ambient glowing mesh background -->
     <div
-      class="absolute -top-40 -left-40 w-[600px] h-[600px] rounded-full blur-[140px] opacity-25 pointer-events-none transition-colors duration-1000"
+      class="absolute -top-40 -left-40 w-[600px] h-[600px] rounded-full blur-[140px] opacity-25 pointer-events-none transition-colors duration-1000 gpu-layer"
       style="background: radial-gradient(circle, {playerState.accentColor} 0%, transparent 70%);"
     ></div>
 
@@ -173,7 +200,7 @@
             type="button"
             onclick={() => activeView = 'auto'}
             class="px-2.5 py-1 rounded-full text-[11px] font-medium transition-all cursor-pointer {activeView === 'auto' ? 'bg-white/15 text-white shadow-sm font-semibold' : 'text-white/60 hover:text-white'}"
-            title="Auto / Split View"
+            title="Split Layout"
           >
             Split
           </button>
@@ -181,7 +208,7 @@
             type="button"
             onclick={() => activeView = 'turntable'}
             class="px-2.5 py-1 rounded-full text-[11px] font-medium transition-all cursor-pointer {activeView === 'turntable' ? 'bg-white/15 text-white shadow-sm font-semibold' : 'text-white/60 hover:text-white'}"
-            title="Vinyl Artwork Focus"
+            title="Vinyl Focus"
           >
             Vinyl
           </button>
@@ -189,7 +216,7 @@
             type="button"
             onclick={() => activeView = 'lyrics'}
             class="px-2.5 py-1 rounded-full text-[11px] font-medium transition-all cursor-pointer {activeView === 'lyrics' ? 'bg-white/15 text-white shadow-sm font-semibold' : 'text-white/60 hover:text-white'}"
-            title="Apple Music Lyrics Focus"
+            title="Focus Lyrics"
           >
             Lyrics
           </button>
@@ -250,69 +277,82 @@
       <!-- Left Column: Spinning Vinyl / Turntable + Controls + Visualizer -->
       {#if activeView === 'auto' || activeView === 'turntable'}
         <div
-          class="flex flex-col items-center justify-between mx-auto w-full min-h-0 transition-all {activeView === 'turntable' ? 'max-w-xl' : activeView === 'auto' ? 'hidden md:flex flex-1 max-w-md lg:max-w-lg' : 'hidden'}"
+          class="flex flex-col items-center justify-between min-h-0 {activeView === 'auto' ? 'w-full md:w-[48%] lg:w-[44%] shrink-0' : 'w-full max-w-lg mx-auto'} bg-white/[0.02] border border-white/[0.05] rounded-3xl p-3 sm:p-5"
         >
-          <!-- Vinyl Container: perfectly locked 1:1 circle that never distorts -->
-          <div class="flex items-center justify-center w-full py-2 shrink-0">
-            <div class="vinyl-platter relative rounded-full flex items-center justify-center shadow-2xl p-2 bg-[#101114] border border-white/10">
-              <!-- Vinyl body with spinning groove patterns -->
+          
+          <!-- Vinyl Album Platter Section -->
+          <div class="flex-1 flex items-center justify-center w-full min-h-0 my-1 sm:my-2">
+            <div class="relative vinyl-platter flex items-center justify-center">
               <div
-                class="vinyl-disc relative rounded-full overflow-hidden flex items-center justify-center {playerState.playback.is_playing ? 'spinning' : ''}"
+                class="vinyl-disc rounded-full shadow-2xl relative flex items-center justify-center {playerState.playback.is_playing ? 'spinning' : ''}"
               >
-                <!-- Concentric micro-grooves -->
-                <div class="vinyl-grooves absolute inset-0 rounded-full pointer-events-none"></div>
+                <!-- Vinyl groove lines -->
+                <div class="absolute inset-0 rounded-full vinyl-grooves pointer-events-none"></div>
 
-                <!-- Photorealistic stationary double-fan sheen -->
-                <div class="vinyl-sheen absolute inset-0 rounded-full pointer-events-none z-10"></div>
+                <!-- Vinyl specular reflection sheen -->
+                <div class="absolute inset-0 rounded-full vinyl-sheen pointer-events-none"></div>
 
-                <!-- Center label with album cover art -->
-                <div class="vinyl-center rounded-full overflow-hidden border-2 border-white/20 shadow-inner relative z-20 flex items-center justify-center bg-[#252730]">
+                <!-- Center album artwork sticker -->
+                <div class="vinyl-center rounded-full overflow-hidden shadow-inner border-2 border-[#121318] z-10 relative">
                   {#if playerState.currentTrack?.cover_art}
-                    <img src={playerState.currentTrack.cover_art} alt="Vinyl Center" class="w-full h-full object-cover" />
+                    <img
+                      src={playerState.currentTrack.cover_art}
+                      alt={playerState.currentTrack.title}
+                      class="w-full h-full object-cover"
+                    />
                   {:else}
-                    <span class="material-symbols-rounded text-white/50 text-[24px]">album</span>
+                    <div class="w-full h-full bg-[#1b1c22] flex items-center justify-center text-white/40">
+                      <span class="material-symbols-rounded text-2xl">music_note</span>
+                    </div>
                   {/if}
-                  <!-- Center spindle hole -->
-                  <div class="absolute w-3.5 h-3.5 rounded-full bg-[#121316] border border-white/30 z-30"></div>
+                  <!-- Center hole spindle -->
+                  <div class="absolute inset-0 m-auto w-3 h-3 rounded-full bg-[#0a0a0c] border border-white/20"></div>
                 </div>
               </div>
             </div>
           </div>
 
-          <!-- Bottom controls cluster: Track metadata + Visualizer + Scrubber + Buttons -->
-          <div class="w-full shrink-0 space-y-2.5 sm:space-y-3.5 px-2 max-w-md">
-            <!-- Track metadata -->
-            <div class="text-center px-2">
-              <h2 class="font-heading font-extrabold text-base sm:text-lg md:text-xl text-white truncate leading-tight">
+          <!-- Bottom: Track Info + 60FPS Ambient Visualizer + Integrated Controls -->
+          <div class="w-full max-w-sm flex flex-col items-center shrink-0 space-y-2.5">
+            <!-- Title & Artist -->
+            <div class="text-center w-full px-2">
+              <h2 class="font-display font-bold text-base sm:text-xl text-white truncate">
                 {playerState.currentTrack?.title || 'No Track Selected'}
               </h2>
-              <p class="text-[#9ea2b0] text-xs sm:text-sm truncate font-medium mt-0.5">
-                {playerState.currentTrack?.artist || 'Select a song from your library or search'}
+              <p class="text-xs sm:text-sm text-[#9ea2b0] truncate mt-0.5">
+                {playerState.currentTrack?.artist || 'Select a song to start listening'}
               </p>
             </div>
 
-            <!-- 60FPS Audio Visualizer Canvas -->
-            <div class="w-full px-2">
-              <canvas bind:this={canvasEl} width="340" height="32" class="w-full h-6 sm:h-8 rounded-lg"></canvas>
+            <!-- Mini 60FPS Canvas Visualizer -->
+            <div class="w-full h-6 flex items-center justify-center">
+              <canvas bind:this={canvasEl} width="320" height="24" class="w-full h-full opacity-70"></canvas>
             </div>
 
-            <!-- Scrubber -->
-            <div class="w-full px-2 flex items-center gap-2.5 text-[11px] font-mono text-[#6b6e7c]">
-              <span class="w-8 text-right">{playerState.formattedTime.current}</span>
-              <input
-                type="range"
-                min="0"
-                max={playerState.playback.duration || (playerState.currentTrack?.duration ?? 100)}
-                step="0.5"
-                value={playerState.playback.position}
-                oninput={(e) => playerState.seek(Number((e.target as HTMLInputElement).value))}
-                class="flex-1 h-1 sm:h-1.5 bg-white/[0.1] rounded-lg appearance-none cursor-pointer"
-              />
-              <span class="w-8">{playerState.formattedTime.total}</span>
+            <!-- Scrubber Track & Durations -->
+            <div class="w-full space-y-1">
+              <div class="relative w-full h-1.5 bg-white/[0.08] hover:bg-white/[0.15] rounded-full overflow-hidden cursor-pointer group transition-colors">
+                <div
+                  class="absolute left-0 top-0 bottom-0 bg-[var(--md-sys-primary)] rounded-full transition-all duration-100"
+                  style="width: {playerState.progressPercent}%;"
+                ></div>
+                <input
+                  type="range"
+                  min="0"
+                  max={playerState.playback.duration || 100}
+                  value={playerState.playback.position}
+                  oninput={(e) => playerState.seek(parseFloat(e.currentTarget.value))}
+                  class="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+                />
+              </div>
+              <div class="flex justify-between text-[11px] font-mono text-[#9ea2b0]">
+                <span>{playerState.formattedTime.current}</span>
+                <span>{playerState.formattedTime.total}</span>
+              </div>
             </div>
 
-            <!-- Transport Controls -->
-            <div class="flex items-center justify-center gap-4 sm:gap-6 pt-0.5 pb-1">
+            <!-- Essential Playback Transport Controls -->
+            <div class="flex items-center justify-center gap-5 sm:gap-6 pt-1">
               <button
                 onclick={() => playerState.playPrevious()}
                 class="text-[#9ea2b0] hover:text-white transition-colors cursor-pointer"
@@ -323,16 +363,12 @@
 
               <button
                 onclick={() => playerState.togglePlay()}
-                class="w-11 h-11 sm:w-13 sm:h-13 rounded-full bg-white text-[#111215] flex items-center justify-center shadow-xl hover:scale-105 active:scale-95 transition-all cursor-pointer"
-                title={playerState.isLoading ? 'Buffering stream...' : playerState.playback.is_playing ? 'Pause' : 'Play'}
+                class="w-11 h-11 sm:w-13 sm:h-13 rounded-full bg-[var(--md-sys-primary)] text-[var(--md-sys-on-primary)] shadow-lg shadow-[var(--md-sys-primary)]/20 hover:scale-105 active:scale-95 transition-all flex items-center justify-center cursor-pointer"
+                title={playerState.playback.is_playing ? 'Pause' : 'Play'}
               >
-                {#if playerState.isLoading}
-                  <div class="w-5 h-5 sm:w-6 sm:h-6 border-2 border-[#111215] border-t-transparent rounded-full animate-spin"></div>
-                {:else}
-                  <span class="material-symbols-rounded text-[26px] sm:text-[30px] filled">
-                    {playerState.playback.is_playing ? 'pause' : 'play_arrow'}
-                  </span>
-                {/if}
+                <span class="material-symbols-rounded text-[28px] sm:text-[32px] filled">
+                  {playerState.playback.is_playing ? 'pause' : 'play_arrow'}
+                </span>
               </button>
 
               <button
@@ -348,16 +384,26 @@
         </div>
       {/if}
 
-      <!-- Right Column: Apple Music-Grade Synced Lyrics (LRCLIB) -->
+      <!-- Right Column: Fluid Editorial Synced Lyrics Studio -->
       {#if activeView === 'auto' || activeView === 'lyrics'}
         <div
-          class="flex-1 flex flex-col bg-white/[0.02] border border-white/[0.05] rounded-3xl p-3 sm:p-5 overflow-hidden min-h-0 relative {activeView === 'auto' ? 'w-full md:flex-1' : 'w-full max-w-4xl mx-auto'}"
+          class="flex-1 flex flex-col bg-white/[0.02] border border-white/[0.05] rounded-3xl p-3 sm:p-5 overflow-hidden min-h-0 relative {activeView === 'auto' ? 'w-full md:flex-1' : 'w-full max-w-4xl mx-auto'} gpu-layer"
         >
+          <!-- Lyrics Studio Toolbar -->
           <div class="flex items-center justify-between pb-2.5 mb-1 border-b border-white/[0.05] shrink-0">
-            <span class="font-heading font-semibold text-xs tracking-wider uppercase text-[#9ea2b0] flex items-center gap-1.5">
-              <span class="material-symbols-rounded text-base text-[var(--md-sys-primary)]">lyrics</span>
-              Synchronized Lyrics (LRCLIB)
-            </span>
+            <div class="flex items-center gap-2">
+              <span class="font-heading font-semibold text-xs tracking-wider uppercase text-[#9ea2b0] flex items-center gap-1.5">
+                <span class="material-symbols-rounded text-base text-[var(--md-sys-primary)]">lyrics</span>
+                Fluid Synced Lyrics
+              </span>
+              {#if playerState.lyrics.synced}
+                <span class="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
+                  Live
+                </span>
+              {/if}
+            </div>
+
+            <!-- Sync adjustment & translation buttons -->
             <div class="flex items-center gap-2">
               {#if userIsScrolling}
                 <button
@@ -370,32 +416,122 @@
                   Resume Sync
                 </button>
               {/if}
-              {#if playerState.lyrics.synced}
-                <span class="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
-                  Live Synced
-                </span>
-              {/if}
+
+              <!-- Romanized / Translate Toggle -->
+              <button
+                type="button"
+                onclick={() => isRomanizedMode = !isRomanizedMode}
+                class="px-2 py-0.5 rounded-full text-[10px] font-semibold flex items-center gap-1 border transition-all cursor-pointer {isRomanizedMode ? 'bg-[var(--md-sys-primary)] text-[var(--md-sys-on-primary)] border-[var(--md-sys-primary)]' : 'bg-white/[0.06] text-white/70 hover:text-white border-white/10'}"
+                title="Toggle Romanized / Phonetic View"
+              >
+                <span class="material-symbols-rounded text-[12px]">translate</span>
+                <span>Phonetic</span>
+              </button>
+
+              <!-- Manual Sync Offset Button -->
+              <button
+                type="button"
+                onclick={() => isOffsetOpen = !isOffsetOpen}
+                class="px-2 py-0.5 rounded-full text-[10px] font-semibold flex items-center gap-1 border transition-all cursor-pointer {Math.abs(settingsState.lyricOffsetSeconds) > 0.05 ? 'bg-amber-500/20 text-amber-300 border-amber-500/30' : 'bg-white/[0.06] text-white/70 hover:text-white border-white/10'}"
+                title="Adjust Lyric Sync Timing"
+              >
+                <span class="material-symbols-rounded text-[12px]">tune</span>
+                <span>{settingsState.lyricOffsetSeconds > 0 ? '+' : ''}{settingsState.lyricOffsetSeconds.toFixed(1)}s</span>
+              </button>
             </div>
           </div>
 
+          <!-- Quick Timing Offset Slider Bar (Expandable) -->
+          {#if isOffsetOpen}
+            <div class="flex items-center justify-between bg-black/40 border border-white/10 rounded-2xl px-3.5 py-2 mb-2 animate-fade-in text-xs text-white/80">
+              <span class="text-[11px] text-white/60 font-medium">Sync Offset</span>
+              
+              <div class="flex items-center gap-2">
+                <button
+                  onclick={() => adjustOffset(-0.5)}
+                  class="px-2 py-0.5 rounded bg-white/10 hover:bg-white/20 text-[10px] font-mono cursor-pointer"
+                >
+                  -0.5s
+                </button>
+                <button
+                  onclick={() => adjustOffset(-0.1)}
+                  class="px-2 py-0.5 rounded bg-white/10 hover:bg-white/20 text-[10px] font-mono cursor-pointer"
+                >
+                  -0.1s
+                </button>
+
+                <input
+                  type="range"
+                  min="-2.0"
+                  max="2.0"
+                  step="0.1"
+                  bind:value={settingsState.lyricOffsetSeconds}
+                  oninput={() => settingsState.scheduleSave()}
+                  class="w-24 sm:w-32 accent-[var(--md-sys-primary)] cursor-pointer"
+                />
+
+                <span class="font-mono text-xs w-11 text-center font-bold text-[var(--md-sys-primary)]">
+                  {settingsState.lyricOffsetSeconds > 0 ? '+' : ''}{settingsState.lyricOffsetSeconds.toFixed(1)}s
+                </span>
+
+                <button
+                  onclick={() => adjustOffset(0.1)}
+                  class="px-2 py-0.5 rounded bg-white/10 hover:bg-white/20 text-[10px] font-mono cursor-pointer"
+                >
+                  +0.1s
+                </button>
+                <button
+                  onclick={() => adjustOffset(0.5)}
+                  class="px-2 py-0.5 rounded bg-white/10 hover:bg-white/20 text-[10px] font-mono cursor-pointer"
+                >
+                  +0.5s
+                </button>
+
+                <button
+                  onclick={resetOffset}
+                  class="ml-1 text-[10px] px-2 py-0.5 rounded bg-white/10 hover:bg-white/20 text-white/70 hover:text-white cursor-pointer"
+                  title="Reset offset to 0.0s"
+                >
+                  Reset
+                </button>
+              </div>
+            </div>
+          {/if}
+
+          <!-- Lyric Scroll Container -->
           <div
             bind:this={lyricsContainerEl}
             onwheel={handleUserScroll}
             ontouchmove={handleUserScroll}
             role="region"
             aria-label="Synchronized lyrics view"
-            class="flex-1 overflow-y-auto px-2 sm:px-4 py-6 space-y-1.5 sm:space-y-2 lyrics-scroll-container scrollbar-none"
+            class="flex-1 overflow-y-auto px-2 sm:px-4 py-6 space-y-1.5 sm:space-y-2 lyrics-scroll-container scrollbar-none contain-gpu"
           >
             {#if playerState.lyrics.synced && playerState.lyrics.lines.length > 0}
               {#each playerState.lyrics.lines as line, i}
                 {@const isCur = i === activeIndex}
                 <button
                   type="button"
-                  onclick={() => { playerState.seek(line.time); resumeSync(); }}
-                  class="w-full text-left font-display font-bold tracking-tight transition-all duration-300 py-1.5 sm:py-2 px-3 sm:px-4 rounded-2xl block text-xl sm:text-2xl md:text-3xl leading-snug cursor-pointer select-none {isCur ? 'active-lyric' : 'inactive-lyric'}"
+                  onclick={() => { playerState.seek(line.time - settingsState.lyricOffsetSeconds); resumeSync(); }}
+                  class="w-full text-left font-display font-bold tracking-tight transition-all duration-300 py-1.5 sm:py-2 px-3 sm:px-4 rounded-2xl block text-xl sm:text-2xl md:text-3xl leading-snug cursor-pointer select-none gpu-lyric {isCur ? 'active-lyric' : (settingsState.blurInactiveLines ? 'inactive-lyric-blur' : 'inactive-lyric-sharp')}"
                   style={isCur ? `--lyric-glow: ${playerState.accentColor || 'var(--md-sys-primary)'};` : ''}
                 >
-                  {line.text}
+                  {#if isCur && settingsState.wordByWordTracking}
+                    {@const words = line.text.split(' ')}
+                    <span class="inline-flex flex-wrap gap-x-2">
+                      {#each words as word, wIdx}
+                        {@const wp = getWordProgress(i, wIdx, words.length, line.time)}
+                        <span
+                          class="word-token transition-all duration-150 inline-block {wp >= 1 ? 'word-sung' : (wp <= 0 ? 'word-unsung' : 'word-singing')}"
+                          style={wp > 0 && wp < 1 ? `background: linear-gradient(90deg, #ffffff ${wp * 100}%, rgba(255, 255, 255, 0.4) ${wp * 100}%); -webkit-background-clip: text; -webkit-text-fill-color: transparent;` : ''}
+                        >
+                          {word}
+                        </span>
+                      {/each}
+                    </span>
+                  {:else}
+                    <span>{line.text}</span>
+                  {/if}
                 </button>
               {/each}
             {:else if playerState.lyrics.plain_text}
@@ -474,39 +610,83 @@
     animation: spinSlow 20s linear infinite;
   }
   .animate-fade-in {
-    animation: fadeIn 0.22s cubic-bezier(0.2, 0, 0, 1);
+    animation: fadeIn 0.22s cubic-bezier(0.16, 1, 0.3, 1);
   }
   @keyframes fadeIn {
     from { opacity: 0; transform: scale(0.985); }
     to { opacity: 1; transform: scale(1); }
   }
 
-  /* Apple Music Synced Lyrics Typography & Glow */
-  .inactive-lyric {
+  /* GPU Composite-Only Accelerated Lyrics */
+  .contain-gpu {
+    contain: layout style;
+  }
+  .gpu-layer {
+    will-change: transform, opacity;
+    transform: translate3d(0, 0, 0);
+  }
+  .gpu-lyric {
+    contain: layout style;
+    will-change: transform, opacity;
+    transform: translate3d(0, 0, 0);
+  }
+
+  /* Inactive Lyric with Focus Line Blur Enabled */
+  .inactive-lyric-blur {
     filter: blur(1.5px);
     opacity: 0.35;
-    transform: scale(0.98);
+    transform: translate3d(0, 0, 0) scale(0.98);
     color: rgba(255, 255, 255, 0.7);
     transform-origin: left center;
-    transition: all 0.35s cubic-bezier(0.25, 1, 0.5, 1);
+    transition: all 0.35s cubic-bezier(0.16, 1, 0.3, 1);
   }
-  .inactive-lyric:hover {
+  .inactive-lyric-blur:hover {
     filter: blur(0px);
     opacity: 0.85;
-    transform: scale(1.01);
+    transform: translate3d(0, 0, 0) scale(1.01);
     color: #ffffff;
   }
-  .active-lyric {
-    filter: blur(0px);
-    opacity: 1;
-    transform: scale(1.04);
-    color: #ffffff;
-    text-shadow: 0 0 25px var(--lyric-glow, #d0bcff), 0 0 50px var(--lyric-glow, #d0bcff);
+
+  /* Inactive Lyric with Focus Line Blur Disabled (Sharp + Dimmed) */
+  .inactive-lyric-sharp {
+    filter: none;
+    opacity: 0.45;
+    transform: translate3d(0, 0, 0) scale(0.98);
+    color: rgba(255, 255, 255, 0.7);
     transform-origin: left center;
-    background: rgba(255, 255, 255, 0.05);
-    border: 1px solid rgba(255, 255, 255, 0.08);
-    transition: all 0.35s cubic-bezier(0.25, 1, 0.5, 1);
+    transition: all 0.35s cubic-bezier(0.16, 1, 0.3, 1);
   }
+  .inactive-lyric-sharp:hover {
+    opacity: 0.85;
+    transform: translate3d(0, 0, 0) scale(1.01);
+    color: #ffffff;
+  }
+
+  /* Active Lyric Focus Glow */
+  .active-lyric {
+    filter: none;
+    opacity: 1;
+    transform: translate3d(0, 0, 0) scale(1.03);
+    color: #ffffff;
+    text-shadow: 0 0 24px var(--lyric-glow, #d0bcff), 0 0 48px var(--lyric-glow, #d0bcff);
+    transform-origin: left center;
+    background: rgba(255, 255, 255, 0.06);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    transition: all 0.35s cubic-bezier(0.16, 1, 0.3, 1);
+  }
+
+  /* Word-by-Word Karaoke Tokens */
+  .word-sung {
+    color: #ffffff;
+    text-shadow: 0 0 16px var(--lyric-glow, #d0bcff);
+  }
+  .word-unsung {
+    color: rgba(255, 255, 255, 0.4);
+  }
+  .word-singing {
+    filter: drop-shadow(0 0 12px var(--lyric-glow, #d0bcff));
+  }
+
   .lyrics-scroll-container {
     scroll-behavior: smooth;
   }

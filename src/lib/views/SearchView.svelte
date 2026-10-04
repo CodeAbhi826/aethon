@@ -81,7 +81,7 @@
     </div>
   {:else if playerState.youtubeResults.length > 0}
     <div>
-      <h3 class="font-heading font-bold text-lg text-white mb-4">YouTube Music Results</h3>
+      <h3 class="font-heading font-bold text-lg text-white mb-4">Online Stream Results</h3>
       <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
         {#each playerState.youtubeResults as yt}
           {@const isCurrent = playerState.currentTrack?.id === `yt_${yt.id}`}
@@ -120,7 +120,7 @@
       </div>
     </div>
   {:else}
-    <!-- Apple Music style Browse & Explore Categories -->
+    <!-- Browse & Explore Categories -->
     <div class="space-y-4 pt-2">
       <div class="flex items-center justify-between">
         <h3 class="text-sm font-bold uppercase tracking-wider text-[var(--md-sys-on-surface-variant)] flex items-center gap-2">

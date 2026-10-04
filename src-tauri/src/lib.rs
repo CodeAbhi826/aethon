@@ -62,7 +62,75 @@ pub fn run() {
                 }
             };
 
-            app.manage(AppState { mpv, db });
+            let mpris = Arc::new(player::MprisManager::new(handle.clone(), &mpv.socket_path));
+
+            // Native System Tray configuration
+            let menu = tauri::menu::MenuBuilder::new(app)
+                .text("tray_toggle_play", "Play / Pause")
+                .text("tray_next", "Next Track")
+                .text("tray_prev", "Previous Track")
+                .separator()
+                .text("tray_show", "Show / Hide Aethon")
+                .text("tray_quit", "Quit Aethon")
+                .build()?;
+
+            let icon = app.default_window_icon().cloned().unwrap_or_else(|| {
+                tauri::image::Image::from_bytes(include_bytes!("../icons/32x32.png")).unwrap()
+            });
+
+            let _tray = tauri::tray::TrayIconBuilder::new()
+                .icon(icon)
+                .tooltip("Aethon")
+                .menu(&menu)
+                .show_menu_on_left_click(false)
+                .on_menu_event(|app, event| {
+                    match event.id().as_ref() {
+                        "tray_toggle_play" => {
+                            if let Some(state) = app.try_state::<AppState>() {
+                                let mpv = Arc::clone(&state.mpv);
+                                tauri::async_runtime::spawn(async move {
+                                    let _ = mpv.toggle_pause().await;
+                                });
+                            }
+                        }
+                        "tray_next" => {
+                            let _ = app.emit("tray-next", ());
+                        }
+                        "tray_prev" => {
+                            let _ = app.emit("tray-prev", ());
+                        }
+                        "tray_show" => {
+                            if let Some(window) = app.get_webview_window("main") {
+                                if window.is_visible().unwrap_or(false) {
+                                    let _ = window.hide();
+                                } else {
+                                    let _ = window.show();
+                                    let _ = window.set_focus();
+                                }
+                            }
+                        }
+                        "tray_quit" => {
+                            app.exit(0);
+                        }
+                        _ => {}
+                    }
+                })
+                .on_tray_icon_event(|tray, event| {
+                    if let tauri::tray::TrayIconEvent::Click { button: tauri::tray::MouseButton::Left, button_state: tauri::tray::MouseButtonState::Up, .. } = event {
+                        let app = tray.app_handle();
+                        if let Some(window) = app.get_webview_window("main") {
+                            if window.is_visible().unwrap_or(false) {
+                                let _ = window.hide();
+                            } else {
+                                let _ = window.show();
+                                let _ = window.set_focus();
+                            }
+                        }
+                    }
+                })
+                .build(app)?;
+
+            app.manage(AppState { mpv, db, mpris });
             Ok(())
         })
         .on_window_event(|window, event| {
@@ -119,6 +187,9 @@ pub fn run() {
             set_replaygain,
             reveal_in_file_manager,
             download_track,
+            get_play_history,
+            send_desktop_notification,
+            update_mpris_metadata,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

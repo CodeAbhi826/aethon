@@ -70,7 +70,7 @@
 
         <div>
           <div class="flex justify-between text-xs text-[#9ea2b0] mb-1 font-mono">
-            <span>YouTube Music Opus (256kbps)</span>
+            <span>Lossless Stream Opus (256kbps)</span>
             <span>22%</span>
           </div>
           <div class="h-2 w-full bg-white/[0.05] rounded-full overflow-hidden">

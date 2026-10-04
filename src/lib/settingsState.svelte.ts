@@ -35,6 +35,8 @@ class SettingsState {
   // 4. Lyrics
   lyricsSource = $state<'lrclib' | 'local_lrc' | 'musixmatch'>('lrclib');
   karaokeAnimation = $state(true);
+  wordByWordTracking = $state(true);
+  lyricOffsetSeconds = $state(0.0);
   autoScrollLyrics = $state(true);
   lyricsFontSize = $state<'compact' | 'standard' | 'large' | 'immersive'>('standard');
   blurInactiveLines = $state(true);
@@ -59,6 +61,7 @@ class SettingsState {
   resumePlaybackOnLaunch = $state(true);
   trackChangeNotifications = $state(true);
   mprisIntegration = $state(true);
+  lockscreenControls = $state(true);
   telemetryEnabled = $state(false);
 
   // 8. Network & DNS
@@ -75,7 +78,7 @@ class SettingsState {
   autoScanOnStartup = $state(true);
   streamCacheSizeBytes = $state<number>(0);
 
-  // 10. Account & Sync (YouTube Music / Google Account)
+  // 10. Account & Sync (Online Streaming Account)
   ytmConnected = $state(false);
   ytmAccountName = $state('Guest Listener');
   ytmAccountEmail = $state('');
@@ -127,6 +130,8 @@ class SettingsState {
 
         if ('lyricsSource' in records) this.lyricsSource = records['lyricsSource'] as any;
         if ('karaokeAnimation' in records) this.karaokeAnimation = records['karaokeAnimation'] === 'true';
+        if ('wordByWordTracking' in records) this.wordByWordTracking = records['wordByWordTracking'] === 'true';
+        if ('lyricOffsetSeconds' in records) this.lyricOffsetSeconds = Number(records['lyricOffsetSeconds']) || 0.0;
         if ('autoScrollLyrics' in records) this.autoScrollLyrics = records['autoScrollLyrics'] === 'true';
         if ('lyricsFontSize' in records) this.lyricsFontSize = records['lyricsFontSize'] as any;
         if ('blurInactiveLines' in records) this.blurInactiveLines = records['blurInactiveLines'] === 'true';
@@ -148,6 +153,7 @@ class SettingsState {
         if ('resumePlaybackOnLaunch' in records) this.resumePlaybackOnLaunch = records['resumePlaybackOnLaunch'] === 'true';
         if ('trackChangeNotifications' in records) this.trackChangeNotifications = records['trackChangeNotifications'] === 'true';
         if ('mprisIntegration' in records) this.mprisIntegration = records['mprisIntegration'] === 'true';
+        if ('lockscreenControls' in records) this.lockscreenControls = records['lockscreenControls'] === 'true';
         if ('telemetryEnabled' in records) this.telemetryEnabled = records['telemetryEnabled'] === 'true';
 
         if ('dohProvider' in records) this.dohProvider = records['dohProvider'] as any;
@@ -217,6 +223,8 @@ class SettingsState {
 
           lyricsSource: this.lyricsSource,
           karaokeAnimation: String(this.karaokeAnimation),
+          wordByWordTracking: String(this.wordByWordTracking),
+          lyricOffsetSeconds: String(this.lyricOffsetSeconds),
           autoScrollLyrics: String(this.autoScrollLyrics),
           lyricsFontSize: this.lyricsFontSize,
           blurInactiveLines: String(this.blurInactiveLines),
@@ -238,6 +246,7 @@ class SettingsState {
           resumePlaybackOnLaunch: String(this.resumePlaybackOnLaunch),
           trackChangeNotifications: String(this.trackChangeNotifications),
           mprisIntegration: String(this.mprisIntegration),
+          lockscreenControls: String(this.lockscreenControls),
           telemetryEnabled: String(this.telemetryEnabled),
 
           dohProvider: this.dohProvider,
@@ -374,6 +383,8 @@ class SettingsState {
       lyrics: {
         lyricsSource: this.lyricsSource,
         karaokeAnimation: this.karaokeAnimation,
+        wordByWordTracking: this.wordByWordTracking,
+        lyricOffsetSeconds: this.lyricOffsetSeconds,
         autoScrollLyrics: this.autoScrollLyrics,
         lyricsFontSize: this.lyricsFontSize,
         blurInactiveLines: this.blurInactiveLines,
@@ -398,6 +409,7 @@ class SettingsState {
         resumePlaybackOnLaunch: this.resumePlaybackOnLaunch,
         trackChangeNotifications: this.trackChangeNotifications,
         mprisIntegration: this.mprisIntegration,
+        lockscreenControls: this.lockscreenControls,
         telemetryEnabled: this.telemetryEnabled,
       },
       network: {
@@ -445,6 +457,8 @@ class SettingsState {
       if (data.lyrics) {
         if (data.lyrics.lyricsSource) this.lyricsSource = data.lyrics.lyricsSource;
         if (data.lyrics.karaokeAnimation !== undefined) this.karaokeAnimation = Boolean(data.lyrics.karaokeAnimation);
+        if (data.lyrics.wordByWordTracking !== undefined) this.wordByWordTracking = Boolean(data.lyrics.wordByWordTracking);
+        if (data.lyrics.lyricOffsetSeconds !== undefined) this.lyricOffsetSeconds = Number(data.lyrics.lyricOffsetSeconds) || 0.0;
         if (data.lyrics.autoScrollLyrics !== undefined) this.autoScrollLyrics = Boolean(data.lyrics.autoScrollLyrics);
         if (data.lyrics.lyricsFontSize) this.lyricsFontSize = data.lyrics.lyricsFontSize;
         if (data.lyrics.blurInactiveLines !== undefined) this.blurInactiveLines = Boolean(data.lyrics.blurInactiveLines);
@@ -469,6 +483,7 @@ class SettingsState {
         if (data.behavior.resumePlaybackOnLaunch !== undefined) this.resumePlaybackOnLaunch = Boolean(data.behavior.resumePlaybackOnLaunch);
         if (data.behavior.trackChangeNotifications !== undefined) this.trackChangeNotifications = Boolean(data.behavior.trackChangeNotifications);
         if (data.behavior.mprisIntegration !== undefined) this.mprisIntegration = Boolean(data.behavior.mprisIntegration);
+        if (data.behavior.lockscreenControls !== undefined) this.lockscreenControls = Boolean(data.behavior.lockscreenControls);
         if (data.behavior.telemetryEnabled !== undefined) this.telemetryEnabled = Boolean(data.behavior.telemetryEnabled);
       }
       if (data.network) {
@@ -515,6 +530,8 @@ class SettingsState {
 
     this.lyricsSource = 'lrclib';
     this.karaokeAnimation = true;
+    this.wordByWordTracking = true;
+    this.lyricOffsetSeconds = 0.0;
     this.autoScrollLyrics = true;
     this.lyricsFontSize = 'standard';
     this.blurInactiveLines = true;
@@ -536,6 +553,7 @@ class SettingsState {
     this.resumePlaybackOnLaunch = true;
     this.trackChangeNotifications = true;
     this.mprisIntegration = true;
+    this.lockscreenControls = true;
     this.telemetryEnabled = false;
 
     this.dohProvider = 'cloudflare';

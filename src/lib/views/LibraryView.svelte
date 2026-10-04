@@ -115,7 +115,7 @@
     </div>
   </div>
 
-  <!-- Sub-Tabs Navigation (ArchiveTune & Apple Music Style) -->
+  <!-- Sub-Tabs Navigation -->
   <div class="flex flex-wrap items-center gap-1.5 border-b border-white/10 pb-3">
     {#each [
       { id: 'tracks', label: 'Tracks', icon: 'music_note' },

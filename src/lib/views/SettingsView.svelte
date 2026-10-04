@@ -39,7 +39,7 @@
   let showTelemetry = $state(false);
 
   const categories: { id: CategoryId; label: string; icon: string; desc: string }[] = [
-    { id: 'account', label: 'Account & Sync', icon: 'account_circle', desc: 'Google / YouTube Music cookie & playlist sync' },
+    { id: 'account', label: 'Account & Sync', icon: 'account_circle', desc: 'Cloud account token & library sync' },
     { id: 'appearance', label: 'Appearance', icon: 'palette', desc: 'Monet themes, accent tones & floating orbs' },
     { id: 'ambient', label: 'Standby & Ambient', icon: 'nightlight_round', desc: 'Idle screen, visualizers & glow' },
     { id: 'audio', label: 'Audio & Playback', icon: 'graphic_eq', desc: 'Bit-perfect PipeWire, gapless & replaygain' },
@@ -131,7 +131,7 @@
     await new Promise((r) => setTimeout(r, 600));
     settingsState.connectYtmAccount(ytmCookieInput);
     isConnectingYtm = false;
-    ytmConnectMsg = 'Successfully connected YouTube Music account!';
+    ytmConnectMsg = 'Successfully connected streaming account!';
     ytmCookieInput = '';
     setTimeout(() => (ytmConnectMsg = null), 4000);
   }
@@ -139,10 +139,10 @@
   async function handleDirectWebLogin() {
     try {
       await openUrl('https://accounts.google.com/ServiceLogin?continue=https%3A%2F%2Fmusic.youtube.com');
-      ytmConnectMsg = 'Opened Google sign-in. After completing sign-in, use Advanced Login to paste your session cookie to verify.';
+      ytmConnectMsg = 'Opened web sign-in. After completing sign-in, use Advanced Login to paste your session cookie to verify.';
     } catch {
       window.open('https://accounts.google.com/ServiceLogin?continue=https%3A%2F%2Fmusic.youtube.com', '_blank');
-      ytmConnectMsg = 'Opened Google sign-in in browser.';
+      ytmConnectMsg = 'Opened web sign-in in browser.';
     }
   }
 
@@ -151,7 +151,7 @@
     if (!raw) return;
 
     let cookieToUse = raw;
-    // Check if it's ArchiveTune export format
+    // Check if it's imported cookie format
     if (raw.includes('***INNERTUBE COOKIE***')) {
       for (const line of raw.split('\n')) {
         const trimmed = line.trim();
@@ -228,12 +228,12 @@
   <!-- Right Pane: Active Category Grouped Cards -->
   <main class="flex-1 overflow-y-auto p-6 md:p-8 space-y-6 max-w-4xl scroll-smooth pb-28">
     
-    <!-- 0. ACCOUNT & SYNC (ArchiveTune / YouTube Music) -->
+    <!-- 0. ACCOUNT & SYNC (Cloud Library Sync) -->
     {#if activeCategory === 'account'}
       <div class="space-y-6">
         <div>
           <h3 class="font-display font-bold text-2xl text-white">Account & Cloud Sync</h3>
-          <p class="text-xs text-white/50 mt-1">Connect your YouTube Music or Google account via SAPISID cookie to sync playlists, liked songs & history</p>
+          <p class="text-xs text-white/50 mt-1">Connect your streaming account via session token or cookie to sync playlists, liked songs & history</p>
         </div>
 
         <!-- Connection Status Card -->
@@ -266,9 +266,9 @@
                   <p class="text-xs text-white/50 font-mono">{settingsState.ytmAccountEmail}</p>
                   <div class="flex items-center gap-2 mt-1">
                     <span class="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-red-500/20 text-red-300 border border-red-500/30">
-                      YouTube Music Premium
+                      Lossless / High-Res Account
                     </span>
-                    <span class="text-[10px] font-mono text-emerald-400">InnerTube Session Active</span>
+                    <span class="text-[10px] font-mono text-emerald-400">Stream Session Active</span>
                   </div>
                 </div>
               </div>
@@ -293,13 +293,13 @@
               </div>
             </div>
           {:else}
-            <!-- ArchiveTune Dual Login: Direct Web Login & Advanced Token Login -->
+            <!-- Dual Login: Direct Web Login & Advanced Token Login -->
             <div class="space-y-4">
               <p class="text-xs text-white/70 leading-relaxed">
-                Connect your YouTube Music account to sync your playlists, favorites, and history. Choose between direct Google sign-in or advanced token entry.
+                Connect your streaming account to sync your playlists, favorites, and history. Choose between direct web sign-in or advanced token entry.
               </p>
 
-              <!-- Login Mode Selector (Matching ArchiveTune) -->
+              <!-- Login Mode Selector -->
               <div class="flex items-center gap-1.5 p-1 rounded-xl bg-black/40 border border-white/[0.08] w-fit">
                 <button
                   type="button"
@@ -323,8 +323,8 @@
                   <div class="flex items-center gap-2.5">
                     <span class="material-symbols-rounded text-[20px] text-amber-400">lock_open</span>
                     <div>
-                      <h5 class="text-xs font-bold text-white">Default Google Sign-In</h5>
-                      <p class="text-[11px] text-white/50">Opens official Google account authentication in your browser/window</p>
+                      <h5 class="text-xs font-bold text-white">Default Account Sign-In</h5>
+                      <p class="text-[11px] text-white/50">Opens official cloud account authentication in your browser/window</p>
                     </div>
                   </div>
 
@@ -334,20 +334,20 @@
                     class="w-full sm:w-auto px-5 py-2.5 rounded-xl bg-[var(--md-sys-primary)] text-[var(--md-sys-on-primary)] hover:opacity-90 text-xs font-semibold transition-all flex items-center justify-center gap-2 cursor-pointer shadow-md"
                   >
                     <span class="material-symbols-rounded text-[18px]">login</span>
-                    <span>Sign in with Google / YouTube Music</span>
+                    <span>Sign in via Web Browser</span>
                   </button>
 
                   <p class="text-[10px] text-white/40">
-                    Aethon uses official Google endpoints. After logging in, verify by pasting your session cookie in Advanced Login or authorizing via browser.
+                    Aethon uses official endpoints. After logging in, verify by pasting your session cookie in Advanced Login or authorizing via browser.
                   </p>
                 </div>
               {:else}
-                <!-- 2. Advanced Token / Cookie Editor (ArchiveTune Format Supported) -->
+                <!-- 2. Advanced Token / Cookie Editor -->
                 <div class="p-4 rounded-2xl bg-black/30 border border-white/[0.07] space-y-3">
                   <div class="flex items-center justify-between">
                     <div>
                       <h5 class="text-xs font-bold text-white">Advanced Token / Cookie Editor</h5>
-                      <p class="text-[11px] text-white/50">Supports raw SAPISID cookie or ArchiveTune exported token block</p>
+                      <p class="text-[11px] text-white/50">Supports raw session cookie or exported token block</p>
                     </div>
                     <button
                       type="button"
@@ -361,7 +361,7 @@
 
                   <textarea
                     bind:value={rawTokenBlockInput}
-                    placeholder="Paste SAPISID, Cookie header, or ArchiveTune token block:&#10;***INNERTUBE COOKIE*** = ...&#10;***VISITOR DATA*** = ..."
+                    placeholder="Paste session token, Cookie header, or exported token block:&#10;***TOKEN COOKIE*** = ...&#10;***VISITOR DATA*** = ..."
                     rows="3"
                     class="w-full bg-black/50 border border-white/10 rounded-xl p-3 text-xs text-white placeholder-white/25 outline-none focus:border-[var(--md-sys-primary)] transition-all font-mono resize-none"
                   ></textarea>
@@ -378,11 +378,11 @@
 
                   {#if showCookieHelp}
                     <div class="p-3.5 rounded-xl bg-black/40 border border-white/[0.06] text-xs text-white/70 space-y-1.5 animate-fade-in font-sans">
-                      <p class="font-semibold text-white">How to copy YouTube Music session cookie:</p>
+                      <p class="font-semibold text-white">How to copy streaming session cookie:</p>
                       <ol class="list-decimal list-inside space-y-1 text-white/60 text-[11px]">
-                        <li>Open <a href="https://music.youtube.com" target="_blank" class="text-[var(--md-sys-primary)] underline">music.youtube.com</a> and sign in.</li>
+                        <li>Sign into your music service web account.</li>
                         <li>Press <kbd class="px-1.5 py-0.5 rounded bg-white/10 text-white font-mono text-[10px]">F12</kbd> &rarr; <span class="text-white">Application</span> &rarr; <span class="text-white">Cookies</span>.</li>
-                        <li>Copy the value of the <code class="text-[var(--md-sys-primary)] font-mono">SAPISID</code> cookie and paste it above.</li>
+                        <li>Copy the session cookie value and paste it into the editor above.</li>
                       </ol>
                     </div>
                   {/if}
@@ -455,7 +455,7 @@
 
           <CupertinoSwitch
             bind:checked={settingsState.ytmSyncPlaylists}
-            label="Sync YouTube Music Playlists"
+            label="Sync Cloud Playlists"
             description="Fetch user-created and saved playlists directly into your local library"
             icon="playlist_add_check"
             onchange={() => settingsState.scheduleSave()}
@@ -464,7 +464,7 @@
           <CupertinoSwitch
             bind:checked={settingsState.ytmSyncFavorites}
             label="Sync Liked Songs & Favorites"
-            description="Keep local favorites bidirectionally synced with your YouTube Music 'Your Likes' list"
+            description="Keep local favorites bidirectionally synced with your cloud favorites list"
             icon="favorite"
             onchange={() => settingsState.scheduleSave()}
           />
@@ -472,7 +472,7 @@
           <CupertinoSwitch
             bind:checked={settingsState.ytmSyncHistory}
             label="Sync Playback History & Stats"
-            description="Track plays locally and mirror scrobbles to your YouTube Music account"
+            description="Track plays locally and mirror scrobbles to your cloud account"
             icon="history"
             onchange={() => settingsState.scheduleSave()}
           />
@@ -801,10 +801,18 @@
           />
 
           <CupertinoSwitch
-            bind:checked={settingsState.karaokeAnimation}
-            label="Fluid Progressive Karaoke Animation"
-            description="Smooth word-by-word active lyric animation during playback"
+            bind:checked={settingsState.wordByWordTracking}
+            label="Word-by-Word Karaoke Tracking"
+            description="Animate progressive syllable text fill instead of full-line highlighting"
             icon="auto_awesome"
+            onchange={() => settingsState.scheduleSave()}
+          />
+
+          <CupertinoSwitch
+            bind:checked={settingsState.blurInactiveLines}
+            label="Focus Line Blur"
+            description="Keep active sung line in focus and progressively blur background lines (toggle off for sharp lines with standard dimming)"
+            icon="blur_on"
             onchange={() => settingsState.scheduleSave()}
           />
 
@@ -813,14 +821,6 @@
             label="Auto-Scroll Active Line"
             description="Keep the currently active sung line vertically centered in the sheet"
             icon="unfold_more"
-            onchange={() => settingsState.scheduleSave()}
-          />
-
-          <CupertinoSwitch
-            bind:checked={settingsState.blurInactiveLines}
-            label="Blur Inactive Lyric Lines"
-            description="Apply progressive focal blur to past and upcoming lyric lines"
-            icon="blur_on"
             onchange={() => settingsState.scheduleSave()}
           />
 
@@ -852,7 +852,7 @@
           <CupertinoSwitch
             bind:checked={settingsState.canvasLoopsEnabled}
             label="Looping Motion Art & Canvases"
-            description="Stream short video loops from YouTube / Spotify for supported tracks"
+            description="Stream short video loops from online sources for supported tracks"
             icon="motion_photos_on"
             onchange={() => settingsState.scheduleSave()}
           />
@@ -904,8 +904,8 @@
               { value: '160k', label: 'Opus 160kbps (Standard High)' },
               { value: '96k', label: 'Opus 96kbps (Data Saver)' }
             ]}
-            label="YouTube Music Stream Quality"
-            description="Opus audio bitrate extracted via headless yt-dlp"
+            label="Online Stream Audio Quality"
+            description="High-fidelity audio stream bitrate extracted via lossless backend"
             icon="graphic_eq"
             onchange={() => settingsState.scheduleSave()}
           />
@@ -921,7 +921,7 @@
           <CupertinoSwitch
             bind:checked={settingsState.filterDuplicates}
             label="Deduplicate Search Results"
-            description="Intelligently collapse redundant uploads from different YouTube channels"
+            description="Intelligently collapse redundant uploads from different online channels"
             icon="filter_list"
             onchange={() => settingsState.scheduleSave()}
           />
@@ -980,16 +980,16 @@
           <CupertinoSwitch
             bind:checked={settingsState.trackChangeNotifications}
             label="Desktop Notifications on Track Change"
-            description="Show native Wayland notifications with album art when tracks change"
+            description="Show native desktop banner with album art and track details when song advances while unfocused"
             icon="notifications"
             onchange={() => settingsState.scheduleSave()}
           />
 
           <CupertinoSwitch
             bind:checked={settingsState.mprisIntegration}
-            label="MPRIS D-Bus Media Key Controls"
-            description="Support standard Linux keyboard keys (Play/Pause, Next, Prev) and KDE Plasma widget"
-            icon="keyboard"
+            label="Desktop & Lockscreen MPRIS2 Controls"
+            description="Expose media controls, metadata, and album artwork to lockscreen and desktop widgets via D-Bus"
+            icon="phonelink"
             onchange={() => settingsState.scheduleSave()}
           />
 

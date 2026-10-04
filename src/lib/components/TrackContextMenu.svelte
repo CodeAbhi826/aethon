@@ -138,7 +138,7 @@
       </button>
     {/if}
 
-    {#if track.album && track.album !== 'Unknown' && track.album !== 'YouTube Music Stream'}
+    {#if track.album && track.album !== 'Unknown' && track.album !== 'Lossless Online Stream' && track.album !== 'YouTube Music Stream'}
       <button
         type="button"
         class="px-3 py-2 flex items-center gap-2.5 hover:bg-white/10 transition-colors text-left text-white/90"
