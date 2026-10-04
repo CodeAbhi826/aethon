@@ -70,7 +70,7 @@ impl YouTubeService {
 
     fn is_metadata_noise_run(text: &str) -> bool {
         let trimmed = text.trim();
-        if trimmed.is_empty() || trimmed == "•" {
+        if trimmed.is_empty() || trimmed == "•" || trimmed == "·" || trimmed == "|" || trimmed == "-" {
             return true;
         }
         let lower = trimmed.to_lowercase();
@@ -82,11 +82,35 @@ impl YouTubeService {
             || lower == "ep"
             || lower == "station"
             || lower == "playlist"
+            || lower == "chart"
+            || lower == "episode"
+            || lower == "podcast"
         {
             return true;
         }
         // Duration pattern: e.g. "3:45", "1:02:15"
         if trimmed.contains(':') && trimmed.chars().all(|c| c.is_ascii_digit() || c == ':') {
+            return true;
+        }
+        // 4-digit release year: e.g. "2018", "1999"
+        if trimmed.len() == 4 && trimmed.chars().all(|c| c.is_ascii_digit()) {
+            if let Ok(yr) = trimmed.parse::<u32>() {
+                if (1900..=2099).contains(&yr) {
+                    return true;
+                }
+            }
+        }
+        // Solitary metric or metadata words
+        if lower == "views"
+            || lower == "view"
+            || lower == "subscribers"
+            || lower == "subscriber"
+            || lower == "plays"
+            || lower == "play"
+            || lower == "audience"
+            || lower == "songs"
+            || lower == "tracks"
+        {
             return true;
         }
         // View count, subscriber count, or play count: e.g. "3.8M views", "319M subscribers", "12M plays"
@@ -95,7 +119,11 @@ impl YouTubeService {
             || lower.ends_with("subscribers")
             || lower.ends_with("subscriber")
             || lower.ends_with("plays")
-            || lower.ends_with("play");
+            || lower.ends_with("play")
+            || lower.ends_with("audience")
+            || lower.ends_with("monthly audience")
+            || lower.ends_with("songs")
+            || lower.ends_with("tracks");
         if is_metric_suffix && trimmed.chars().any(|c| c.is_ascii_digit()) {
             return true;
         }
@@ -104,23 +132,50 @@ impl YouTubeService {
 
     fn strip_artist_metadata_suffixes(raw: &str) -> String {
         let mut cleaned = raw.trim();
-        let lower = cleaned.to_lowercase();
-        for suffix in &[" views", " view", " subscribers", " subscriber", " plays", " play"] {
-            if lower.ends_with(suffix) {
-                let prefix_len = lower.len() - suffix.len();
-                let prefix = cleaned[..prefix_len].trim_end();
-                if let Some(last_space) = prefix.rfind(' ') {
-                    let count_part = &prefix[last_space + 1..];
-                    if count_part.chars().any(|c| c.is_ascii_digit()) {
-                        cleaned = prefix[..last_space].trim_end();
+        if cleaned.to_lowercase().starts_with("similar to ") {
+            cleaned = cleaned[11..].trim();
+        }
+
+        let suffixes = [
+            " views",
+            " view",
+            " subscribers",
+            " subscriber",
+            " plays",
+            " play",
+            " monthly audience",
+            " audience",
+            " songs",
+            " tracks",
+        ];
+
+        let mut changed = true;
+        while changed {
+            changed = false;
+            let lower = cleaned.to_lowercase();
+            for suffix in &suffixes {
+                if lower.ends_with(suffix) {
+                    let prefix_len = lower.len() - suffix.len();
+                    let prefix = cleaned[..prefix_len].trim_end();
+                    if let Some(last_space) = prefix.rfind(' ') {
+                        let count_part = &prefix[last_space + 1..];
+                        if count_part.chars().any(|c| c.is_ascii_digit()) {
+                            cleaned = prefix[..last_space].trim_end();
+                            changed = true;
+                            break;
+                        } else {
+                            cleaned = prefix;
+                            changed = true;
+                            break;
+                        }
                     } else {
                         cleaned = prefix;
+                        changed = true;
+                        break;
                     }
-                } else {
-                    cleaned = prefix;
                 }
-                break;
             }
+            cleaned = cleaned.trim_end_matches(['•', '·', '|', '-', ',', ' ']).trim();
         }
         cleaned.to_string()
     }
@@ -182,7 +237,8 @@ impl YouTubeService {
                                     }
                                 }
                             }
-                            artist = Self::strip_artist_metadata_suffixes(&artist_parts.join(" "));
+                            artist = Self::strip_artist_metadata_suffixes(&artist_parts.join(" "))
+                                .replace(" ,", ",");
                         }
                     }
                 }

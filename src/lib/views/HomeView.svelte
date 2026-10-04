@@ -107,8 +107,10 @@
 
   function cleanArtistName(raw: string): string {
     return raw
-      .replace(/\s+\d+(\.\d+)?[kmbKMB]?\s+(views?|subscribers?|plays?)/gi, '')
+      .replace(/^similar\s+to\s+/i, '')
+      .replace(/\s+\d+(\.\d+)?[kmbKMB]?\s+(views?|subscribers?|plays?|audience)/gi, '')
       .split(',')[0]
+      .split('•')[0]
       .trim();
   }
 
