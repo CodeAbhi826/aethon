@@ -43,10 +43,10 @@ impl MprisManager {
         let _ = std::fs::write(bridge_script_path, MPRIS_SCRIPT);
 
         // 2. Bind Unix listener before spawning python process
-        let listener = match std::os::unix::net::UnixListener::bind(&ipc_socket_path) {
+        let std_listener = match std::os::unix::net::UnixListener::bind(&ipc_socket_path) {
             Ok(l) => {
                 let _ = l.set_nonblocking(true);
-                Some(tokio::net::UnixListener::from_std(l).unwrap())
+                Some(l)
             }
             Err(e) => {
                 crate::aethon_log!("Failed to bind MPRIS IPC socket {}: {:?}", ipc_socket_path, e);
@@ -97,16 +97,24 @@ impl MprisManager {
         let (cmd_tx, mut cmd_rx) = mpsc::channel::<String>(32);
 
         // 4. Handle incoming connection and command dispatching
-        if let Some(listener) = listener {
+        if let Some(std_l) = std_listener {
             let app_handle = app.clone();
-            tokio::spawn(async move {
+            tauri::async_runtime::spawn(async move {
+                let listener = match tokio::net::UnixListener::from_std(std_l) {
+                    Ok(l) => l,
+                    Err(e) => {
+                        eprintln!("[Aethon] MPRIS UnixListener from_std failed: {:?}", e);
+                        return;
+                    }
+                };
+
                 // Wait for python bridge to connect
                 match listener.accept().await {
                     Ok((stream, _)) => {
                         let (reader, mut writer) = stream.into_split();
 
                         // Task A: Write commands to Python bridge
-                        tokio::spawn(async move {
+                        tauri::async_runtime::spawn(async move {
                             while let Some(msg) = cmd_rx.recv().await {
                                 let mut line = msg;
                                 if !line.ends_with('\n') {
