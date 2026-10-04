@@ -87,7 +87,7 @@
           <div class="p-3 rounded-2xl bg-[var(--md-sys-primary-container)]/25 border border-[var(--md-sys-primary)]/40 flex items-center gap-3.5 shadow-sm">
             <div class="relative w-12 h-12 rounded-xl overflow-hidden shadow shrink-0 border border-white/10">
               {#if playerState.currentTrack.cover_art}
-                <img src={playerState.currentTrack.cover_art} alt={playerState.currentTrack.title} class="w-full h-full object-cover" />
+                <img loading="lazy" decoding="async" src={playerState.currentTrack.cover_art} alt={playerState.currentTrack.title} class="w-full h-full object-cover" />
               {:else}
                 <div class="w-full h-full flex items-center justify-center bg-white/5">
                   <span class="material-symbols-rounded text-white/40">music_note</span>
@@ -138,7 +138,7 @@
                 <div class="flex items-center gap-3 min-w-0 flex-1 pr-2">
                   <div class="relative w-10 h-10 rounded-lg overflow-hidden shadow shrink-0 border border-white/10">
                     {#if track.cover_art}
-                      <img src={track.cover_art} alt={track.title} class="w-full h-full object-cover" />
+                      <img loading="lazy" decoding="async" src={track.cover_art} alt={track.title} class="w-full h-full object-cover" />
                     {:else}
                       <div class="w-full h-full flex items-center justify-center bg-white/5">
                         <span class="material-symbols-rounded text-white/40 text-sm">music_note</span>

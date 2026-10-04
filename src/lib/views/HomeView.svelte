@@ -292,7 +292,7 @@
             class="p-3 rounded-2xl {isCurrent ? 'bg-[var(--md-sys-primary-container)]/25 border-[var(--md-sys-primary)]/40 shadow-sm' : 'm3-acrylic-card hover:bg-white/10 border-white/5'} border cursor-pointer transition flex items-center gap-3.5 group text-left w-full gpu-card"
           >
             <div class="relative w-14 h-14 rounded-xl overflow-hidden shadow shrink-0 border border-white/10">
-              <img src={track.cover_art} alt={track.title} class="w-full h-full object-cover group-hover:scale-105 transition" />
+              <img loading="lazy" decoding="async" src={track.cover_art} alt={track.title} class="w-full h-full object-cover group-hover:scale-105 transition" />
               <div class="absolute inset-0 bg-black/40 {isCurrent ? 'opacity-100 bg-black/50' : 'opacity-0 group-hover:opacity-100'} flex items-center justify-center transition">
                 <span class="material-symbols-rounded {isCurrent ? 'text-[var(--md-sys-primary)]' : 'text-white'} text-xl filled">
                   {isCurrent && playerState.playback.is_playing ? 'equalizer' : 'play_arrow'}
@@ -332,7 +332,7 @@
             class="w-44 p-3 rounded-2xl m3-acrylic-card hover:bg-white/[0.09] border border-white/[0.06] transition-all duration-300 group flex flex-col justify-between gpu-card"
           >
             <div class="relative w-full aspect-square rounded-xl overflow-hidden shadow-md mb-2.5 border border-white/10">
-              <img src={track.cover_art} alt={track.title} class="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" />
+              <img loading="lazy" decoding="async" src={track.cover_art} alt={track.title} class="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" />
               <button
                 onclick={() => playerState.playTrack(track)}
                 aria-label="Play {track.title}"
@@ -377,7 +377,7 @@
             class="p-3 rounded-2xl {isCurrent ? 'bg-[var(--md-sys-primary-container)]/25 border-[var(--md-sys-primary)]/40 shadow-sm' : 'm3-acrylic-card hover:bg-white/10 border-white/5'} border cursor-pointer transition flex items-center gap-3.5 group text-left w-full gpu-card"
           >
             <div class="relative w-14 h-14 rounded-xl overflow-hidden shadow shrink-0 border border-white/10">
-              <img src={track.cover_art} alt={track.title} class="w-full h-full object-cover group-hover:scale-105 transition" />
+              <img loading="lazy" decoding="async" src={track.cover_art} alt={track.title} class="w-full h-full object-cover group-hover:scale-105 transition" />
               <div class="absolute inset-0 bg-black/40 {isCurrent ? 'opacity-100 bg-black/50' : 'opacity-0 group-hover:opacity-100'} flex items-center justify-center transition">
                 <span class="material-symbols-rounded {isCurrent ? 'text-[var(--md-sys-primary)]' : 'text-white'} text-xl filled">
                   {isCurrent && playerState.playback.is_playing ? 'equalizer' : 'play_arrow'}
@@ -417,7 +417,7 @@
           class="p-3 rounded-2xl {isCurrent ? 'bg-[var(--md-sys-primary-container)]/25 border-[var(--md-sys-primary)]/40 shadow-sm' : 'm3-acrylic-card hover:bg-white/10 border-white/5'} border cursor-pointer transition flex items-center gap-3.5 group text-left w-full gpu-card"
         >
           <div class="relative w-14 h-14 rounded-xl overflow-hidden shadow shrink-0 border border-white/10">
-            <img src={track.cover_art} alt={track.title} class="w-full h-full object-cover group-hover:scale-105 transition" />
+            <img loading="lazy" decoding="async" src={track.cover_art} alt={track.title} class="w-full h-full object-cover group-hover:scale-105 transition" />
             <div class="absolute inset-0 bg-black/40 {isCurrent ? 'opacity-100 bg-black/50' : 'opacity-0 group-hover:opacity-100'} flex items-center justify-center transition">
               <span class="material-symbols-rounded {isCurrent ? 'text-[var(--md-sys-primary)]' : 'text-white'} text-xl filled">
                 {isCurrent && playerState.playback.is_playing ? 'equalizer' : 'play_arrow'}
@@ -468,7 +468,7 @@
           class="p-3 rounded-2xl m3-acrylic-card hover:bg-white/10 border border-white/5 cursor-pointer transition text-center group flex flex-col items-center gpu-card"
         >
           <div class="w-16 h-16 rounded-full overflow-hidden mb-2 shadow-md border border-white/10 relative">
-            <img src={dial.img} alt={dial.name} class="w-full h-full object-cover group-hover:scale-110 transition duration-500" />
+            <img loading="lazy" decoding="async" src={dial.img} alt={dial.name} class="w-full h-full object-cover group-hover:scale-110 transition duration-500" />
             <div class="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 flex items-center justify-center transition">
               <span class="material-symbols-rounded filled text-white text-xl">play_arrow</span>
             </div>
@@ -503,7 +503,7 @@
             {idx + 1}
           </div>
           <div class="relative w-12 h-12 rounded-xl overflow-hidden shadow shrink-0 border border-white/10">
-            <img src={track.cover_art} alt={track.title} class="w-full h-full object-cover group-hover:scale-105 transition" />
+            <img loading="lazy" decoding="async" src={track.cover_art} alt={track.title} class="w-full h-full object-cover group-hover:scale-105 transition" />
             <div class="absolute inset-0 bg-black/40 {isCurrent ? 'opacity-100 bg-black/50' : 'opacity-0 group-hover:opacity-100'} flex items-center justify-center transition">
               <span class="material-symbols-rounded {isCurrent ? 'text-[var(--md-sys-primary)]' : 'text-white'} text-lg filled">
                 {isCurrent && playerState.playback.is_playing ? 'equalizer' : 'play_arrow'}

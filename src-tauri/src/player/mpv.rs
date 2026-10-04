@@ -111,9 +111,9 @@ impl MpvEngine {
             .arg("--cache-on-disk=yes")
             .arg(format!("--demuxer-cache-dir={}", cache_dir_str))
             .arg("--demuxer-cache-unlink-files=no")
-            .arg("--demuxer-max-bytes=104857600")
-            .arg("--demuxer-max-back-bytes=52428800")
-            .arg("--demuxer-readahead-secs=180")
+            .arg("--demuxer-max-bytes=16777216")
+            .arg("--demuxer-max-back-bytes=8388608")
+            .arg("--demuxer-readahead-secs=60")
             .stdin(Stdio::null())
             .stdout(stdout_cfg)
             .stderr(stderr_cfg);

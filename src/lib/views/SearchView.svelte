@@ -93,7 +93,7 @@
             class="flex items-center gap-3.5 p-3 rounded-2xl {isCurrent ? 'bg-[var(--md-sys-primary-container)]/25 border-[var(--md-sys-primary)]/50 shadow-sm' : 'bg-[#1e2026]/70 hover:bg-[#262830] border-white/[0.05] hover:border-white/[0.1]'} border transition-all cursor-pointer group shadow-sm"
           >
             <div class="relative w-16 h-16 rounded-xl overflow-hidden shrink-0 bg-[#252730] border border-white/[0.06]">
-              <img src={yt.thumbnail} alt={yt.title} class="w-full h-full object-cover group-hover:scale-105 transition-transform" />
+              <img loading="lazy" decoding="async" src={yt.thumbnail} alt={yt.title} class="w-full h-full object-cover group-hover:scale-105 transition-transform" />
               <div class="absolute inset-0 bg-black/40 {isCurrent ? 'opacity-100 bg-black/50' : 'opacity-0 group-hover:opacity-100'} flex items-center justify-center transition-opacity">
                 <span class="material-symbols-rounded {isCurrent ? 'text-[var(--md-sys-primary)]' : 'text-white'} text-[24px] filled">
                   {isCurrent && playerState.playback.isPlaying ? 'equalizer' : 'play_arrow'}

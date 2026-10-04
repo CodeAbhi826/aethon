@@ -201,7 +201,7 @@
           >
             <div class="flex items-center gap-3 min-w-0 flex-1">
               {#if track.cover_art}
-                <img src={track.cover_art} alt={track.title} class="w-10 h-10 rounded-lg object-cover flex-shrink-0" />
+                <img loading="lazy" decoding="async" src={track.cover_art} alt={track.title} class="w-10 h-10 rounded-lg object-cover flex-shrink-0" />
               {:else}
                 <div class="w-10 h-10 rounded-lg bg-white/5 flex items-center justify-center flex-shrink-0 text-white/40">
                   <span class="material-symbols-rounded text-lg">music_note</span>
@@ -296,7 +296,7 @@
         >
           <div class="w-24 h-24 rounded-full overflow-hidden mb-3 bg-white/5 shadow-md border border-white/10 flex items-center justify-center">
             {#if artist.cover}
-              <img src={artist.cover} alt={artist.name} class="w-full h-full object-cover group-hover:scale-105 transition-transform" />
+              <img loading="lazy" decoding="async" src={artist.cover} alt={artist.name} class="w-full h-full object-cover group-hover:scale-105 transition-transform" />
             {:else}
               <span class="material-symbols-rounded text-3xl text-white/40">person</span>
             {/if}
@@ -318,7 +318,7 @@
         >
           <div class="aspect-square rounded-xl overflow-hidden mb-3 bg-white/5 shadow-md border border-white/10 flex items-center justify-center">
             {#if album.cover}
-              <img src={album.cover} alt={album.title} class="w-full h-full object-cover group-hover:scale-105 transition-transform" />
+              <img loading="lazy" decoding="async" src={album.cover} alt={album.title} class="w-full h-full object-cover group-hover:scale-105 transition-transform" />
             {:else}
               <span class="material-symbols-rounded text-3xl text-white/40">album</span>
             {/if}
@@ -373,7 +373,7 @@
             <div class="flex items-center gap-3.5 min-w-0 flex-1">
               <div class="relative w-12 h-12 rounded-xl overflow-hidden shrink-0 bg-white/5 border border-white/10">
                 {#if track.cover_art}
-                  <img src={track.cover_art} alt={track.title} class="w-full h-full object-cover group-hover:scale-105 transition-transform" />
+                  <img loading="lazy" decoding="async" src={track.cover_art} alt={track.title} class="w-full h-full object-cover group-hover:scale-105 transition-transform" />
                 {:else}
                   <div class="w-full h-full flex items-center justify-center text-white/40">
                     <span class="material-symbols-rounded text-xl">music_note</span>

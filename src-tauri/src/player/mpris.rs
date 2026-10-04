@@ -58,16 +58,19 @@ impl MprisManager {
 
         // 3. Spawn python3 bridge
         let mut cmd = Command::new("python3");
-        cmd.arg(bridge_script_path)
+        cmd.arg("-O")
+            .arg(bridge_script_path)
             .arg(&ipc_socket_path)
             .arg(mpv_socket)
             .stdin(Stdio::null())
             .stdout(if crate::is_verbose() { Stdio::inherit() } else { Stdio::null() })
             .stderr(if crate::is_verbose() { Stdio::inherit() } else { Stdio::null() });
 
-        // Clean AppImage env vars so python uses native system libs
+        // Clean AppImage env vars and optimize Python memory
         cmd.env_remove("PYTHONHOME");
         cmd.env_remove("PYTHONPATH");
+        cmd.env("PYTHONOPTIMIZE", "2");
+        cmd.env("PYTHONDONTWRITEBYTECODE", "1");
         if let Ok(ld) = std::env::var("LD_LIBRARY_PATH") {
             let filtered: Vec<&str> = ld
                 .split(':')
