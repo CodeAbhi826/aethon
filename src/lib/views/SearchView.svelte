@@ -4,14 +4,15 @@
   let searchQuery = $state('');
 
   const exploreTags = [
-    'J-Pop Hits',
-    'Anime OST',
-    'City Pop',
+    'Trending India',
+    'Arijit Singh',
+    'Bollywood Hits',
+    'Punjabi Pop',
+    'South Indian Hits',
+    'Diljit Dosanjh',
+    'Shreya Ghoshal',
+    'Indie India',
     'Lo-Fi Beats',
-    'FLAC Lossless',
-    'Acoustic Session',
-    'Official Hige Dandism',
-    'YOASOBI',
   ];
 
   function handleSearch(q?: string) {

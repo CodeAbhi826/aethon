@@ -1,90 +1,119 @@
 <script lang="ts">
+  import { onMount } from 'svelte';
+  import { invoke } from '@tauri-apps/api/core';
   import { playerState } from '../state.svelte';
-  import type { Track } from '../types';
+  import type { Track, YouTubeTrack } from '../types';
 
-  const sampleTracks: Track[] = [
+  const trendingIndiaTracks: Track[] = [
     {
-      id: 'sample_1',
-      title: 'Midnight City',
-      artist: 'M83',
-      album: 'Hurry Up, We\'re Dreaming',
-      duration: 244,
-      file_path: 'sample_1',
-      cover_art: 'https://images.unsplash.com/photo-1614613535308-eb5fbd3d2c17?w=400&auto=format&fit=crop',
-      format: 'FLAC 96k',
-      play_count: 52,
+      id: 'yt_fsiPzT50ZiM',
+      title: 'Tum Hi Ho',
+      artist: 'Arijit Singh',
+      album: 'Aashiqui 2',
+      duration: 262,
+      file_path: 'https://www.youtube.com/watch?v=fsiPzT50ZiM',
+      cover_art: 'https://i.ytimg.com/vi/fsiPzT50ZiM/hqdefault.jpg',
+      format: 'Opus 256k',
+      play_count: 98,
       favorite: true,
       date_added: Date.now() - 3600000,
     },
     {
-      id: 'sample_2',
-      title: 'Get Lucky',
-      artist: 'Daft Punk ft. Pharrell',
-      album: 'Random Access Memories',
-      duration: 248,
-      file_path: 'sample_2',
-      cover_art: 'https://images.unsplash.com/photo-1514525253161-7a46d19cd819?w=400&auto=format&fit=crop',
-      format: 'FLAC',
-      play_count: 48,
+      id: 'yt_BddP6PYo2gs',
+      title: 'Kesariya',
+      artist: 'Arijit Singh, Pritam',
+      album: 'Brahmastra',
+      duration: 268,
+      file_path: 'https://www.youtube.com/watch?v=BddP6PYo2gs',
+      cover_art: 'https://i.ytimg.com/vi/BddP6PYo2gs/hqdefault.jpg',
+      format: 'Opus 256k',
+      play_count: 85,
       favorite: true,
       date_added: Date.now() - 7200000,
     },
     {
-      id: 'sample_3',
-      title: 'Resonance',
-      artist: 'HOME',
-      album: 'Odyssey',
-      duration: 212,
-      file_path: 'sample_3',
-      cover_art: 'https://images.unsplash.com/photo-1518709268805-4e9042af9f23?w=400&auto=format&fit=crop',
-      format: 'ALAC',
-      play_count: 39,
+      id: 'yt_k3g_Wj3Fda4',
+      title: 'Ve Haaniyaan',
+      artist: 'Avvy Sra, Danny, Sagar',
+      album: 'Ve Haaniyaan',
+      duration: 236,
+      file_path: 'https://www.youtube.com/watch?v=k3g_Wj3Fda4',
+      cover_art: 'https://i.ytimg.com/vi/k3g_Wj3Fda4/hqdefault.jpg',
+      format: 'Opus 256k',
+      play_count: 77,
       favorite: false,
       date_added: Date.now() - 14400000,
     },
     {
-      id: 'sample_4',
-      title: 'Blinding Lights',
-      artist: 'The Weeknd',
-      album: 'After Hours',
-      duration: 200,
-      file_path: 'sample_4',
-      cover_art: 'https://images.unsplash.com/photo-1508700115892-45ecd05ae2ad?w=400&auto=format&fit=crop',
-      format: 'FLAC 96k',
-      play_count: 61,
+      id: 'yt_mH_LFkWxpI0',
+      title: 'Lover',
+      artist: 'Diljit Dosanjh',
+      album: 'MoonChild Era',
+      duration: 191,
+      file_path: 'https://www.youtube.com/watch?v=mH_LFkWxpI0',
+      cover_art: 'https://i.ytimg.com/vi/mH_LFkWxpI0/hqdefault.jpg',
+      format: 'Opus 256k',
+      play_count: 91,
       favorite: true,
       date_added: Date.now() - 28800000,
     },
     {
-      id: 'sample_5',
-      title: 'Clair de Lune',
-      artist: 'Claude Debussy',
-      album: 'Suite Bergamasque',
-      duration: 304,
-      file_path: 'sample_5',
-      cover_art: 'https://images.unsplash.com/photo-1507838153414-b4b713384a76?w=400&auto=format&fit=crop',
-      format: 'FLAC 192k',
-      play_count: 34,
+      id: 'yt_gvyUuxdRdR4',
+      title: 'Raataan Lambiyan',
+      artist: 'Jubin Nautiyal, Asees Kaur',
+      album: 'Shershaah',
+      duration: 230,
+      file_path: 'https://www.youtube.com/watch?v=gvyUuxdRdR4',
+      cover_art: 'https://i.ytimg.com/vi/gvyUuxdRdR4/hqdefault.jpg',
+      format: 'Opus 256k',
+      play_count: 64,
       favorite: false,
       date_added: Date.now() - 40000000,
     },
     {
-      id: 'sample_6',
-      title: 'After Dark',
-      artist: 'Mr.Kitty',
-      album: 'Time',
-      duration: 259,
-      file_path: 'sample_6',
-      cover_art: 'https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?w=400&auto=format&fit=crop',
+      id: 'yt_tMgEYaclnQ0',
+      title: 'On Top',
+      artist: 'Karan Aujla',
+      album: 'Four Me',
+      duration: 184,
+      file_path: 'https://www.youtube.com/watch?v=tMgEYaclnQ0',
+      cover_art: 'https://i.ytimg.com/vi/tMgEYaclnQ0/hqdefault.jpg',
       format: 'Opus 256k',
-      play_count: 45,
+      play_count: 82,
       favorite: true,
       date_added: Date.now() - 50000000,
     },
   ];
 
+  let liveTrending = $state<Track[]>([]);
+
+  onMount(async () => {
+    try {
+      const results = await invoke<YouTubeTrack[]>('search_youtube', { query: 'trending indian songs', limit: 6 });
+      if (results && results.length > 0) {
+        liveTrending = results.map((yt, idx) => ({
+          id: `yt_${yt.id}`,
+          title: yt.title,
+          artist: yt.artist || 'Trending India',
+          album: 'YouTube Music India Charts',
+          duration: yt.duration || 210,
+          file_path: yt.stream_url,
+          cover_art: yt.thumbnail,
+          format: 'Opus 256k',
+          play_count: 50 + idx * 5,
+          favorite: false,
+          date_added: Date.now(),
+        }));
+      }
+    } catch (e) {
+      console.warn('Could not load live India trending:', e);
+    }
+  });
+
   let displayTracks = $derived(
-    playerState.library.length > 0 ? playerState.library.slice(0, 6) : sampleTracks
+    playerState.library.length > 0 
+      ? playerState.library.slice(0, 6) 
+      : (liveTrending.length > 0 ? liveTrending : trendingIndiaTracks)
   );
 </script>
 
@@ -152,15 +181,15 @@
 
     <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-6 gap-3">
       {#each [
-        { name: 'M83 Radio', type: 'Station', img: 'https://images.unsplash.com/photo-1614613535308-eb5fbd3d2c17?w=160&auto=format&fit=crop' },
-        { name: 'Daft Punk', type: 'Artist Mix', img: 'https://images.unsplash.com/photo-1514525253161-7a46d19cd819?w=160&auto=format&fit=crop' },
-        { name: 'Chillwave Synth', type: 'Mood Radio', img: 'https://images.unsplash.com/photo-1518709268805-4e9042af9f23?w=160&auto=format&fit=crop' },
-        { name: 'The Weeknd', type: 'Artist Mix', img: 'https://images.unsplash.com/photo-1508700115892-45ecd05ae2ad?w=160&auto=format&fit=crop' },
-        { name: 'Piano Masters', type: 'Classical', img: 'https://images.unsplash.com/photo-1507838153414-b4b713384a76?w=160&auto=format&fit=crop' },
-        { name: 'Dark Wave', type: 'Synth', img: 'https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?w=160&auto=format&fit=crop' },
-      ] as dial, i}
+        { name: 'Arijit Singh', type: 'Artist Radio', img: 'https://i.ytimg.com/vi/fsiPzT50ZiM/hqdefault.jpg', query: 'Arijit Singh' },
+        { name: 'Diljit Dosanjh', type: 'Punjabi Hits', img: 'https://i.ytimg.com/vi/mH_LFkWxpI0/hqdefault.jpg', query: 'Diljit Dosanjh' },
+        { name: 'Bollywood Love', type: 'Romance Mix', img: 'https://i.ytimg.com/vi/BddP6PYo2gs/hqdefault.jpg', query: 'Bollywood Romantic Songs' },
+        { name: 'Karan Aujla', type: 'Punjabi Pop', img: 'https://i.ytimg.com/vi/tMgEYaclnQ0/hqdefault.jpg', query: 'Karan Aujla' },
+        { name: 'South Hits', type: 'Regional Mix', img: 'https://images.unsplash.com/photo-1518709268805-4e9042af9f23?w=160&auto=format&fit=crop', query: 'South Indian Hits' },
+        { name: 'Lo-Fi India', type: 'Chill Beats', img: 'https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?w=160&auto=format&fit=crop', query: 'Indian Lo-Fi Chill' },
+      ] as dial}
         <button
-          onclick={() => playerState.playTrack(sampleTracks[i % sampleTracks.length])}
+          onclick={() => { playerState.activeTab = 'search'; playerState.searchYouTube(dial.query); }}
           class="p-3 rounded-2xl m3-acrylic-card hover:bg-white/10 border border-white/5 cursor-pointer transition text-center group flex flex-col items-center"
         >
           <div class="w-16 h-16 rounded-full overflow-hidden mb-2 shadow-md border border-white/10 relative">
