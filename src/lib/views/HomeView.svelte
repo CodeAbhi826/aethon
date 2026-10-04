@@ -105,16 +105,23 @@
   let liveTrending = $state<Track[]>([]);
   let similarArtistTracks = $state<Track[]>([]);
 
+  function cleanArtistName(raw: string): string {
+    return raw
+      .replace(/\s+\d+(\.\d+)?[kmbKMB]?\s+(views?|subscribers?|plays?)/gi, '')
+      .split(',')[0]
+      .trim();
+  }
+
   // Compute recommended artist based on history or library
   let recommendedArtist = $derived.by(() => {
     if (playerState.playHistoryTracks.length > 0) {
-      return playerState.playHistoryTracks[0].artist.split(',')[0].trim();
+      return cleanArtistName(playerState.playHistoryTracks[0].artist);
     }
     if (playerState.currentTrack) {
-      return playerState.currentTrack.artist.split(',')[0].trim();
+      return cleanArtistName(playerState.currentTrack.artist);
     }
     if (playerState.library.length > 0) {
-      return playerState.library[0].artist.split(',')[0].trim();
+      return cleanArtistName(playerState.library[0].artist);
     }
     return 'Arijit Singh';
   });
