@@ -104,8 +104,8 @@
               </h4>
               <p class="text-xs text-[#9ea2b0] truncate mt-0.5">{yt.artist}</p>
               <div class="flex items-center gap-2 mt-1">
-                <span class="text-[10px] font-mono px-1.5 py-0.2 rounded bg-red-500/20 text-red-300 font-semibold border border-red-500/30">
-                  YouTube Opus
+                <span class="text-[10px] font-mono px-1.5 py-0.5 rounded bg-red-500/15 text-red-300 font-semibold border border-red-500/20">
+                  YouTube Music • Opus 256k
                 </span>
                 {#if yt.duration > 0}
                   <span class="text-[10px] font-mono text-[#6b6e7c]">
@@ -121,8 +121,8 @@
   {:else}
     <div class="flex flex-col items-center justify-center py-20 text-[#6b6e7c]">
       <span class="material-symbols-rounded text-[48px] mb-3 opacity-40">travel_explore</span>
-      <p class="text-sm font-medium">Search for your favorite lossless music or YouTube streams</p>
-      <p class="text-xs text-[#4c4f5e] mt-1">High-bitrate audio streamed directly via MPV & yt-dlp.</p>
+      <p class="text-sm font-medium">Search songs, artists, and YouTube Music streams</p>
+      <p class="text-xs text-[#4c4f5e] mt-1">High Quality Opus 48kHz audio streamed directly via InnerTube & MPV.</p>
     </div>
   {/if}
 

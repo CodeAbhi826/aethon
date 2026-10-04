@@ -252,32 +252,28 @@
         <div
           class="flex flex-col items-center justify-between mx-auto w-full min-h-0 transition-all {activeView === 'turntable' ? 'max-w-xl' : activeView === 'auto' ? 'hidden md:flex flex-1 max-w-md lg:max-w-lg' : 'hidden'}"
         >
-          <!-- Vinyl Container: dynamic fluid scaling using CSS viewport clamps -->
-          <div class="flex-1 flex items-center justify-center w-full min-h-[140px] max-h-[44vh] shrink py-1">
-            <div class="relative w-36 h-36 sm:w-48 sm:h-48 md:w-56 md:h-56 lg:w-72 lg:h-72 max-h-[36vh] aspect-square rounded-full flex items-center justify-center shadow-2xl p-1.5 sm:p-2 bg-[#121316] border border-white/[0.1] transition-all">
-              <!-- Vinyl body with subtle groove gradients -->
+          <!-- Vinyl Container: perfectly locked 1:1 circle that never distorts -->
+          <div class="flex items-center justify-center w-full py-2 shrink-0">
+            <div class="vinyl-platter relative rounded-full flex items-center justify-center shadow-2xl p-2 bg-[#101114] border border-white/10">
+              <!-- Vinyl body with spinning groove patterns -->
               <div
-                class="relative w-full h-full rounded-full bg-gradient-to-tr from-[#1b1c20] via-[#101114] to-[#202227] flex items-center justify-center overflow-hidden {playerState.playback.is_playing ? 'animate-spin-slow' : ''}"
-                style="animation-duration: 20s;"
+                class="vinyl-disc relative rounded-full overflow-hidden flex items-center justify-center {playerState.playback.is_playing ? 'spinning' : ''}"
               >
-                <!-- Grooves -->
-                <div class="absolute inset-2 sm:inset-3 rounded-full border border-white/[0.05]"></div>
-                <div class="absolute inset-4 sm:inset-6 rounded-full border border-white/[0.04]"></div>
-                <div class="absolute inset-8 sm:inset-12 rounded-full border border-white/[0.03]"></div>
-                <div class="absolute inset-12 sm:inset-18 rounded-full border border-white/[0.05]"></div>
+                <!-- Concentric micro-grooves -->
+                <div class="vinyl-grooves absolute inset-0 rounded-full pointer-events-none"></div>
 
-                <!-- Stationary specular light sheen overlay -->
-                <div class="absolute inset-0 bg-gradient-to-tr from-white/[0.06] via-transparent to-white/[0.03] pointer-events-none rounded-full"></div>
+                <!-- Photorealistic stationary double-fan sheen -->
+                <div class="vinyl-sheen absolute inset-0 rounded-full pointer-events-none z-10"></div>
 
                 <!-- Center label with album cover art -->
-                <div class="w-14 h-14 sm:w-18 sm:h-18 md:w-22 md:h-22 lg:w-26 lg:h-26 rounded-full overflow-hidden border-2 border-white/[0.15] shadow-inner relative z-10 flex items-center justify-center bg-[#252730] transition-all">
+                <div class="vinyl-center rounded-full overflow-hidden border-2 border-white/20 shadow-inner relative z-20 flex items-center justify-center bg-[#252730]">
                   {#if playerState.currentTrack?.cover_art}
                     <img src={playerState.currentTrack.cover_art} alt="Vinyl Center" class="w-full h-full object-cover" />
                   {:else}
-                    <span class="material-symbols-rounded text-white/50 text-[24px] sm:text-[28px]">album</span>
+                    <span class="material-symbols-rounded text-white/50 text-[24px]">album</span>
                   {/if}
                   <!-- Center spindle hole -->
-                  <div class="absolute w-3 h-3 sm:w-4 sm:h-4 rounded-full bg-[#121316] border border-white/20"></div>
+                  <div class="absolute w-3.5 h-3.5 rounded-full bg-[#121316] border border-white/30 z-30"></div>
                 </div>
               </div>
             </div>
@@ -328,11 +324,15 @@
               <button
                 onclick={() => playerState.togglePlay()}
                 class="w-11 h-11 sm:w-13 sm:h-13 rounded-full bg-white text-[#111215] flex items-center justify-center shadow-xl hover:scale-105 active:scale-95 transition-all cursor-pointer"
-                title={playerState.playback.is_playing ? 'Pause' : 'Play'}
+                title={playerState.isLoading ? 'Buffering stream...' : playerState.playback.is_playing ? 'Pause' : 'Play'}
               >
-                <span class="material-symbols-rounded text-[26px] sm:text-[30px] filled">
-                  {playerState.playback.is_playing ? 'pause' : 'play_arrow'}
-                </span>
+                {#if playerState.isLoading}
+                  <div class="w-5 h-5 sm:w-6 sm:h-6 border-2 border-[#111215] border-t-transparent rounded-full animate-spin"></div>
+                {:else}
+                  <span class="material-symbols-rounded text-[26px] sm:text-[30px] filled">
+                    {playerState.playback.is_playing ? 'pause' : 'play_arrow'}
+                  </span>
+                {/if}
               </button>
 
               <button
@@ -418,6 +418,54 @@
 {/if}
 
 <style>
+  /* Photorealistic Circular Vinyl Record Geometry */
+  .vinyl-platter {
+    width: min(280px, 34vh);
+    height: min(280px, 34vh);
+    aspect-ratio: 1 / 1;
+  }
+  .vinyl-disc {
+    width: 100%;
+    height: 100%;
+    aspect-ratio: 1 / 1;
+    background: #0d0e12;
+    will-change: transform;
+    transform: translateZ(0);
+    backface-visibility: hidden;
+  }
+  .vinyl-disc.spinning {
+    animation: spinSlow 20s linear infinite;
+  }
+  .vinyl-grooves {
+    background: repeating-radial-gradient(
+      circle at center,
+      #1c1d22 0px,
+      #1c1d22 2px,
+      #0e0f13 3px,
+      #0e0f13 5px
+    );
+    opacity: 0.9;
+  }
+  .vinyl-sheen {
+    background: conic-gradient(
+      from 0deg at 50% 50%,
+      rgba(255, 255, 255, 0.07) 0deg,
+      transparent 45deg,
+      rgba(255, 255, 255, 0.12) 90deg,
+      transparent 135deg,
+      rgba(255, 255, 255, 0.07) 180deg,
+      transparent 225deg,
+      rgba(255, 255, 255, 0.12) 270deg,
+      transparent 315deg,
+      rgba(255, 255, 255, 0.07) 360deg
+    );
+  }
+  .vinyl-center {
+    width: 35%;
+    height: 35%;
+    aspect-ratio: 1 / 1;
+  }
+
   @keyframes spinSlow {
     from { transform: rotate(0deg); }
     to { transform: rotate(360deg); }

@@ -89,11 +89,15 @@
       <button
         onclick={() => playerState.togglePlay()}
         class="w-9 h-9 sm:w-11 sm:h-11 rounded-full bg-[var(--md-sys-primary)] text-[var(--md-sys-on-primary)] flex items-center justify-center shadow-lg shadow-[var(--md-sys-glow)] hover:scale-105 active:scale-95 transition cursor-pointer"
-        title={playerState.playback.is_playing ? 'Pause' : 'Play'}
+        title={playerState.isLoading ? 'Buffering stream...' : playerState.playback.is_playing ? 'Pause' : 'Play'}
       >
-        <span class="material-symbols-rounded filled text-xl sm:text-2xl">
-          {playerState.playback.is_playing ? 'pause' : 'play_arrow'}
-        </span>
+        {#if playerState.isLoading}
+          <div class="w-4 h-4 sm:w-5 sm:h-5 border-2 border-current border-t-transparent rounded-full animate-spin"></div>
+        {:else}
+          <span class="material-symbols-rounded filled text-xl sm:text-2xl">
+            {playerState.playback.is_playing ? 'pause' : 'play_arrow'}
+          </span>
+        {/if}
       </button>
 
       <button

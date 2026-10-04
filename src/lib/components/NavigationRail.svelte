@@ -11,14 +11,9 @@
 
   const browseItems: NavItem[] = [
     { id: 'home', label: 'Home', icon: 'home' },
-    { id: 'search', label: 'Search', icon: 'search' },
-    { id: 'library', label: 'Library', icon: 'library_music' },
-  ];
-
-  const discoverItems: NavItem[] = [
-    { id: 'search', label: 'Moods & Genres', icon: 'style', color: 'text-amber-400' },
-    { id: 'library', label: 'Local Songs', icon: 'folder', color: 'text-emerald-400' },
-    { id: 'stats', label: 'Listening Stats', icon: 'analytics', color: 'text-purple-400' },
+    { id: 'search', label: 'Search & Explore', icon: 'search' },
+    { id: 'library', label: 'Your Library', icon: 'library_music' },
+    { id: 'stats', label: 'Listening Stats', icon: 'analytics' },
   ];
 </script>
 
@@ -30,24 +25,18 @@
     <!-- Header label -->
     {#if !playerState.sidebarCollapsed}
       <div class="px-3 pt-1 text-[10px] font-bold uppercase tracking-wider text-[var(--md-sys-outline)] font-display">
-        Navigation
+        Menu
       </div>
     {/if}
 
-    <!-- Group 1: Browse -->
+    <!-- Main Navigation Items -->
     <div class="space-y-1">
-      {#if !playerState.sidebarCollapsed}
-        <div class="px-3 pb-1 text-[10px] font-bold uppercase tracking-wider text-[var(--md-sys-outline)]/80 font-display">
-          Browse
-        </div>
-      {/if}
-
       {#each browseItems as item}
         {@const isActive = playerState.activeTab === item.id}
         <button
           onclick={() => playerState.activeTab = item.id}
           title={playerState.sidebarCollapsed ? item.label : undefined}
-          class="w-full flex items-center gap-3.5 px-3.5 py-2.5 rounded-full text-xs font-semibold transition-all duration-200 {isActive ? 'bg-[var(--md-sys-primary-container)] text-[var(--md-sys-on-primary-container)] shadow-sm' : 'text-[var(--md-sys-on-surface-variant)] hover:bg-white/5 hover:text-white'}"
+          class="w-full flex items-center gap-3.5 px-3.5 py-2.5 rounded-full text-xs font-semibold transition-all duration-200 cursor-pointer {isActive ? 'bg-[var(--md-sys-primary-container)] text-[var(--md-sys-on-primary-container)] shadow-sm' : 'text-[var(--md-sys-on-surface-variant)] hover:bg-white/5 hover:text-white'}"
         >
           <span class="material-symbols-rounded text-xl shrink-0 {isActive ? 'filled' : ''}">
             {item.icon}
@@ -59,40 +48,37 @@
       {/each}
     </div>
 
-    <!-- Group 2: Discover -->
+    <!-- Quick Actions -->
     <div class="pt-2 border-t border-white/5 space-y-1">
       {#if !playerState.sidebarCollapsed}
         <div class="px-3 pb-1 text-[10px] font-bold uppercase tracking-wider text-[var(--md-sys-outline)]/80 font-display">
-          Discover
+          Quick Access
         </div>
       {/if}
 
-      {#each discoverItems as item}
-        {@const isActive = playerState.activeTab === item.id}
-        <button
-          onclick={() => playerState.activeTab = item.id}
-          title={playerState.sidebarCollapsed ? item.label : undefined}
-          class="w-full flex items-center gap-3.5 px-3.5 py-2 rounded-full text-xs font-semibold transition-all duration-200 {isActive ? 'bg-[var(--md-sys-primary-container)] text-[var(--md-sys-on-primary-container)]' : 'text-[var(--md-sys-on-surface-variant)] hover:bg-white/5 hover:text-white'}"
-        >
-          <span class="material-symbols-rounded text-xl shrink-0 {item.color || ''}">
-            {item.icon}
-          </span>
-          {#if !playerState.sidebarCollapsed}
-            <span class="truncate">{item.label}</span>
-          {/if}
-        </button>
-      {/each}
-
       <button
         onclick={() => playerState.isNowPlayingOpen = true}
-        title="Synced Lyrics"
-        class="w-full flex items-center gap-3.5 px-3.5 py-2 rounded-full text-xs font-semibold transition-all duration-200 text-[var(--md-sys-on-surface-variant)] hover:bg-white/5 hover:text-white"
+        title="Open Now Playing & Lyrics"
+        class="w-full flex items-center gap-3.5 px-3.5 py-2 rounded-full text-xs font-semibold transition-all duration-200 text-[var(--md-sys-on-surface-variant)] hover:bg-white/5 hover:text-white cursor-pointer"
       >
         <span class="material-symbols-rounded text-xl shrink-0 text-[var(--md-sys-primary)]">
           lyrics
         </span>
         {#if !playerState.sidebarCollapsed}
-          <span class="truncate">Synced Lyrics</span>
+          <span class="truncate">Live Lyrics</span>
+        {/if}
+      </button>
+
+      <button
+        onclick={() => playerState.isEqualizerOpen = true}
+        title="Open Equalizer"
+        class="w-full flex items-center gap-3.5 px-3.5 py-2 rounded-full text-xs font-semibold transition-all duration-200 text-[var(--md-sys-on-surface-variant)] hover:bg-white/5 hover:text-white cursor-pointer"
+      >
+        <span class="material-symbols-rounded text-xl shrink-0 text-cyan-400">
+          tune
+        </span>
+        {#if !playerState.sidebarCollapsed}
+          <span class="truncate">Equalizer</span>
         {/if}
       </button>
     </div>

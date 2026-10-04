@@ -24,6 +24,7 @@ class PlayerState {
   sidebarCollapsed = $state(false);
   accentColor = $state('#d0bcff');
   equalizerBands = $state<number[]>([0, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
+  isLoading = $state(false);
 
   // Derived properties
   formattedTime = $derived.by(() => {
@@ -49,6 +50,9 @@ class PlayerState {
     try {
       await listen<PlaybackState>('player-state', (event) => {
         this.playback = event.payload;
+        if (event.payload.is_playing || event.payload.position > 0.1) {
+          this.isLoading = false;
+        }
       });
 
       await listen('track-ended', () => {
@@ -87,6 +91,7 @@ class PlayerState {
 
   async playTrack(track: Track) {
     this.currentTrack = track;
+    this.isLoading = true;
     try {
       await invoke('play_track', { uri: track.file_path, trackId: track.id });
       this.fetchLyrics(track.title, track.artist, track.duration);
@@ -97,6 +102,7 @@ class PlayerState {
       }
     } catch (e) {
       console.error('Play error:', e);
+      this.isLoading = false;
     }
   }
 
@@ -115,6 +121,7 @@ class PlayerState {
       date_added: Date.now(),
     };
     this.currentTrack = syntheticTrack;
+    this.isLoading = true;
     try {
       await invoke('play_track', { uri: yt.stream_url, trackId: null });
       this.fetchLyrics(yt.title, yt.artist, yt.duration);
@@ -125,6 +132,7 @@ class PlayerState {
       }
     } catch (e) {
       console.error('YouTube play error:', e);
+      this.isLoading = false;
     }
   }
 
