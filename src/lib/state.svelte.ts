@@ -133,6 +133,27 @@ class PlayerState {
       const history = await invoke<Track[]>('get_play_history', { limit: 20 });
       if (history && history.length > 0) {
         this.playHistoryTracks = history;
+        if (!this.currentTrack) {
+          const lastTrack = history[0];
+          this.currentTrack = lastTrack;
+          this.playback.duration = lastTrack.duration || 0;
+          this.playback.is_playing = false;
+
+          if (typeof localStorage !== 'undefined') {
+            const savedTrackId = localStorage.getItem('aethon_last_track_id');
+            const savedPos = localStorage.getItem('aethon_last_position');
+            if (savedPos && (!savedTrackId || savedTrackId === lastTrack.id)) {
+              const pos = parseFloat(savedPos);
+              if (!isNaN(pos) && pos >= 0 && (!lastTrack.duration || pos <= lastTrack.duration)) {
+                this.playback.position = pos;
+              }
+            }
+          }
+
+          if (lastTrack.cover_art) {
+            this.applyMonetColorFromImage(lastTrack.cover_art);
+          }
+        }
       }
     } catch (e) {
       console.warn('get_play_history error:', e);
@@ -148,6 +169,12 @@ class PlayerState {
         }
         if (this.currentTrack) {
           this.updateMediaSession(this.currentTrack);
+          if (typeof localStorage !== 'undefined' && event.payload.position > 0) {
+            try {
+              localStorage.setItem('aethon_last_position', String(event.payload.position));
+              localStorage.setItem('aethon_last_track_id', this.currentTrack.id);
+            } catch {}
+          }
         }
         if (settingsState.mprisIntegration) {
           if (this.playback.is_playing !== this.lastMprisPlaying) {
@@ -368,6 +395,16 @@ class PlayerState {
     if (this.currentTrack && this.currentTrack.id !== track.id) {
       this.history.unshift(this.currentTrack);
       if (this.history.length > 50) this.history.pop();
+      if (typeof localStorage !== 'undefined') {
+        try {
+          localStorage.setItem('aethon_last_track_id', track.id);
+          localStorage.setItem('aethon_last_position', '0');
+        } catch {}
+      }
+    } else if (typeof localStorage !== 'undefined') {
+      try {
+        localStorage.setItem('aethon_last_track_id', track.id);
+      } catch {}
     }
     this.currentTrack = track;
     this.isLoading = true;
@@ -406,6 +443,16 @@ class PlayerState {
     if (this.currentTrack && this.currentTrack.id !== syntheticTrack.id) {
       this.history.unshift(this.currentTrack);
       if (this.history.length > 50) this.history.pop();
+      if (typeof localStorage !== 'undefined') {
+        try {
+          localStorage.setItem('aethon_last_track_id', syntheticTrack.id);
+          localStorage.setItem('aethon_last_position', '0');
+        } catch {}
+      }
+    } else if (typeof localStorage !== 'undefined') {
+      try {
+        localStorage.setItem('aethon_last_track_id', syntheticTrack.id);
+      } catch {}
     }
     this.currentTrack = syntheticTrack;
     this.isLoading = true;
@@ -428,6 +475,16 @@ class PlayerState {
   }
 
   async togglePlay() {
+    if (!this.playback.is_playing && this.currentTrack && (!this.playback.current_uri || this.playback.current_uri !== this.currentTrack.file_path)) {
+      const resumePos = this.playback.position;
+      await this.playTrack(this.currentTrack);
+      if (resumePos > 0) {
+        setTimeout(() => {
+          this.seek(resumePos);
+        }, 300);
+      }
+      return;
+    }
     try {
       await invoke('toggle_play');
     } catch (e) {
@@ -436,6 +493,15 @@ class PlayerState {
   }
 
   async seek(seconds: number) {
+    this.playback.position = seconds;
+    if (typeof localStorage !== 'undefined') {
+      try {
+        localStorage.setItem('aethon_last_position', String(seconds));
+        if (this.currentTrack) {
+          localStorage.setItem('aethon_last_track_id', this.currentTrack.id);
+        }
+      } catch {}
+    }
     try {
       await invoke('seek_track', { position: seconds });
       if (settingsState.mprisIntegration) {

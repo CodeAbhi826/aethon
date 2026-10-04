@@ -22,6 +22,20 @@
 >
   <div class="space-y-4 overflow-y-auto scrollbar-none">
     
+    <!-- Top Header: Sidebar Collapse Toggle -->
+    <div class="flex items-center {playerState.sidebarCollapsed ? 'justify-center' : 'px-2'} pb-1">
+      <button
+        onclick={() => playerState.sidebarCollapsed = !playerState.sidebarCollapsed}
+        title={playerState.sidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+        aria-label={playerState.sidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+        class="p-2 rounded-xl text-[var(--md-sys-on-surface-variant)] hover:text-white hover:bg-white/10 active:scale-95 transition-all duration-150 cursor-pointer flex items-center justify-center"
+      >
+        <span class="material-symbols-rounded text-xl">
+          {playerState.sidebarCollapsed ? 'dock_to_right' : 'dock_to_left'}
+        </span>
+      </button>
+    </div>
+
     <!-- Discover Group -->
     <div class="space-y-1">
       <div class="h-6 flex items-center px-3.5 text-[10px] font-bold uppercase tracking-wider text-[var(--md-sys-outline)] font-display overflow-hidden select-none">
@@ -92,21 +106,8 @@
 
   </div>
 
-  <!-- Bottom: Collapse & Settings -->
+  <!-- Bottom: Settings -->
   <div class="pt-2 border-t border-white/5 space-y-1">
-    <button
-      onclick={() => playerState.sidebarCollapsed = !playerState.sidebarCollapsed}
-      title={playerState.sidebarCollapsed ? 'Expand Sidebar' : 'Collapse Sidebar'}
-      class="w-full flex items-center {playerState.sidebarCollapsed ? 'justify-center px-0' : 'gap-3.5 px-3.5'} py-2.5 rounded-full text-xs font-semibold text-[var(--md-sys-on-surface-variant)] hover:bg-white/5 hover:text-white transition-all duration-200 cursor-pointer"
-    >
-      <span class="material-symbols-rounded text-xl shrink-0">
-        {playerState.sidebarCollapsed ? 'dock_to_right' : 'dock_to_left'}
-      </span>
-      {#if !playerState.sidebarCollapsed}
-        <span class="truncate">Collapse Sidebar</span>
-      {/if}
-    </button>
-
     <button
       onclick={() => playerState.activeTab = 'settings'}
       title={playerState.sidebarCollapsed ? 'Settings' : undefined}

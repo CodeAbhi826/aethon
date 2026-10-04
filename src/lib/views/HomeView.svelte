@@ -246,11 +246,6 @@
       </div>
       <h1 class="text-3xl md:text-4xl font-extrabold text-white tracking-tight font-display mt-0.5">{greeting}</h1>
     </div>
-
-    <div class="hidden sm:flex items-center gap-2 text-xs font-medium text-white/50 bg-white/[0.04] px-3.5 py-1.5 rounded-full border border-white/[0.06]">
-      <span class="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
-      <span>Lossless Engine Ready</span>
-    </div>
   </div>
 
   <!-- Mood & Activity Filter Chips (Editorial Fluid Design) -->

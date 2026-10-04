@@ -106,8 +106,7 @@
       >
         {#if playerState.isLoading}
           <svg class="w-4 h-4 sm:w-5 sm:h-5 animate-spin text-current" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-            <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="3"></circle>
-            <path class="opacity-75" stroke="currentColor" stroke-width="3" stroke-linecap="round" d="M12 2a10 10 0 0 1 10 10"></path>
+            <circle cx="12" cy="12" r="9.5" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-dasharray="44 16" class="opacity-90"></circle>
           </svg>
         {:else}
           <span class="material-symbols-rounded filled text-xl sm:text-2xl">
@@ -151,7 +150,7 @@
     </div>
   </div>
 
-  <!-- Right: Queue, Lyrics, Equalizer, Volume, Expand -->
+  <!-- Right: Queue, Equalizer, Volume, Expand -->
   <div class="flex items-center justify-end gap-1 sm:gap-2.5 shrink-0">
     <button
       onclick={() => playerState.isQueueOpen = !playerState.isQueueOpen}
@@ -164,14 +163,6 @@
           {playerState.queue.length > 9 ? '9+' : playerState.queue.length}
         </span>
       {/if}
-    </button>
-
-    <button
-      onclick={() => playerState.isNowPlayingOpen = true}
-      class="p-2 rounded-full hover:bg-white/10 text-[var(--md-sys-on-surface-variant)] hover:text-white transition"
-      title="Lyrics"
-    >
-      <span class="material-symbols-rounded text-xl">lyrics</span>
     </button>
 
     <button

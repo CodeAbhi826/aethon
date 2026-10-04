@@ -152,8 +152,7 @@
     {#if isLoading}
       <div class="flex items-center justify-center py-12 text-[#9ea2b0]">
         <svg class="w-6 h-6 animate-spin text-[var(--md-sys-primary)]" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-          <circle class="opacity-20" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="3"></circle>
-          <path class="opacity-90" stroke="currentColor" stroke-width="3" stroke-linecap="round" d="M12 2a10 10 0 0 1 10 10"></path>
+          <circle cx="12" cy="12" r="9.5" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-dasharray="44 16" class="opacity-90"></circle>
         </svg>
       </div>
     {:else}
