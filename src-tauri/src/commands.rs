@@ -360,16 +360,8 @@ pub async fn download_track(
                 cmd.env("LD_LIBRARY_PATH", filtered.join(":"));
             }
         }
-        if let Ok(py) = std::env::var("PYTHONPATH") {
-            if py.contains(".mount_") {
-                cmd.env_remove("PYTHONPATH");
-            }
-        }
-        if let Ok(pyh) = std::env::var("PYTHONHOME") {
-            if pyh.contains(".mount_") {
-                cmd.env_remove("PYTHONHOME");
-            }
-        }
+        cmd.env_remove("PYTHONHOME");
+        cmd.env_remove("PYTHONPATH");
 
         let output = cmd.output().map_err(|e| format!("Failed to spawn yt-dlp: {}", e))?;
         if !output.status.success() {

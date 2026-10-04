@@ -134,21 +134,8 @@ impl MpvEngine {
             cmd.env_remove("LD_LIBRARY_PATH");
         }
 
-        if let Ok(py) = std::env::var("PYTHONPATH") {
-            if py.contains(".mount_") {
-                cmd.env_remove("PYTHONPATH");
-            }
-        } else {
-            cmd.env_remove("PYTHONPATH");
-        }
-
-        if let Ok(pyh) = std::env::var("PYTHONHOME") {
-            if pyh.contains(".mount_") {
-                cmd.env_remove("PYTHONHOME");
-            }
-        } else {
-            cmd.env_remove("PYTHONHOME");
-        }
+        cmd.env_remove("PYTHONHOME");
+        cmd.env_remove("PYTHONPATH");
 
         let child = cmd.spawn()?;
 

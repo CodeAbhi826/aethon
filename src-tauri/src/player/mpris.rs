@@ -66,26 +66,20 @@ impl MprisManager {
             .stderr(if crate::is_verbose() { Stdio::inherit() } else { Stdio::null() });
 
         // Clean AppImage env vars so python uses native system libs
+        cmd.env_remove("PYTHONHOME");
+        cmd.env_remove("PYTHONPATH");
         if let Ok(ld) = std::env::var("LD_LIBRARY_PATH") {
             let filtered: Vec<&str> = ld
                 .split(':')
-                .filter(|p| !p.contains(".mount_") && !p.is_empty())
+                .filter(|p| !p.contains(".mount_") && !p.contains("appimage") && !p.contains("/tmp/") && !p.is_empty())
                 .collect();
             if filtered.is_empty() {
                 cmd.env_remove("LD_LIBRARY_PATH");
             } else {
                 cmd.env("LD_LIBRARY_PATH", filtered.join(":"));
             }
-        }
-        if let Ok(py) = std::env::var("PYTHONPATH") {
-            if py.contains(".mount_") {
-                cmd.env_remove("PYTHONPATH");
-            }
-        }
-        if let Ok(pyh) = std::env::var("PYTHONHOME") {
-            if pyh.contains(".mount_") {
-                cmd.env_remove("PYTHONHOME");
-            }
+        } else {
+            cmd.env_remove("LD_LIBRARY_PATH");
         }
 
         let child = match cmd.spawn() {
