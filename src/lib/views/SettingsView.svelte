@@ -543,7 +543,7 @@
             <span class="text-xs font-mono text-white/50">Current: {settingsState.themePreset}</span>
           </div>
 
-          <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 pt-1">
+          <div class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-2 2xl:grid-cols-3 gap-3 pt-1">
             {#each Object.entries(THEME_PRESETS) as [key, preset]}
               {@const isSelected = settingsState.themePreset === key}
               <button
@@ -556,10 +556,10 @@
                   style="background-color: {preset.hex};"
                 ></div>
                 <div class="min-w-0 flex-1">
-                  <div class="flex items-center justify-between">
-                    <span class="text-xs font-semibold text-white truncate">{preset.name}</span>
+                  <div class="flex items-center justify-between gap-1">
+                    <span class="text-xs font-semibold text-white whitespace-normal leading-tight">{preset.name}</span>
                     {#if isSelected}
-                      <span class="material-symbols-rounded text-[var(--md-sys-primary)] text-[16px]">check_circle</span>
+                      <span class="material-symbols-rounded text-[var(--md-sys-primary)] text-[16px] shrink-0 ml-1.5">check_circle</span>
                     {/if}
                   </div>
                   <p class="text-[11px] text-white/50 leading-tight mt-0.5 line-clamp-2">{preset.desc}</p>

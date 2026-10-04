@@ -101,11 +101,14 @@
 
       <button
         onclick={() => playerState.togglePlay()}
-        class="w-9 h-9 sm:w-11 sm:h-11 rounded-full bg-[var(--md-sys-primary)] text-[var(--md-sys-on-primary)] flex items-center justify-center shadow-lg shadow-[var(--md-sys-glow)] hover:scale-105 active:scale-95 transition cursor-pointer"
+        class="w-9 h-9 sm:w-11 sm:h-11 rounded-full bg-[var(--md-sys-primary)] text-[var(--md-sys-on-primary)] flex items-center justify-center shadow-md shadow-black/30 hover:shadow-black/40 hover:scale-105 active:scale-95 transition cursor-pointer"
         title={playerState.isLoading ? 'Buffering stream...' : playerState.playback.is_playing ? 'Pause' : 'Play'}
       >
         {#if playerState.isLoading}
-          <div class="w-4 h-4 sm:w-5 sm:h-5 border-2 border-current border-t-transparent rounded-full animate-spin"></div>
+          <svg class="w-4 h-4 sm:w-5 sm:h-5 animate-spin text-current" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="3"></circle>
+            <path class="opacity-75" stroke="currentColor" stroke-width="3" stroke-linecap="round" d="M12 2a10 10 0 0 1 10 10"></path>
+          </svg>
         {:else}
           <span class="material-symbols-rounded filled text-xl sm:text-2xl">
             {playerState.playback.is_playing ? 'pause' : 'play_arrow'}

@@ -151,7 +151,10 @@
 
     {#if isLoading}
       <div class="flex items-center justify-center py-12 text-[#9ea2b0]">
-        <div class="w-6 h-6 border-2 border-[var(--md-sys-primary)] border-t-transparent rounded-full animate-spin"></div>
+        <svg class="w-6 h-6 animate-spin text-[var(--md-sys-primary)]" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <circle class="opacity-20" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="3"></circle>
+          <path class="opacity-90" stroke="currentColor" stroke-width="3" stroke-linecap="round" d="M12 2a10 10 0 0 1 10 10"></path>
+        </svg>
       </div>
     {:else}
       <div class="space-y-1.5">
@@ -166,7 +169,7 @@
           >
             <div class="flex items-center gap-6 min-w-0 flex-1 pr-4">
               <span class="w-6 text-center text-xs font-mono font-medium {isCurrent ? 'text-[var(--md-sys-primary)]' : 'text-white/40'} shrink-0">
-                {#if isCurrent && playerState.playback.isPlaying}
+                {#if isCurrent && playerState.playback.is_playing}
                   <span class="material-symbols-rounded text-base text-[var(--md-sys-primary)] filled">equalizer</span>
                 {:else}
                   {idx + 1}

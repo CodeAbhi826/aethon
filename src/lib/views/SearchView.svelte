@@ -75,7 +75,10 @@
   {#if playerState.isSearching}
     <div class="flex items-center justify-center py-20 text-[#9ea2b0]">
       <div class="flex flex-col items-center gap-3">
-        <div class="w-8 h-8 border-2 border-emerald-400 border-t-transparent rounded-full animate-spin"></div>
+        <svg class="w-8 h-8 animate-spin text-emerald-400" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <circle class="opacity-20" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="3"></circle>
+          <path class="opacity-90" stroke="currentColor" stroke-width="3" stroke-linecap="round" d="M12 2a10 10 0 0 1 10 10"></path>
+        </svg>
         <p class="text-xs font-mono">Fetching streams via yt-dlp & MPV...</p>
       </div>
     </div>
@@ -96,7 +99,7 @@
               <img loading="lazy" decoding="async" src={yt.thumbnail} alt={yt.title} class="w-full h-full object-cover group-hover:scale-105 transition-transform" />
               <div class="absolute inset-0 bg-black/40 {isCurrent ? 'opacity-100 bg-black/50' : 'opacity-0 group-hover:opacity-100'} flex items-center justify-center transition-opacity">
                 <span class="material-symbols-rounded {isCurrent ? 'text-[var(--md-sys-primary)]' : 'text-white'} text-[24px] filled">
-                  {isCurrent && playerState.playback.isPlaying ? 'equalizer' : 'play_arrow'}
+                  {isCurrent && playerState.playback.is_playing ? 'equalizer' : 'play_arrow'}
                 </span>
               </div>
             </div>

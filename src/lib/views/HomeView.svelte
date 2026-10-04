@@ -49,13 +49,13 @@
       date_added: Date.now() - 7200000,
     },
     {
-      id: 'yt_k3g_Wj3Fda4',
+      id: 'yt_E_SbwSe15y0',
       title: 'Ve Haaniyaan',
       artist: 'Avvy Sra, Danny, Sagar',
       album: 'Ve Haaniyaan',
       duration: 236,
-      file_path: 'https://www.youtube.com/watch?v=k3g_Wj3Fda4',
-      cover_art: 'https://i.ytimg.com/vi/k3g_Wj3Fda4/hqdefault.jpg',
+      file_path: 'https://www.youtube.com/watch?v=E_SbwSe15y0',
+      cover_art: 'https://i.ytimg.com/vi/E_SbwSe15y0/hqdefault.jpg',
       format: 'Opus 256k',
       play_count: 77,
       favorite: false,
@@ -217,6 +217,13 @@
       ? playerState.playHistoryTracks.slice(0, 8)
       : (playerState.library.length > 0 ? playerState.library.slice(0, 8) : trendingTracks)
   );
+
+  const greeting = $derived.by(() => {
+    const hours = new Date().getHours();
+    if (hours < 12) return 'Good morning';
+    if (hours < 18) return 'Good afternoon';
+    return 'Good evening';
+  });
 </script>
 
 <div class="px-6 py-6 space-y-8 max-w-7xl mx-auto pb-28 contain-gpu select-none">
@@ -228,7 +235,7 @@
         <span class="material-symbols-rounded text-base">waving_hand</span>
         <span>Welcome Back</span>
       </div>
-      <h1 class="text-3xl md:text-4xl font-extrabold text-white tracking-tight font-display mt-0.5">Good evening</h1>
+      <h1 class="text-3xl md:text-4xl font-extrabold text-white tracking-tight font-display mt-0.5">{greeting}</h1>
     </div>
 
     <div class="hidden sm:flex items-center gap-2 text-xs font-medium text-white/50 bg-white/[0.04] px-3.5 py-1.5 rounded-full border border-white/[0.06]">

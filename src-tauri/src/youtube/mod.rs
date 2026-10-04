@@ -68,6 +68,63 @@ impl YouTubeService {
         Some(results)
     }
 
+    fn is_metadata_noise_run(text: &str) -> bool {
+        let trimmed = text.trim();
+        if trimmed.is_empty() || trimmed == "•" {
+            return true;
+        }
+        let lower = trimmed.to_lowercase();
+        if lower == "song"
+            || lower == "video"
+            || lower == "artist"
+            || lower == "album"
+            || lower == "single"
+            || lower == "ep"
+            || lower == "station"
+            || lower == "playlist"
+        {
+            return true;
+        }
+        // Duration pattern: e.g. "3:45", "1:02:15"
+        if trimmed.contains(':') && trimmed.chars().all(|c| c.is_ascii_digit() || c == ':') {
+            return true;
+        }
+        // View count, subscriber count, or play count: e.g. "3.8M views", "319M subscribers", "12M plays"
+        let is_metric_suffix = lower.ends_with("views")
+            || lower.ends_with("view")
+            || lower.ends_with("subscribers")
+            || lower.ends_with("subscriber")
+            || lower.ends_with("plays")
+            || lower.ends_with("play");
+        if is_metric_suffix && trimmed.chars().any(|c| c.is_ascii_digit()) {
+            return true;
+        }
+        false
+    }
+
+    fn strip_artist_metadata_suffixes(raw: &str) -> String {
+        let mut cleaned = raw.trim();
+        let lower = cleaned.to_lowercase();
+        for suffix in &[" views", " view", " subscribers", " subscriber", " plays", " play"] {
+            if lower.ends_with(suffix) {
+                let prefix_len = lower.len() - suffix.len();
+                let prefix = cleaned[..prefix_len].trim_end();
+                if let Some(last_space) = prefix.rfind(' ') {
+                    let count_part = &prefix[last_space + 1..];
+                    if count_part.chars().any(|c| c.is_ascii_digit()) {
+                        cleaned = prefix[..last_space].trim_end();
+                    } else {
+                        cleaned = prefix;
+                    }
+                } else {
+                    cleaned = prefix;
+                }
+                break;
+            }
+        }
+        cleaned.to_string()
+    }
+
     fn extract_innertube_tracks(
         value: &serde_json::Value,
         results: &mut Vec<YouTubeTrack>,
@@ -120,12 +177,12 @@ impl YouTubeService {
                             let mut artist_parts = Vec::new();
                             for r in runs {
                                 if let Some(t) = r.get("text").and_then(|s| s.as_str()) {
-                                    if t != " • " && t != "Song" && t != "Video" {
-                                        artist_parts.push(t);
+                                    if !Self::is_metadata_noise_run(t) {
+                                        artist_parts.push(t.trim());
                                     }
                                 }
                             }
-                            artist = artist_parts.join(" ");
+                            artist = Self::strip_artist_metadata_suffixes(&artist_parts.join(" "));
                         }
                     }
                 }

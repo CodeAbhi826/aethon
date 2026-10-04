@@ -143,7 +143,10 @@
 
     {#if isLoadingTracks}
       <div class="flex items-center justify-center py-12 text-[#9ea2b0]">
-        <div class="w-6 h-6 border-2 border-[var(--md-sys-primary)] border-t-transparent rounded-full animate-spin"></div>
+        <svg class="w-6 h-6 animate-spin text-[var(--md-sys-primary)]" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <circle class="opacity-20" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="3"></circle>
+          <path class="opacity-90" stroke="currentColor" stroke-width="3" stroke-linecap="round" d="M12 2a10 10 0 0 1 10 10"></path>
+        </svg>
       </div>
     {:else}
       <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
@@ -164,7 +167,7 @@
                 <img src={track.cover_art} alt={track.title} class="w-full h-full object-cover group-hover:scale-105 transition" />
                 <div class="absolute inset-0 bg-black/40 {isCurrent ? 'opacity-100 bg-black/50' : 'opacity-0 group-hover:opacity-100'} flex items-center justify-center transition">
                   <span class="material-symbols-rounded {isCurrent ? 'text-[var(--md-sys-primary)]' : 'text-white'} text-xl filled">
-                    {isCurrent && playerState.playback.isPlaying ? 'equalizer' : 'play_arrow'}
+                    {isCurrent && playerState.playback.is_playing ? 'equalizer' : 'play_arrow'}
                   </span>
                 </div>
               </div>

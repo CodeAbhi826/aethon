@@ -92,8 +92,21 @@
 
   </div>
 
-  <!-- Bottom: Settings & Sync -->
+  <!-- Bottom: Collapse & Settings -->
   <div class="pt-2 border-t border-white/5 space-y-1">
+    <button
+      onclick={() => playerState.sidebarCollapsed = !playerState.sidebarCollapsed}
+      title={playerState.sidebarCollapsed ? 'Expand Sidebar' : 'Collapse Sidebar'}
+      class="w-full flex items-center {playerState.sidebarCollapsed ? 'justify-center px-0' : 'gap-3.5 px-3.5'} py-2.5 rounded-full text-xs font-semibold text-[var(--md-sys-on-surface-variant)] hover:bg-white/5 hover:text-white transition-all duration-200 cursor-pointer"
+    >
+      <span class="material-symbols-rounded text-xl shrink-0">
+        {playerState.sidebarCollapsed ? 'dock_to_right' : 'dock_to_left'}
+      </span>
+      {#if !playerState.sidebarCollapsed}
+        <span class="truncate">Collapse Sidebar</span>
+      {/if}
+    </button>
+
     <button
       onclick={() => playerState.activeTab = 'settings'}
       title={playerState.sidebarCollapsed ? 'Settings' : undefined}
