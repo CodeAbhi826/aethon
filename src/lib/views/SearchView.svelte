@@ -39,7 +39,7 @@
         type="text"
         bind:value={searchQuery}
         onkeydown={handleKeydown}
-        placeholder="Search songs, albums, artists, or YouTube streaming..."
+        placeholder="Search songs, albums, artists, or lossless stream..."
         class="bg-transparent border-none outline-none text-sm text-white placeholder-[#6b6e7c] w-full"
       />
       {#if searchQuery}

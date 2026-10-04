@@ -1,8 +1,10 @@
 use parking_lot::Mutex;
 use std::process::{Child, Command, Stdio};
+use std::sync::Arc;
 use tauri::{AppHandle, Emitter, Manager};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::sync::mpsc;
+use crate::commands::AppState;
 
 const MPRIS_SCRIPT: &str = include_str!("../../scripts/mpris_bridge.py");
 
@@ -145,6 +147,36 @@ impl MprisManager {
                                         }
                                         "playpause" => {
                                             let _ = app_handle.emit("mpris-playpause", ());
+                                        }
+                                        "play" => {
+                                            let _ = app_handle.emit("mpris-play", ());
+                                        }
+                                        "pause" => {
+                                            let _ = app_handle.emit("mpris-pause", ());
+                                        }
+                                        "stop" => {
+                                            let _ = app_handle.emit("mpris-pause", ());
+                                        }
+                                        "seek" => {
+                                            if let Some(offset) = v.get("offset").and_then(|o| o.as_f64()) {
+                                                if let Some(app_state) = app_handle.try_state::<AppState>() {
+                                                    let mpv = Arc::clone(&app_state.mpv);
+                                                    tauri::async_runtime::spawn(async move {
+                                                        let cur = mpv.state.read().position;
+                                                        let _ = mpv.seek(cur + offset).await;
+                                                    });
+                                                }
+                                            }
+                                        }
+                                        "set_position" => {
+                                            if let Some(pos) = v.get("position").and_then(|p| p.as_f64()) {
+                                                if let Some(app_state) = app_handle.try_state::<AppState>() {
+                                                    let mpv = Arc::clone(&app_state.mpv);
+                                                    tauri::async_runtime::spawn(async move {
+                                                        let _ = mpv.seek(pos).await;
+                                                    });
+                                                }
+                                            }
                                         }
                                         "raise" => {
                                             if let Some(win) = app_handle.get_webview_window("main") {

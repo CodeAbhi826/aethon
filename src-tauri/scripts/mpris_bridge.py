@@ -67,17 +67,14 @@ class AethonMPRIS(dbus.service.Object if DBUS_AVAILABLE else object):
 
         @dbus.service.method('org.mpris.MediaPlayer2.Player', out_signature='')
         def PlayPause(self):
-            self.send_to_mpv({"command": ["cycle", "pause"]})
             self.send_to_ipc({"event": "playpause"})
 
         @dbus.service.method('org.mpris.MediaPlayer2.Player', out_signature='')
         def Play(self):
-            self.send_to_mpv({"command": ["set_property", "pause", False]})
             self.send_to_ipc({"event": "play"})
 
         @dbus.service.method('org.mpris.MediaPlayer2.Player', out_signature='')
         def Pause(self):
-            self.send_to_mpv({"command": ["set_property", "pause", True]})
             self.send_to_ipc({"event": "pause"})
 
         @dbus.service.method('org.mpris.MediaPlayer2.Player', out_signature='')
@@ -90,18 +87,21 @@ class AethonMPRIS(dbus.service.Object if DBUS_AVAILABLE else object):
 
         @dbus.service.method('org.mpris.MediaPlayer2.Player', out_signature='')
         def Stop(self):
-            self.send_to_mpv({"command": ["stop"]})
             self.send_to_ipc({"event": "stop"})
 
         @dbus.service.method('org.mpris.MediaPlayer2.Player', in_signature='x', out_signature='')
         def Seek(self, offset):
             secs = offset / 1000000.0
-            self.send_to_mpv({"command": ["seek", secs, "relative"]})
+            self.send_to_ipc({"event": "seek", "offset": secs})
 
         @dbus.service.method('org.mpris.MediaPlayer2.Player', in_signature='ox', out_signature='')
         def SetPosition(self, track_id, position):
             secs = position / 1000000.0
-            self.send_to_mpv({"command": ["seek", secs, "absolute"]})
+            self.send_to_ipc({"event": "set_position", "position": secs})
+
+        @dbus.service.signal('org.mpris.MediaPlayer2.Player', signature='x')
+        def Seeked(self, Position):
+            pass
 
         @dbus.service.method('org.mpris.MediaPlayer2.Player', in_signature='s', out_signature='')
         def OpenUri(self, uri):
@@ -119,15 +119,21 @@ class AethonMPRIS(dbus.service.Object if DBUS_AVAILABLE else object):
                     'SupportedMimeTypes': dbus.Array([dbus.String('audio/mpeg'), dbus.String('audio/flac'), dbus.String('audio/ogg'), dbus.String('audio/opus'), dbus.String('audio/mp4')], signature='s'),
                 }
             elif interface == 'org.mpris.MediaPlayer2.Player':
+                artists = [dbus.String(a.strip()) for a in self.artist.split(',') if a.strip()]
+                if not artists:
+                    artists = [dbus.String(self.artist)]
                 metadata = {
                     'mpris:trackid': dbus.ObjectPath('/org/mpris/MediaPlayer2/Track/1'),
                     'xesam:title': dbus.String(self.title),
-                    'xesam:artist': dbus.Array([dbus.String(self.artist)], signature='s'),
+                    'xesam:artist': dbus.Array(artists, signature='s'),
                     'xesam:album': dbus.String(self.album),
                     'mpris:length': dbus.Int64(self.duration_us),
                 }
                 if self.art_url:
-                    metadata['mpris:artUrl'] = dbus.String(self.art_url)
+                    art = self.art_url
+                    if art.startswith('/'):
+                        art = 'file://' + art
+                    metadata['mpris:artUrl'] = dbus.String(art)
 
                 return {
                     'PlaybackStatus': dbus.String(self.playback_status),
@@ -135,6 +141,8 @@ class AethonMPRIS(dbus.service.Object if DBUS_AVAILABLE else object):
                     'Metadata': dbus.Dictionary(metadata, signature='sv'),
                     'Volume': dbus.Double(self.volume),
                     'Position': dbus.Int64(self.position_us),
+                    'LoopStatus': dbus.String('None'),
+                    'Shuffle': dbus.Boolean(False),
                     'CanControl': dbus.Boolean(True),
                     'CanPlay': dbus.Boolean(True),
                     'CanPause': dbus.Boolean(True),
@@ -162,15 +170,21 @@ class AethonMPRIS(dbus.service.Object if DBUS_AVAILABLE else object):
         self.playback_status = 'Playing' if is_playing else 'Paused'
 
         if DBUS_AVAILABLE:
+            artists = [dbus.String(a.strip()) for a in self.artist.split(',') if a.strip()]
+            if not artists:
+                artists = [dbus.String(self.artist)]
             metadata = {
                 'mpris:trackid': dbus.ObjectPath('/org/mpris/MediaPlayer2/Track/1'),
                 'xesam:title': dbus.String(self.title),
-                'xesam:artist': dbus.Array([dbus.String(self.artist)], signature='s'),
+                'xesam:artist': dbus.Array(artists, signature='s'),
                 'xesam:album': dbus.String(self.album),
                 'mpris:length': dbus.Int64(self.duration_us),
             }
             if self.art_url:
-                metadata['mpris:artUrl'] = dbus.String(self.art_url)
+                art = self.art_url
+                if art.startswith('/'):
+                    art = 'file://' + art
+                metadata['mpris:artUrl'] = dbus.String(art)
 
             changed = {
                 'PlaybackStatus': dbus.String(self.playback_status),
@@ -184,13 +198,18 @@ class AethonMPRIS(dbus.service.Object if DBUS_AVAILABLE else object):
     def update_status(self, is_playing, position_us):
         new_status = 'Playing' if is_playing else 'Paused'
         self.position_us = int(position_us)
-        if self.playback_status != new_status:
-            self.playback_status = new_status
-            if DBUS_AVAILABLE:
+        status_changed = (self.playback_status != new_status)
+        self.playback_status = new_status
+        if DBUS_AVAILABLE:
+            if status_changed:
                 try:
                     self.PropertiesChanged('org.mpris.MediaPlayer2.Player', {'PlaybackStatus': dbus.String(new_status)}, [])
                 except Exception:
                     pass
+            try:
+                self.Seeked(self.position_us)
+            except Exception:
+                pass
 
 def ipc_worker(mpris_obj):
     while True:

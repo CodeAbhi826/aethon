@@ -69,6 +69,7 @@ pub fn run() {
                 .text("tray_toggle_play", "Play / Pause")
                 .text("tray_next", "Next Track")
                 .text("tray_prev", "Previous Track")
+                .text("tray_mini_player", "Toggle Mini-Player")
                 .separator()
                 .text("tray_show", "Show / Hide Aethon")
                 .text("tray_quit", "Quit Aethon")
@@ -98,6 +99,9 @@ pub fn run() {
                         }
                         "tray_prev" => {
                             let _ = app.emit("tray-prev", ());
+                        }
+                        "tray_mini_player" => {
+                            let _ = app.emit("tray-mini-player", ());
                         }
                         "tray_show" => {
                             if let Some(window) = app.get_webview_window("main") {
@@ -190,6 +194,7 @@ pub fn run() {
             get_play_history,
             send_desktop_notification,
             update_mpris_metadata,
+            update_mpris_status,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

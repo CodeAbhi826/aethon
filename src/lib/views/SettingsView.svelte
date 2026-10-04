@@ -45,7 +45,7 @@
     { id: 'audio', label: 'Audio & Playback', icon: 'graphic_eq', desc: 'Bit-perfect PipeWire, gapless & replaygain' },
     { id: 'lyrics', label: 'Lyrics', icon: 'lyrics', desc: 'Synced LRCLIB provider & typography' },
     { id: 'canvas', label: 'Canvas & Visuals', icon: 'movie', desc: 'Animated background loops & spectrum' },
-    { id: 'content', label: 'Content & Sources', icon: 'music_note', desc: 'YouTube Opus bitrates & filtering' },
+    { id: 'content', label: 'Content & Sources', icon: 'music_note', desc: 'Lossless & Opus stream bitrates & filtering' },
     { id: 'behavior', label: 'Behavior & Privacy', icon: 'settings_suggest', desc: 'Tray minimize, background play & notifications' },
     { id: 'network', label: 'Network & DNS', icon: 'wifi_tethering', desc: 'Encrypted DNS (DoH), proxy & buffers' },
     { id: 'storage', label: 'Storage & Cache', icon: 'folder_open', desc: 'Stream-while-playing cache & library path' },
@@ -928,7 +928,7 @@
 
           <CupertinoSwitch
             bind:checked={settingsState.communityPlaylists}
-            label="Include Curated YouTube Playlists"
+            label="Include Curated Online Playlists"
             description="Show verified community playlists in search results"
             icon="playlist_play"
             onchange={() => settingsState.scheduleSave()}

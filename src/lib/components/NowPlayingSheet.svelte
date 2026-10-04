@@ -70,16 +70,28 @@
     }
   }
 
+  function getWordTokens(text: string): string[] {
+    const trimmed = text.trim();
+    if (!trimmed) return [];
+    const words = trimmed.split(/\s+/).filter(Boolean);
+    if (words.length <= 1 && /[\u3040-\u30ff\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff\uff66-\uff9f]/.test(trimmed)) {
+      return Array.from(trimmed);
+    }
+    return words;
+  }
+
   // Calculate word-by-word progressive text fill for active line
   function getWordProgress(lineIdx: number, wordIdx: number, totalWords: number, lineTime: number): number {
-    if (lineIdx !== activeIndex) return 0;
+    if (lineIdx !== activeIndex || totalWords === 0) return 0;
     const nextLineTime = playerState.lyrics.lines[lineIdx + 1]?.time ?? (lineTime + 4.0);
     const lineDur = Math.max(0.2, nextLineTime - lineTime);
     const curPos = playerState.playback.position + settingsState.lyricOffsetSeconds;
     const lineProgress = Math.min(1, Math.max(0, (curPos - lineTime) / lineDur));
     const wordStart = wordIdx / totalWords;
     const wordEnd = (wordIdx + 1) / totalWords;
-    return Math.min(1, Math.max(0, (lineProgress - wordStart) / (wordEnd - wordStart)));
+    if (lineProgress <= wordStart) return 0;
+    if (lineProgress >= wordEnd) return 1;
+    return (lineProgress - wordStart) / (wordEnd - wordStart);
   }
 
   // Sync lyrics highlight and auto-scroll (with user offset)
@@ -517,7 +529,7 @@
                   style={isCur ? `--lyric-glow: ${playerState.accentColor || 'var(--md-sys-primary)'};` : ''}
                 >
                   {#if isCur && settingsState.wordByWordTracking}
-                    {@const words = line.text.split(' ')}
+                    {@const words = getWordTokens(line.text)}
                     <span class="inline-flex flex-wrap gap-x-2">
                       {#each words as word, wIdx}
                         {@const wp = getWordProgress(i, wIdx, words.length, line.time)}
@@ -605,9 +617,6 @@
   @keyframes spinSlow {
     from { transform: rotate(0deg); }
     to { transform: rotate(360deg); }
-  }
-  .animate-spin-slow {
-    animation: spinSlow 20s linear infinite;
   }
   .animate-fade-in {
     animation: fadeIn 0.22s cubic-bezier(0.16, 1, 0.3, 1);

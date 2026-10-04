@@ -17,11 +17,15 @@ pub struct AppState {
 pub async fn play_track(
     uri: String,
     track_id: Option<String>,
+    track: Option<Track>,
     state: State<'_, AppState>,
 ) -> Result<(), String> {
     crate::aethon_log!("play_track: uri={}, track_id={:?}", uri, track_id);
     state.mpv.load_file(&uri).await.map_err(|e| e.to_string())?;
-    if let Some(id) = track_id {
+    if let Some(ref t) = track {
+        let _ = state.db.upsert_track(t);
+        let _ = state.db.record_play(&t.id);
+    } else if let Some(id) = track_id {
         let _ = state.db.record_play(&id);
     }
     Ok(())
@@ -430,20 +434,31 @@ pub fn get_play_history(
 }
 
 #[tauri::command]
-pub fn send_desktop_notification(
+pub async fn send_desktop_notification(
     title: String,
     artist: String,
     cover_art: Option<String>,
 ) -> Result<(), String> {
     crate::aethon_log!("send_desktop_notification: title={}, artist={}", title, artist);
+    let mut icon_arg = "multimedia-audio-player".to_string();
+    if let Some(ref icon) = cover_art {
+        if icon.starts_with("http://") || icon.starts_with("https://") {
+            let cache_path = std::env::temp_dir().join("aethon_notif_art.jpg");
+            if let Ok(resp) = reqwest::get(icon).await {
+                if let Ok(bytes) = resp.bytes().await {
+                    if std::fs::write(&cache_path, bytes).is_ok() {
+                        icon_arg = cache_path.to_string_lossy().to_string();
+                    }
+                }
+            }
+        } else if std::path::Path::new(icon).exists() {
+            icon_arg = icon.clone();
+        }
+    }
     let mut cmd = std::process::Command::new("notify-send");
     cmd.arg("-a").arg("Aethon");
     cmd.arg("-c").arg("media");
-    if let Some(ref icon) = cover_art {
-        cmd.arg("-i").arg(icon);
-    } else {
-        cmd.arg("-i").arg("multimedia-audio-player");
-    }
+    cmd.arg("-i").arg(&icon_arg);
     cmd.arg(&title).arg(format!("{} • Aethon", artist));
     let _ = cmd.spawn();
     Ok(())
@@ -461,6 +476,15 @@ pub async fn update_mpris_metadata(
 ) -> Result<(), String> {
     crate::aethon_log!("update_mpris_metadata: title={}, artist={}, playing={}", title, artist, is_playing);
     state.mpris.update_metadata(&title, &artist, &album, &cover, duration_us, is_playing).await
+}
+
+#[tauri::command]
+pub async fn update_mpris_status(
+    is_playing: bool,
+    position_us: i64,
+    state: State<'_, AppState>,
+) -> Result<(), String> {
+    state.mpris.update_status(is_playing, position_us).await
 }
 
 

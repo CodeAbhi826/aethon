@@ -43,6 +43,7 @@ class PlayerState {
   history = $state<Track[]>([]);
   selectedArtist = $state<string | null>(null);
   selectedAlbum = $state<{ title: string; artist: string; cover?: string; year?: string } | null>(null);
+  lastMprisPlaying = false;
 
   // Derived properties
   formattedTime = $derived.by(() => {
@@ -148,6 +149,15 @@ class PlayerState {
         if (this.currentTrack) {
           this.updateMediaSession(this.currentTrack);
         }
+        if (settingsState.mprisIntegration) {
+          if (this.playback.is_playing !== this.lastMprisPlaying) {
+            this.lastMprisPlaying = this.playback.is_playing;
+            invoke('update_mpris_status', {
+              isPlaying: this.playback.is_playing,
+              positionUs: Math.round(this.playback.position * 1_000_000),
+            }).catch(() => {});
+          }
+        }
       });
 
       await listen('track-ended', () => {
@@ -166,12 +176,28 @@ class PlayerState {
         this.togglePlay();
       });
 
+      await listen('mpris-play', () => {
+        if (!this.playback.is_playing) {
+          this.togglePlay();
+        }
+      });
+
+      await listen('mpris-pause', () => {
+        if (this.playback.is_playing) {
+          this.togglePlay();
+        }
+      });
+
       await listen('tray-next', () => {
         this.playNext();
       });
 
       await listen('tray-prev', () => {
         this.playPrevious();
+      });
+
+      await listen('tray-mini-player', () => {
+        this.toggleMiniPlayer();
       });
 
       // Initial state sync
@@ -349,7 +375,7 @@ class PlayerState {
     this.updateMpris(track, true);
     this.notifyTrackChange(track);
     try {
-      await invoke('play_track', { uri: track.file_path, trackId: track.id });
+      await invoke('play_track', { uri: track.file_path, trackId: track.id, track });
       this.fetchLyrics(track.title, track.artist, track.duration);
       this.loadPlayHistory();
       if (track.cover_art) {
@@ -387,7 +413,7 @@ class PlayerState {
     this.updateMpris(syntheticTrack, true);
     this.notifyTrackChange(syntheticTrack);
     try {
-      await invoke('play_track', { uri: yt.stream_url, trackId: null });
+      await invoke('play_track', { uri: yt.stream_url, trackId: syntheticTrack.id, track: syntheticTrack });
       this.fetchLyrics(yt.title, yt.artist, yt.duration);
       this.loadPlayHistory();
       if (yt.thumbnail) {
@@ -412,6 +438,12 @@ class PlayerState {
   async seek(seconds: number) {
     try {
       await invoke('seek_track', { position: seconds });
+      if (settingsState.mprisIntegration) {
+        invoke('update_mpris_status', {
+          isPlaying: this.playback.is_playing,
+          positionUs: Math.round(seconds * 1_000_000),
+        }).catch(() => {});
+      }
     } catch (e) {
       console.error('Seek error:', e);
     }

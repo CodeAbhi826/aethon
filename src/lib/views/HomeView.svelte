@@ -195,8 +195,15 @@
     } catch (e) {
       console.warn('Could not load trending:', e);
     }
+  });
 
-    loadSimilarArtist(recommendedArtist);
+  let lastLoadedArtist = '';
+  $effect(() => {
+    const artist = recommendedArtist;
+    if (artist && artist !== lastLoadedArtist) {
+      lastLoadedArtist = artist;
+      loadSimilarArtist(artist);
+    }
   });
 
   let displayQuickPicks = $derived(
