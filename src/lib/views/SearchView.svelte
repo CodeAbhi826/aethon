@@ -84,29 +84,32 @@
       <h3 class="font-heading font-bold text-lg text-white mb-4">YouTube Music Results</h3>
       <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
         {#each playerState.youtubeResults as yt}
+          {@const isCurrent = playerState.currentTrack?.id === `yt_${yt.id}`}
           <div
             role="button"
             tabindex="0"
             onclick={() => playerState.playYouTube(yt)}
             onkeydown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); playerState.playYouTube(yt); } }}
-            class="flex items-center gap-3.5 p-3 rounded-2xl bg-[#1e2026]/70 hover:bg-[#262830] border border-white/[0.05] hover:border-white/[0.1] transition-all cursor-pointer group shadow-sm"
+            class="flex items-center gap-3.5 p-3 rounded-2xl {isCurrent ? 'bg-[var(--md-sys-primary-container)]/25 border-[var(--md-sys-primary)]/50 shadow-sm' : 'bg-[#1e2026]/70 hover:bg-[#262830] border-white/[0.05] hover:border-white/[0.1]'} border transition-all cursor-pointer group shadow-sm"
           >
             <div class="relative w-16 h-16 rounded-xl overflow-hidden shrink-0 bg-[#252730] border border-white/[0.06]">
               <img src={yt.thumbnail} alt={yt.title} class="w-full h-full object-cover group-hover:scale-105 transition-transform" />
-              <div class="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity">
-                <span class="material-symbols-rounded text-white text-[24px] filled">play_arrow</span>
+              <div class="absolute inset-0 bg-black/40 {isCurrent ? 'opacity-100 bg-black/50' : 'opacity-0 group-hover:opacity-100'} flex items-center justify-center transition-opacity">
+                <span class="material-symbols-rounded {isCurrent ? 'text-[var(--md-sys-primary)]' : 'text-white'} text-[24px] filled">
+                  {isCurrent && playerState.playback.isPlaying ? 'equalizer' : 'play_arrow'}
+                </span>
               </div>
             </div>
 
             <div class="min-w-0 flex-1">
-              <h4 class="font-heading font-semibold text-sm text-white truncate group-hover:text-[var(--md-sys-primary)] transition-colors">
+              <h4 class="font-heading font-semibold text-sm {isCurrent ? 'text-[var(--md-sys-primary)]' : 'text-white'} truncate group-hover:text-[var(--md-sys-primary)] transition-colors">
                 {yt.title}
               </h4>
-              <div class="flex items-center gap-1.5 text-xs text-[#9ea2b0] truncate mt-1">
+              <div class="flex items-center gap-1.5 text-xs text-[#9ea2b0]/80 truncate mt-1">
                 <span class="truncate">{yt.artist}</span>
                 {#if yt.duration > 0}
-                  <span class="text-[#6b6e7c] shrink-0">•</span>
-                  <span class="font-mono text-[11px] text-[#6b6e7c] shrink-0">
+                  <span class="text-white/30 shrink-0">•</span>
+                  <span class="font-mono text-[11px] text-white/50 shrink-0">
                     {Math.floor(yt.duration / 60)}:{Math.floor(yt.duration % 60) < 10 ? '0' : ''}{Math.floor(yt.duration % 60)}
                   </span>
                 {/if}

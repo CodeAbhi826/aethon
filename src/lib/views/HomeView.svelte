@@ -140,25 +140,28 @@
 
     <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3.5">
       {#each displayTracks as track}
+        {@const isCurrent = playerState.currentTrack?.id === track.id}
         <button
           onclick={() => playerState.playTrack(track)}
-          class="p-3 rounded-2xl m3-acrylic-card hover:bg-white/10 border border-white/5 cursor-pointer transition flex items-center gap-3.5 group text-left w-full"
+          class="p-3 rounded-2xl {isCurrent ? 'bg-[var(--md-sys-primary-container)]/25 border-[var(--md-sys-primary)]/40 shadow-sm' : 'm3-acrylic-card hover:bg-white/10 border-white/5'} border cursor-pointer transition flex items-center gap-3.5 group text-left w-full"
         >
           <div class="relative w-14 h-14 rounded-xl overflow-hidden shadow shrink-0 border border-white/10">
             <img src={track.cover_art} alt={track.title} class="w-full h-full object-cover group-hover:scale-105 transition" />
-            <div class="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 flex items-center justify-center transition">
-              <span class="material-symbols-rounded text-white text-xl filled">play_arrow</span>
+            <div class="absolute inset-0 bg-black/40 {isCurrent ? 'opacity-100 bg-black/50' : 'opacity-0 group-hover:opacity-100'} flex items-center justify-center transition">
+              <span class="material-symbols-rounded {isCurrent ? 'text-[var(--md-sys-primary)]' : 'text-white'} text-xl filled">
+                {isCurrent && playerState.playback.isPlaying ? 'equalizer' : 'play_arrow'}
+              </span>
             </div>
           </div>
 
           <div class="min-w-0 flex-1">
-            <div class="text-xs font-bold text-white truncate group-hover:text-[var(--md-sys-primary)] transition">
+            <div class="text-xs font-semibold {isCurrent ? 'text-[var(--md-sys-primary)]' : 'text-white'} truncate group-hover:text-[var(--md-sys-primary)] transition">
               {track.title}
             </div>
-            <div class="text-[11px] text-[var(--md-sys-on-surface-variant)] truncate mt-0.5 flex items-center gap-1.5">
+            <div class="text-[11px] text-[var(--md-sys-on-surface-variant)]/75 truncate mt-0.5 flex items-center gap-1.5">
               <span class="truncate">{track.artist}</span>
               {#if track.duration > 0}
-                <span class="text-white/20 shrink-0">•</span>
+                <span class="text-white/30 shrink-0">•</span>
                 <span class="font-mono text-[10px] text-white/50 shrink-0">
                   {Math.floor(track.duration / 60)}:{Math.floor(track.duration % 60) < 10 ? '0' : ''}{Math.floor(track.duration % 60)}
                 </span>
@@ -220,25 +223,34 @@
 
     <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
       {#each (liveTrending.length > 0 ? liveTrending : trendingIndiaTracks).slice(0, 6) as track, idx}
+        {@const isCurrent = playerState.currentTrack?.id === track.id}
         <button
           onclick={() => playerState.playTrack(track)}
-          class="p-3 rounded-2xl m3-acrylic-card hover:bg-white/10 border border-white/5 cursor-pointer transition flex items-center gap-3.5 group text-left w-full"
+          class="p-3 rounded-2xl {isCurrent ? 'bg-[var(--md-sys-primary-container)]/25 border-[var(--md-sys-primary)]/40 shadow-sm' : 'm3-acrylic-card hover:bg-white/10 border-white/5'} border cursor-pointer transition flex items-center gap-3.5 group text-left w-full"
         >
           <div class="w-6 text-center font-heading font-black text-sm {idx === 0 ? 'text-amber-400' : idx === 1 ? 'text-slate-300' : idx === 2 ? 'text-amber-600' : 'text-white/40'} shrink-0">
             {idx + 1}
           </div>
           <div class="relative w-12 h-12 rounded-xl overflow-hidden shadow shrink-0 border border-white/10">
             <img src={track.cover_art} alt={track.title} class="w-full h-full object-cover group-hover:scale-105 transition" />
-            <div class="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 flex items-center justify-center transition">
-              <span class="material-symbols-rounded text-white text-lg filled">play_arrow</span>
+            <div class="absolute inset-0 bg-black/40 {isCurrent ? 'opacity-100 bg-black/50' : 'opacity-0 group-hover:opacity-100'} flex items-center justify-center transition">
+              <span class="material-symbols-rounded {isCurrent ? 'text-[var(--md-sys-primary)]' : 'text-white'} text-lg filled">
+                {isCurrent && playerState.playback.isPlaying ? 'equalizer' : 'play_arrow'}
+              </span>
             </div>
           </div>
           <div class="min-w-0 flex-1">
-            <div class="text-xs font-bold text-white truncate group-hover:text-[var(--md-sys-primary)] transition">
+            <div class="text-xs font-semibold {isCurrent ? 'text-[var(--md-sys-primary)]' : 'text-white'} truncate group-hover:text-[var(--md-sys-primary)] transition">
               {track.title}
             </div>
-            <div class="text-[11px] text-[var(--md-sys-on-surface-variant)] truncate mt-0.5">
-              {track.artist}
+            <div class="text-[11px] text-[var(--md-sys-on-surface-variant)]/75 truncate mt-0.5 flex items-center gap-1.5">
+              <span class="truncate">{track.artist}</span>
+              {#if track.duration > 0}
+                <span class="text-white/30 shrink-0">•</span>
+                <span class="font-mono text-[10px] text-white/50 shrink-0">
+                  {Math.floor(track.duration / 60)}:{Math.floor(track.duration % 60) < 10 ? '0' : ''}{Math.floor(track.duration % 60)}
+                </span>
+              {/if}
             </div>
           </div>
         </button>
