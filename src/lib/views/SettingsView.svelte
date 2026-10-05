@@ -526,8 +526,8 @@
 
           <CupertinoSwitch
             bind:checked={settingsState.showFloatingOrbs}
-            label="Ambient Floating Mesh Orbs"
-            description="Render GPU-accelerated animated floating spheres in the background"
+            label="Ambient Background Mesh"
+            description="Render smooth radial gradient color mesh in the background"
             icon="bubble_chart"
             onchange={() => settingsState.scheduleSave()}
           />

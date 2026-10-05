@@ -207,7 +207,7 @@ impl MpvEngine {
                                         }
                                         "pause" => {
                                             if let Some(p) = data.and_then(|d| d.as_bool()) {
-                                                s.is_playing = !p;
+                                                s.is_playing = s.current_uri.is_some() && !p;
                                             }
                                         }
                                         "volume" => {

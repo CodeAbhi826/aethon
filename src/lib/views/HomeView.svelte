@@ -160,7 +160,10 @@
     }
   }
 
+  let isLoadingSimilar = false;
   async function loadSimilarArtist(artist: string) {
+    if (isLoadingSimilar) return;
+    isLoadingSimilar = true;
     try {
       const results = await invoke<YouTubeTrack[]>('search_youtube', { query: `${artist} top popular songs`, limit: 6 });
       if (results && results.length > 0) {
@@ -180,6 +183,8 @@
       }
     } catch (e) {
       console.warn('Similar artist tracks failed:', e);
+    } finally {
+      isLoadingSimilar = false;
     }
   }
 
@@ -207,12 +212,25 @@
   });
 
   let lastLoadedArtist = '';
+  let artistDebounceTimer: ReturnType<typeof setTimeout> | null = null;
   $effect(() => {
     const artist = recommendedArtist;
     if (artist && artist !== lastLoadedArtist) {
-      lastLoadedArtist = artist;
-      loadSimilarArtist(artist);
+      if (artistDebounceTimer) {
+        clearTimeout(artistDebounceTimer);
+      }
+      artistDebounceTimer = setTimeout(() => {
+        if (artist !== lastLoadedArtist) {
+          lastLoadedArtist = artist;
+          loadSimilarArtist(artist);
+        }
+      }, 800);
     }
+    return () => {
+      if (artistDebounceTimer) {
+        clearTimeout(artistDebounceTimer);
+      }
+    };
   });
 
   let displayQuickPicks = $derived(

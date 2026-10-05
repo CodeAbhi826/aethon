@@ -164,12 +164,13 @@ class PlayerState {
   async initTauriListeners() {
     try {
       await listen<PlaybackState>('player-state', (event) => {
-        if (!event.payload.current_uri && this.currentTrack) {
-          // MPV has no file loaded yet. Do not wipe out restored track position/duration.
+        if (!event.payload.current_uri) {
+          // MPV has no file loaded yet. Do not wipe out restored track position/duration, and ensure is_playing is false on idle.
           this.playback = {
             ...event.payload,
-            position: this.playback.position,
-            duration: this.playback.duration || (this.currentTrack.duration ?? 0),
+            is_playing: false,
+            position: this.currentTrack ? this.playback.position : event.payload.position,
+            duration: this.currentTrack ? (this.playback.duration || (this.currentTrack.duration ?? 0)) : event.payload.duration,
           };
           return;
         }
