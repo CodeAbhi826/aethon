@@ -376,11 +376,24 @@
               <button
                 onclick={() => playerState.togglePlay()}
                 class="w-11 h-11 sm:w-13 sm:h-13 rounded-full bg-[var(--md-sys-primary)] text-[var(--md-sys-on-primary)] shadow-lg shadow-[var(--md-sys-primary)]/20 hover:scale-105 active:scale-95 transition-all flex items-center justify-center cursor-pointer"
-                title={playerState.playback.is_playing ? 'Pause' : 'Play'}
+                title={playerState.isLoading ? 'Buffering stream...' : playerState.playback.is_playing ? 'Pause' : 'Play'}
               >
-                <span class="material-symbols-rounded text-[28px] sm:text-[32px] filled">
-                  {playerState.playback.is_playing ? 'pause' : 'play_arrow'}
-                </span>
+                {#if playerState.isLoading}
+                  <svg class="w-6 h-6 animate-spin [animation-timing-function:steps(8)] text-current" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                    <line x1="12" y1="2" x2="12" y2="6" stroke-width="2.5" stroke-linecap="round" class="opacity-100" />
+                    <line x1="19.07" y1="4.93" x2="16.24" y2="7.76" stroke-width="2.5" stroke-linecap="round" class="opacity-90" />
+                    <line x1="22" y1="12" x2="18" y2="12" stroke-width="2.5" stroke-linecap="round" class="opacity-75" />
+                    <line x1="19.07" y1="19.07" x2="16.24" y2="16.24" stroke-width="2.5" stroke-linecap="round" class="opacity-60" />
+                    <line x1="12" y1="22" x2="12" y2="18" stroke-width="2.5" stroke-linecap="round" class="opacity-45" />
+                    <line x1="4.93" y1="19.07" x2="7.76" y2="16.24" stroke-width="2.5" stroke-linecap="round" class="opacity-30" />
+                    <line x1="2" y1="12" x2="6" y2="12" stroke-width="2.5" stroke-linecap="round" class="opacity-20" />
+                    <line x1="4.93" y1="4.93" x2="7.76" y2="7.76" stroke-width="2.5" stroke-linecap="round" class="opacity-15" />
+                  </svg>
+                {:else}
+                  <span class="material-symbols-rounded text-[28px] sm:text-[32px] filled">
+                    {playerState.playback.is_playing ? 'pause' : 'play_arrow'}
+                  </span>
+                {/if}
               </button>
 
               <button

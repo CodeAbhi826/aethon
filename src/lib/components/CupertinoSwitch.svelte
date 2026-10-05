@@ -52,7 +52,7 @@
     </div>
   {/if}
 
-  <!-- Apple Cupertino Toggle Switch -->
+  <!-- Cupertino Toggle Switch -->
   <button
     type="button"
     role="switch"

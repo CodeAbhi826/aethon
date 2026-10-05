@@ -250,7 +250,16 @@ class PlayerState {
       // Initial state sync
       const state = await invoke<PlaybackState>('get_playback_state').catch(() => null);
       if (state) {
-        this.playback = state;
+        if (!state.current_uri) {
+          this.playback = {
+            ...state,
+            is_playing: false,
+            position: this.currentTrack ? this.playback.position : state.position,
+            duration: this.currentTrack ? (this.playback.duration || (this.currentTrack.duration ?? 0)) : state.duration,
+          };
+        } else {
+          this.playback = state;
+        }
       }
     } catch {
       // In browser preview / mock mode

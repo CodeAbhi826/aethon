@@ -162,7 +162,7 @@
 
   let isLoadingSimilar = false;
   async function loadSimilarArtist(artist: string) {
-    if (isLoadingSimilar) return;
+    if (!artist || !artist.trim() || artist.trim().toLowerCase() === 'unknown' || isLoadingSimilar) return;
     isLoadingSimilar = true;
     try {
       const results = await invoke<YouTubeTrack[]>('search_youtube', { query: `${artist} top popular songs`, limit: 6 });
