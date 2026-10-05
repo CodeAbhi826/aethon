@@ -3,6 +3,7 @@
   import { invoke } from '@tauri-apps/api/core';
   import { playerState } from '../state.svelte';
   import { settingsState } from '../settingsState.svelte';
+  import { sanitizeArtist } from '../types';
 
   async function handleMinimize() {
     try {
@@ -341,7 +342,7 @@
                 {playerState.currentTrack?.title || 'No Track Selected'}
               </h2>
               <p class="text-xs sm:text-sm text-[#9ea2b0] truncate mt-0.5 max-w-full">
-                {playerState.currentTrack?.artist || 'Select a song to start listening'}
+                {playerState.currentTrack ? sanitizeArtist(playerState.currentTrack.artist) : 'Select a song to start listening'}
               </p>
               {#if settingsState.showAudioQualityBadge && playerState.currentTrack}
                 <div class="mt-2 flex items-center justify-center">

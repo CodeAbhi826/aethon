@@ -1,6 +1,6 @@
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
-import type { Track, PlaybackState, LyricsResult, YouTubeTrack, TabType, Playlist } from './types';
+import { sanitizeArtist, type Track, type PlaybackState, type LyricsResult, type YouTubeTrack, type TabType, type Playlist } from './types';
 import { extractAndApplyThemeFromImage, generateThemeFromHex, applyThemeTokens } from './theme';
 import { settingsState, registerThemeListener } from './settingsState.svelte';
 
@@ -421,32 +421,33 @@ class PlayerState {
   }
 
   async playTrack(track: Track) {
-    if (this.currentTrack && this.currentTrack.id !== track.id) {
+    const sanitized: Track = { ...track, artist: sanitizeArtist(track.artist) };
+    if (this.currentTrack && this.currentTrack.id !== sanitized.id) {
       this.pendingResumePosition = null;
       this.history.unshift(this.currentTrack);
       if (this.history.length > 50) this.history.pop();
       if (typeof localStorage !== 'undefined') {
         try {
-          localStorage.setItem('aethon_last_track_id', track.id);
+          localStorage.setItem('aethon_last_track_id', sanitized.id);
           localStorage.setItem('aethon_last_position', '0');
         } catch {}
       }
     } else if (typeof localStorage !== 'undefined') {
       try {
-        localStorage.setItem('aethon_last_track_id', track.id);
+        localStorage.setItem('aethon_last_track_id', sanitized.id);
       } catch {}
     }
-    this.currentTrack = track;
+    this.currentTrack = sanitized;
     this.isLoading = true;
-    this.updateMediaSession(track);
-    this.updateMpris(track, true);
-    this.notifyTrackChange(track);
+    this.updateMediaSession(sanitized);
+    this.updateMpris(sanitized, true);
+    this.notifyTrackChange(sanitized);
     try {
-      await invoke('play_track', { uri: track.file_path, trackId: track.id, track });
-      this.fetchLyrics(track.title, track.artist, track.duration);
+      await invoke('play_track', { uri: sanitized.file_path, trackId: sanitized.id, track: sanitized });
+      this.fetchLyrics(sanitized.title, sanitized.artist, sanitized.duration);
       this.loadPlayHistory();
-      if (track.cover_art) {
-        this.applyMonetColorFromImage(track.cover_art);
+      if (sanitized.cover_art) {
+        this.applyMonetColorFromImage(sanitized.cover_art);
       } else {
         this.reapplyTheme();
       }
@@ -460,7 +461,7 @@ class PlayerState {
     const syntheticTrack: Track = {
       id: `yt_${yt.id}`,
       title: yt.title,
-      artist: yt.artist,
+      artist: sanitizeArtist(yt.artist),
       album: 'Lossless Online Stream',
       duration: yt.duration,
       file_path: yt.stream_url,
@@ -671,7 +672,7 @@ class PlayerState {
             .map((yt) => ({
               id: `yt_${yt.id}`,
               title: yt.title,
-              artist: yt.artist || 'Radio Pick',
+              artist: sanitizeArtist(yt.artist) || 'Radio Pick',
               album: 'Autoplay Radio',
               duration: yt.duration || 210,
               file_path: yt.stream_url,

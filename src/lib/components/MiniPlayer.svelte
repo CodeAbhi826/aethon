@@ -1,5 +1,6 @@
 <script lang="ts">
   import { playerState } from '../state.svelte';
+  import { sanitizeArtist } from '../types';
 
   const currentTrack = $derived(playerState.currentTrack);
   const isPlaying = $derived(playerState.playback.is_playing);
@@ -44,7 +45,7 @@
           {currentTrack ? currentTrack.title : 'Not Playing'}
         </h4>
         <p class="text-[11px] text-white/75 truncate leading-tight mt-0.5">
-          {currentTrack ? currentTrack.artist : 'Select a song'}
+          {currentTrack ? sanitizeArtist(currentTrack.artist) : 'Select a song'}
         </p>
       </div>
 

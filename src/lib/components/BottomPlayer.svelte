@@ -1,5 +1,6 @@
 <script lang="ts">
   import { playerState } from '../state.svelte';
+  import { sanitizeArtist } from '../types';
 
   let showVolumeSlider = $state(false);
 
@@ -45,10 +46,10 @@
         </button>
         <div class="text-[11px] sm:text-xs text-[var(--md-sys-on-surface-variant)]/75 truncate mt-0.5">
           <button
-            onclick={() => playerState.openArtist(playerState.currentTrack?.artist || '')}
+            onclick={() => playerState.openArtist(sanitizeArtist(playerState.currentTrack?.artist || ''))}
             class="hover:underline hover:text-white transition text-left"
           >
-            {playerState.currentTrack.artist}
+            {sanitizeArtist(playerState.currentTrack.artist)}
           </button>
         </div>
       </div>

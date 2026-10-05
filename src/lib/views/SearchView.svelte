@@ -1,5 +1,6 @@
 <script lang="ts">
   import { playerState } from '../state.svelte';
+  import { sanitizeArtist } from '../types';
 
   let searchQuery = $state('');
 
@@ -115,7 +116,7 @@
                 {yt.title}
               </h4>
               <div class="flex items-center gap-1.5 text-xs text-[#9ea2b0]/80 truncate mt-1">
-                <span class="truncate">{yt.artist}</span>
+                <span class="truncate">{sanitizeArtist(yt.artist)}</span>
                 {#if yt.duration > 0}
                   <span class="text-white/30 shrink-0">•</span>
                   <span class="font-mono text-[11px] text-white/50 shrink-0">

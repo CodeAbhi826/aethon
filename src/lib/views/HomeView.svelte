@@ -2,7 +2,7 @@
   import { onMount } from 'svelte';
   import { invoke } from '@tauri-apps/api/core';
   import { playerState } from '../state.svelte';
-  import type { Track, YouTubeTrack } from '../types';
+  import { sanitizeArtist, type Track, type YouTubeTrack } from '../types';
 
   const moods = ['All', 'Relax', 'Workout', 'Focus', 'Energize', 'Commute', 'Party', 'Romance'] as const;
   type MoodType = typeof moods[number];
@@ -105,32 +105,22 @@
   let liveTrending = $state<Track[]>([]);
   let similarArtistTracks = $state<Track[]>([]);
 
-  function sanitizeArtist(raw: string): string {
-    if (!raw) return '';
-    return raw
-      .replace(/^similar\s+to\s+/i, '')
-      .replace(/\s*[•·|]\s*\d+(\.\d+)?[kmbKMB]?\s*(views?|subscribers?|plays?|watching|listeners?).*$/gi, '')
-      .replace(/\s+\d+(\.\d+)?[kmbKMB]?\s*(views?|subscribers?|plays?|watching|listeners?).*$/gi, '')
-      .replace(/\s*-\s*topic$/i, '')
-      .replace(/\s*[•·]\s*.*$/gi, '')
-      .trim();
-  }
-
   function cleanArtistName(raw: string): string {
     return sanitizeArtist(raw).split(',')[0].trim();
   }
 
   // Compute recommended artist based on history or library
   let recommendedArtist = $derived.by(() => {
-    if (playerState.playHistoryTracks.length > 0) {
-      return cleanArtistName(playerState.playHistoryTracks[0].artist);
-    }
-    if (playerState.currentTrack) {
+    const fromHistory = playerState.playHistoryTracks.find(t => t.artist && t.artist.trim().toLowerCase() !== 'unknown')?.artist;
+    if (fromHistory) return cleanArtistName(fromHistory);
+
+    if (playerState.currentTrack?.artist && playerState.currentTrack.artist.trim().toLowerCase() !== 'unknown') {
       return cleanArtistName(playerState.currentTrack.artist);
     }
-    if (playerState.library.length > 0) {
-      return cleanArtistName(playerState.library[0].artist);
-    }
+
+    const fromLibrary = playerState.library.find(t => t.artist && t.artist.trim().toLowerCase() !== 'unknown')?.artist;
+    if (fromLibrary) return cleanArtistName(fromLibrary);
+
     return 'Arijit Singh';
   });
 
@@ -328,7 +318,7 @@
           >
             <div class="relative w-14 h-14 rounded-xl overflow-hidden shadow shrink-0 border border-white/10">
               <img loading="lazy" decoding="async" src={track.cover_art} alt={track.title} class="w-full h-full object-cover group-hover:scale-105 transition duration-300" />
-              <div class="absolute inset-0 bg-black/30 backdrop-blur-[2px] {isCurrent ? 'opacity-100 bg-black/40' : 'opacity-0 group-hover:opacity-100'} flex items-center justify-center transition-opacity duration-200">
+              <div class="absolute inset-0 bg-black/30 backdrop-blur-[2px] {isCurrent && playerState.playback.is_playing ? 'opacity-100 bg-black/40' : 'opacity-0 group-hover:opacity-100'} flex items-center justify-center transition-opacity duration-200">
                 <div class="w-8 h-8 rounded-full bg-black/60 backdrop-blur-md border border-white/20 text-white flex items-center justify-center shadow-md">
                   {#if isCurrent && playerState.playback.is_playing}
                     <svg viewBox="0 0 24 24" class="w-3.5 h-3.5 fill-current" xmlns="http://www.w3.org/2000/svg">
@@ -431,7 +421,7 @@
           >
             <div class="relative w-14 h-14 rounded-xl overflow-hidden shadow shrink-0 border border-white/10">
               <img loading="lazy" decoding="async" src={track.cover_art} alt={track.title} class="w-full h-full object-cover group-hover:scale-105 transition duration-300" />
-              <div class="absolute inset-0 bg-black/30 backdrop-blur-[2px] {isCurrent ? 'opacity-100 bg-black/40' : 'opacity-0 group-hover:opacity-100'} flex items-center justify-center transition-opacity duration-200">
+              <div class="absolute inset-0 bg-black/30 backdrop-blur-[2px] {isCurrent && playerState.playback.is_playing ? 'opacity-100 bg-black/40' : 'opacity-0 group-hover:opacity-100'} flex items-center justify-center transition-opacity duration-200">
                 <div class="w-8 h-8 rounded-full bg-black/60 backdrop-blur-md border border-white/20 text-white flex items-center justify-center shadow-md">
                   {#if isCurrent && playerState.playback.is_playing}
                     <svg viewBox="0 0 24 24" class="w-3.5 h-3.5 fill-current" xmlns="http://www.w3.org/2000/svg">
@@ -480,7 +470,7 @@
         >
           <div class="relative w-14 h-14 rounded-xl overflow-hidden shadow shrink-0 border border-white/10">
             <img loading="lazy" decoding="async" src={track.cover_art} alt={track.title} class="w-full h-full object-cover group-hover:scale-105 transition duration-300" />
-            <div class="absolute inset-0 bg-black/30 backdrop-blur-[2px] {isCurrent ? 'opacity-100 bg-black/40' : 'opacity-0 group-hover:opacity-100'} flex items-center justify-center transition-opacity duration-200">
+            <div class="absolute inset-0 bg-black/30 backdrop-blur-[2px] {isCurrent && playerState.playback.is_playing ? 'opacity-100 bg-black/40' : 'opacity-0 group-hover:opacity-100'} flex items-center justify-center transition-opacity duration-200">
               <div class="w-8 h-8 rounded-full bg-black/60 backdrop-blur-md border border-white/20 text-white flex items-center justify-center shadow-md">
                 {#if isCurrent && playerState.playback.is_playing}
                   <svg viewBox="0 0 24 24" class="w-3.5 h-3.5 fill-current" xmlns="http://www.w3.org/2000/svg">
@@ -579,7 +569,7 @@
           </div>
           <div class="relative w-12 h-12 rounded-xl overflow-hidden shadow shrink-0 border border-white/10">
             <img loading="lazy" decoding="async" src={track.cover_art} alt={track.title} class="w-full h-full object-cover group-hover:scale-105 transition duration-300" />
-            <div class="absolute inset-0 bg-black/30 backdrop-blur-[2px] {isCurrent ? 'opacity-100 bg-black/40' : 'opacity-0 group-hover:opacity-100'} flex items-center justify-center transition-opacity duration-200">
+            <div class="absolute inset-0 bg-black/30 backdrop-blur-[2px] {isCurrent && playerState.playback.is_playing ? 'opacity-100 bg-black/40' : 'opacity-0 group-hover:opacity-100'} flex items-center justify-center transition-opacity duration-200">
               <div class="w-7 h-7 rounded-full bg-black/60 backdrop-blur-md border border-white/20 text-white flex items-center justify-center shadow-md">
                 {#if isCurrent && playerState.playback.is_playing}
                   <svg viewBox="0 0 24 24" class="w-3 h-3 fill-current" xmlns="http://www.w3.org/2000/svg">

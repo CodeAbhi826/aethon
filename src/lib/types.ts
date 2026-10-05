@@ -72,3 +72,15 @@ export interface Playlist {
   track_count: number;
 }
 
+export function sanitizeArtist(raw: string): string {
+  if (!raw) return '';
+  return raw
+    .replace(/^similar\s+to\s+/i, '')
+    .replace(/\s*[•·|\-]\s*\d+(\.\d+)?[kmbKMB]?\s*(views?|subscribers?|plays?|watching|listeners?).*$/gi, '')
+    .replace(/\s+\d+(\.\d+)?[kmbKMB]?\s*(views?|subscribers?|plays?|watching|listeners?).*$/gi, '')
+    .replace(/\s*-\s*topic$/i, '')
+    .replace(/\s*[•·]\s*.*$/gi, '')
+    .replace(/[\s\-\•\·\|\/,]+$/, '')
+    .trim();
+}
+
