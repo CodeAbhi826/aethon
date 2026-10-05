@@ -761,6 +761,14 @@
             onchange={() => settingsState.scheduleSave()}
           />
 
+          <CupertinoSwitch
+            bind:checked={settingsState.showAudioQualityBadge}
+            label="Show Audio Quality Badge"
+            description="Display audio stream format and quality badge in the expanded Now Playing sheet"
+            icon="verified"
+            onchange={() => settingsState.scheduleSave()}
+          />
+
           <CupertinoSelect
             bind:value={settingsState.resamplingRate}
             options={[

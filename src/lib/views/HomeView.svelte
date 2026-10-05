@@ -105,13 +105,19 @@
   let liveTrending = $state<Track[]>([]);
   let similarArtistTracks = $state<Track[]>([]);
 
-  function cleanArtistName(raw: string): string {
+  function sanitizeArtist(raw: string): string {
+    if (!raw) return '';
     return raw
       .replace(/^similar\s+to\s+/i, '')
-      .replace(/\s+\d+(\.\d+)?[kmbKMB]?\s+(views?|subscribers?|plays?|audience)/gi, '')
-      .split(',')[0]
-      .split('•')[0]
+      .replace(/\s*[•·|]\s*\d+(\.\d+)?[kmbKMB]?\s*(views?|subscribers?|plays?|watching|listeners?).*$/gi, '')
+      .replace(/\s+\d+(\.\d+)?[kmbKMB]?\s*(views?|subscribers?|plays?|watching|listeners?).*$/gi, '')
+      .replace(/\s*-\s*topic$/i, '')
+      .replace(/\s*[•·]\s*.*$/gi, '')
       .trim();
+  }
+
+  function cleanArtistName(raw: string): string {
+    return sanitizeArtist(raw).split(',')[0].trim();
   }
 
   // Compute recommended artist based on history or library
@@ -142,7 +148,7 @@
         moodTracks = results.map((yt, idx) => ({
           id: `yt_${yt.id}`,
           title: yt.title,
-          artist: yt.artist || mood,
+          artist: sanitizeArtist(yt.artist) || mood,
           album: `${mood} Session`,
           duration: yt.duration || 200,
           file_path: yt.stream_url,
@@ -170,7 +176,7 @@
         similarArtistTracks = results.map((yt, idx) => ({
           id: `yt_${yt.id}`,
           title: yt.title,
-          artist: yt.artist || artist,
+          artist: sanitizeArtist(yt.artist) || artist,
           album: `${artist} Dynamic Radio`,
           duration: yt.duration || 215,
           file_path: yt.stream_url,
@@ -195,7 +201,7 @@
         liveTrending = results.map((yt, idx) => ({
           id: `yt_${yt.id}`,
           title: yt.title,
-          artist: yt.artist || 'Popular',
+          artist: sanitizeArtist(yt.artist) || 'Popular',
           album: 'Top Daily Charts',
           duration: yt.duration || 210,
           file_path: yt.stream_url,
@@ -302,8 +308,8 @@
   {#if activeMood !== 'All'}
     <section class="space-y-3.5 pt-1 animate-fade-in">
       <div class="flex items-center justify-between">
-        <h2 class="text-sm font-bold uppercase tracking-wider text-[var(--md-sys-on-surface-variant)] flex items-center gap-2">
-          <span class="material-symbols-rounded text-sm text-[var(--md-sys-primary)]">tune</span>
+        <h2 class="text-xl font-bold tracking-tight text-white flex items-center gap-2.5">
+          <span class="material-symbols-rounded text-lg text-[var(--md-sys-primary)]">tune</span>
           {activeMood} Mixes & Sessions
         </h2>
         {#if isMoodLoading}
@@ -318,14 +324,23 @@
           {@const isCurrent = playerState.currentTrack?.id === track.id}
           <button
             onclick={() => playerState.playTrack(track)}
-            class="p-3 rounded-2xl {isCurrent ? 'bg-[var(--md-sys-primary-container)]/25 border-[var(--md-sys-primary)]/40 shadow-sm' : 'm3-acrylic-card hover:bg-white/10 border-white/5'} border cursor-pointer transition flex items-center gap-3.5 group text-left w-full gpu-card"
+            class="p-3 rounded-2xl {isCurrent ? 'bg-[var(--md-sys-primary-container)]/25 border-[var(--md-sys-primary)]/40' : 'm3-acrylic-card hover:bg-white/10 border-white/5'} border shadow-md shadow-black/30 hover:shadow-black/50 hover:scale-[1.02] transition-all duration-200 cursor-pointer flex items-center gap-3.5 group text-left w-full gpu-card"
           >
             <div class="relative w-14 h-14 rounded-xl overflow-hidden shadow shrink-0 border border-white/10">
-              <img loading="lazy" decoding="async" src={track.cover_art} alt={track.title} class="w-full h-full object-cover group-hover:scale-105 transition" />
-              <div class="absolute inset-0 bg-black/40 {isCurrent ? 'opacity-100 bg-black/50' : 'opacity-0 group-hover:opacity-100'} flex items-center justify-center transition">
-                <span class="material-symbols-rounded {isCurrent ? 'text-[var(--md-sys-primary)]' : 'text-white'} text-xl filled">
-                  {isCurrent && playerState.playback.is_playing ? 'equalizer' : 'play_arrow'}
-                </span>
+              <img loading="lazy" decoding="async" src={track.cover_art} alt={track.title} class="w-full h-full object-cover group-hover:scale-105 transition duration-300" />
+              <div class="absolute inset-0 bg-black/30 backdrop-blur-[2px] {isCurrent ? 'opacity-100 bg-black/40' : 'opacity-0 group-hover:opacity-100'} flex items-center justify-center transition-opacity duration-200">
+                <div class="w-8 h-8 rounded-full bg-black/60 backdrop-blur-md border border-white/20 text-white flex items-center justify-center shadow-md">
+                  {#if isCurrent && playerState.playback.is_playing}
+                    <svg viewBox="0 0 24 24" class="w-3.5 h-3.5 fill-current" xmlns="http://www.w3.org/2000/svg">
+                      <rect x="6" y="4" width="4" height="16" rx="1.5" />
+                      <rect x="14" y="4" width="4" height="16" rx="1.5" />
+                    </svg>
+                  {:else}
+                    <svg viewBox="0 0 24 24" class="w-3.5 h-3.5 fill-current translate-x-0.5" xmlns="http://www.w3.org/2000/svg">
+                      <path d="M8 5.14v13.72a1 1 0 0 0 1.5.86l11.04-6.86a1 1 0 0 0 0-1.72L9.5 4.28A1 1 0 0 0 8 5.14z"/>
+                    </svg>
+                  {/if}
+                </div>
               </div>
             </div>
 
@@ -334,7 +349,7 @@
                 {track.title}
               </div>
               <div class="text-[11px] text-[var(--md-sys-on-surface-variant)]/75 truncate mt-0.5 flex items-center gap-1.5">
-                <span class="truncate">{track.artist}</span>
+                <span class="truncate">{sanitizeArtist(track.artist)}</span>
               </div>
             </div>
           </button>
@@ -346,8 +361,8 @@
   <!-- Listen Again (Recently Played from SQLite History) -->
   <section class="space-y-3.5">
     <div class="flex items-center justify-between">
-      <h2 class="text-sm font-bold uppercase tracking-wider text-[var(--md-sys-on-surface-variant)] flex items-center gap-2">
-        <span class="material-symbols-rounded text-sm text-[var(--md-sys-primary)]">history</span>
+      <h2 class="text-xl font-bold tracking-tight text-white flex items-center gap-2.5">
+        <span class="material-symbols-rounded text-lg text-[var(--md-sys-primary)]">history</span>
         Listen Again
       </h2>
       <span class="text-xs text-[var(--md-sys-on-surface-variant)]">From your listening history</span>
@@ -358,19 +373,28 @@
         {#each listenAgainTracks as track}
           {@const isCurrent = playerState.currentTrack?.id === track.id}
           <div
-            class="w-44 p-3 rounded-2xl m3-acrylic-card hover:bg-white/[0.09] border border-white/[0.06] transition-all duration-300 group flex flex-col justify-between gpu-card"
+            role="button"
+            tabindex="0"
+            onclick={() => playerState.playTrack(track)}
+            onkeydown={(e) => { if (e.key === 'Enter' || e.key === ' ') playerState.playTrack(track); }}
+            class="w-44 p-3 rounded-2xl m3-acrylic-card {isCurrent ? 'border-[var(--md-sys-primary)]/40 bg-[var(--md-sys-primary-container)]/15' : 'border-white/[0.06] hover:bg-white/[0.09]'} border shadow-md shadow-black/30 hover:shadow-black/50 hover:scale-[1.02] transition-all duration-200 group flex flex-col justify-between gpu-card cursor-pointer"
           >
             <div class="relative w-full aspect-square rounded-xl overflow-hidden shadow-md mb-2.5 border border-white/10">
               <img loading="lazy" decoding="async" src={track.cover_art} alt={track.title} class="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" />
-              <button
-                onclick={() => playerState.playTrack(track)}
-                aria-label="Play {track.title}"
-                class="absolute bottom-2 right-2 w-9 h-9 rounded-full bg-[var(--md-sys-primary)] text-[var(--md-sys-on-primary)] shadow-lg flex items-center justify-center opacity-0 group-hover:opacity-100 hover:scale-110 active:scale-95 transition-all duration-200 cursor-pointer"
-              >
-                <span class="material-symbols-rounded text-xl filled">
-                  {isCurrent && playerState.playback.is_playing ? 'equalizer' : 'play_arrow'}
-                </span>
-              </button>
+              <div class="absolute inset-0 bg-black/20 {isCurrent && playerState.playback.is_playing ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'} transition-opacity duration-200 flex items-center justify-center">
+                <div class="w-11 h-11 rounded-full bg-black/60 backdrop-blur-md border border-white/20 text-white shadow-xl flex items-center justify-center hover:scale-110 active:scale-95 transition-all duration-200">
+                  {#if isCurrent && playerState.playback.is_playing}
+                    <svg viewBox="0 0 24 24" class="w-5 h-5 fill-current" xmlns="http://www.w3.org/2000/svg">
+                      <rect x="6" y="4" width="4" height="16" rx="1.5" />
+                      <rect x="14" y="4" width="4" height="16" rx="1.5" />
+                    </svg>
+                  {:else}
+                    <svg viewBox="0 0 24 24" class="w-5 h-5 fill-current translate-x-0.5" xmlns="http://www.w3.org/2000/svg">
+                      <path d="M8 5.14v13.72a1 1 0 0 0 1.5.86l11.04-6.86a1 1 0 0 0 0-1.72L9.5 4.28A1 1 0 0 0 8 5.14z"/>
+                    </svg>
+                  {/if}
+                </div>
+              </div>
             </div>
 
             <div class="min-w-0">
@@ -378,7 +402,7 @@
                 {track.title}
               </div>
               <div class="text-[11px] text-white/50 truncate mt-0.5">
-                {track.artist}
+                {sanitizeArtist(track.artist)}
               </div>
             </div>
           </div>
@@ -391,8 +415,8 @@
   {#if similarArtistTracks.length > 0}
     <section class="space-y-3.5 pt-1">
       <div class="flex items-center justify-between">
-        <h2 class="text-sm font-bold uppercase tracking-wider text-[var(--md-sys-on-surface-variant)] flex items-center gap-2">
-          <span class="material-symbols-rounded text-sm text-[var(--md-sys-primary)]">radio</span>
+        <h2 class="text-xl font-bold tracking-tight text-white flex items-center gap-2.5">
+          <span class="material-symbols-rounded text-lg text-[var(--md-sys-primary)]">radio</span>
           Similar to {recommendedArtist}
         </h2>
         <span class="text-xs text-[var(--md-sys-on-surface-variant)]">Automated station discovery</span>
@@ -403,14 +427,23 @@
           {@const isCurrent = playerState.currentTrack?.id === track.id}
           <button
             onclick={() => playerState.playTrack(track)}
-            class="p-3 rounded-2xl {isCurrent ? 'bg-[var(--md-sys-primary-container)]/25 border-[var(--md-sys-primary)]/40 shadow-sm' : 'm3-acrylic-card hover:bg-white/10 border-white/5'} border cursor-pointer transition flex items-center gap-3.5 group text-left w-full gpu-card"
+            class="p-3 rounded-2xl {isCurrent ? 'bg-[var(--md-sys-primary-container)]/25 border-[var(--md-sys-primary)]/40' : 'm3-acrylic-card hover:bg-white/10 border-white/5'} border shadow-md shadow-black/30 hover:shadow-black/50 hover:scale-[1.02] transition-all duration-200 cursor-pointer flex items-center gap-3.5 group text-left w-full gpu-card"
           >
             <div class="relative w-14 h-14 rounded-xl overflow-hidden shadow shrink-0 border border-white/10">
-              <img loading="lazy" decoding="async" src={track.cover_art} alt={track.title} class="w-full h-full object-cover group-hover:scale-105 transition" />
-              <div class="absolute inset-0 bg-black/40 {isCurrent ? 'opacity-100 bg-black/50' : 'opacity-0 group-hover:opacity-100'} flex items-center justify-center transition">
-                <span class="material-symbols-rounded {isCurrent ? 'text-[var(--md-sys-primary)]' : 'text-white'} text-xl filled">
-                  {isCurrent && playerState.playback.is_playing ? 'equalizer' : 'play_arrow'}
-                </span>
+              <img loading="lazy" decoding="async" src={track.cover_art} alt={track.title} class="w-full h-full object-cover group-hover:scale-105 transition duration-300" />
+              <div class="absolute inset-0 bg-black/30 backdrop-blur-[2px] {isCurrent ? 'opacity-100 bg-black/40' : 'opacity-0 group-hover:opacity-100'} flex items-center justify-center transition-opacity duration-200">
+                <div class="w-8 h-8 rounded-full bg-black/60 backdrop-blur-md border border-white/20 text-white flex items-center justify-center shadow-md">
+                  {#if isCurrent && playerState.playback.is_playing}
+                    <svg viewBox="0 0 24 24" class="w-3.5 h-3.5 fill-current" xmlns="http://www.w3.org/2000/svg">
+                      <rect x="6" y="4" width="4" height="16" rx="1.5" />
+                      <rect x="14" y="4" width="4" height="16" rx="1.5" />
+                    </svg>
+                  {:else}
+                    <svg viewBox="0 0 24 24" class="w-3.5 h-3.5 fill-current translate-x-0.5" xmlns="http://www.w3.org/2000/svg">
+                      <path d="M8 5.14v13.72a1 1 0 0 0 1.5.86l11.04-6.86a1 1 0 0 0 0-1.72L9.5 4.28A1 1 0 0 0 8 5.14z"/>
+                    </svg>
+                  {/if}
+                </div>
               </div>
             </div>
 
@@ -419,7 +452,7 @@
                 {track.title}
               </div>
               <div class="text-[11px] text-[var(--md-sys-on-surface-variant)]/75 truncate mt-0.5 flex items-center gap-1.5">
-                <span class="truncate">{track.artist}</span>
+                <span class="truncate">{sanitizeArtist(track.artist)}</span>
               </div>
             </div>
           </button>
@@ -428,12 +461,12 @@
     </section>
   {/if}
 
-  <!-- Quick Picks Grid -->
+  <!-- Top Picks Grid -->
   <section class="space-y-3.5">
     <div class="flex items-center justify-between">
-      <h2 class="text-sm font-bold uppercase tracking-wider text-[var(--md-sys-on-surface-variant)] flex items-center gap-2">
-        <span class="material-symbols-rounded text-sm text-[var(--md-sys-primary)]">bolt</span>
-        Quick Picks
+      <h2 class="text-xl font-bold tracking-tight text-white flex items-center gap-2.5">
+        <span class="material-symbols-rounded text-lg text-[var(--md-sys-primary)]">bolt</span>
+        Top Picks
       </h2>
       <span class="text-xs text-[var(--md-sys-on-surface-variant)]">{displayQuickPicks.length} tracks ready</span>
     </div>
@@ -443,14 +476,23 @@
         {@const isCurrent = playerState.currentTrack?.id === track.id}
         <button
           onclick={() => playerState.playTrack(track)}
-          class="p-3 rounded-2xl {isCurrent ? 'bg-[var(--md-sys-primary-container)]/25 border-[var(--md-sys-primary)]/40 shadow-sm' : 'm3-acrylic-card hover:bg-white/10 border-white/5'} border cursor-pointer transition flex items-center gap-3.5 group text-left w-full gpu-card"
+          class="p-3 rounded-2xl {isCurrent ? 'bg-[var(--md-sys-primary-container)]/25 border-[var(--md-sys-primary)]/40' : 'm3-acrylic-card hover:bg-white/10 border-white/5'} border shadow-md shadow-black/30 hover:shadow-black/50 hover:scale-[1.02] transition-all duration-200 cursor-pointer flex items-center gap-3.5 group text-left w-full gpu-card"
         >
           <div class="relative w-14 h-14 rounded-xl overflow-hidden shadow shrink-0 border border-white/10">
-            <img loading="lazy" decoding="async" src={track.cover_art} alt={track.title} class="w-full h-full object-cover group-hover:scale-105 transition" />
-            <div class="absolute inset-0 bg-black/40 {isCurrent ? 'opacity-100 bg-black/50' : 'opacity-0 group-hover:opacity-100'} flex items-center justify-center transition">
-              <span class="material-symbols-rounded {isCurrent ? 'text-[var(--md-sys-primary)]' : 'text-white'} text-xl filled">
-                {isCurrent && playerState.playback.is_playing ? 'equalizer' : 'play_arrow'}
-              </span>
+            <img loading="lazy" decoding="async" src={track.cover_art} alt={track.title} class="w-full h-full object-cover group-hover:scale-105 transition duration-300" />
+            <div class="absolute inset-0 bg-black/30 backdrop-blur-[2px] {isCurrent ? 'opacity-100 bg-black/40' : 'opacity-0 group-hover:opacity-100'} flex items-center justify-center transition-opacity duration-200">
+              <div class="w-8 h-8 rounded-full bg-black/60 backdrop-blur-md border border-white/20 text-white flex items-center justify-center shadow-md">
+                {#if isCurrent && playerState.playback.is_playing}
+                  <svg viewBox="0 0 24 24" class="w-3.5 h-3.5 fill-current" xmlns="http://www.w3.org/2000/svg">
+                    <rect x="6" y="4" width="4" height="16" rx="1.5" />
+                    <rect x="14" y="4" width="4" height="16" rx="1.5" />
+                  </svg>
+                {:else}
+                  <svg viewBox="0 0 24 24" class="w-3.5 h-3.5 fill-current translate-x-0.5" xmlns="http://www.w3.org/2000/svg">
+                    <path d="M8 5.14v13.72a1 1 0 0 0 1.5.86l11.04-6.86a1 1 0 0 0 0-1.72L9.5 4.28A1 1 0 0 0 8 5.14z"/>
+                  </svg>
+                {/if}
+              </div>
             </div>
           </div>
 
@@ -459,7 +501,7 @@
               {track.title}
             </div>
             <div class="text-[11px] text-[var(--md-sys-on-surface-variant)]/75 truncate mt-0.5 flex items-center gap-1.5">
-              <span class="truncate">{track.artist}</span>
+              <span class="truncate">{sanitizeArtist(track.artist)}</span>
               {#if track.duration > 0}
                 <span class="text-white/30 shrink-0">•</span>
                 <span class="font-mono text-[10px] text-white/50 shrink-0">
@@ -476,8 +518,8 @@
   <!-- Dynamic Stations (Speed Dial) -->
   <section class="space-y-3 pt-2">
     <div class="flex items-center justify-between">
-      <h2 class="text-sm font-bold uppercase tracking-wider text-[var(--md-sys-on-surface-variant)] flex items-center gap-2">
-        <span class="material-symbols-rounded text-sm text-[var(--md-sys-primary)]">dialpad</span>
+      <h2 class="text-xl font-bold tracking-tight text-white flex items-center gap-2.5">
+        <span class="material-symbols-rounded text-lg text-[var(--md-sys-primary)]">dialpad</span>
         Dynamic Stations
       </h2>
       <span class="text-xs text-[var(--md-sys-on-surface-variant)]">Instant station radios</span>
@@ -494,12 +536,16 @@
       ] as dial}
         <button
           onclick={() => { playerState.activeTab = 'search'; playerState.searchYouTube(dial.query); }}
-          class="p-3 rounded-2xl m3-acrylic-card hover:bg-white/10 border border-white/5 cursor-pointer transition text-center group flex flex-col items-center gpu-card"
+          class="p-3 rounded-2xl m3-acrylic-card hover:bg-white/10 border border-white/5 cursor-pointer shadow-md shadow-black/30 hover:shadow-black/50 hover:scale-[1.02] transition-all duration-200 text-center group flex flex-col items-center gpu-card"
         >
           <div class="w-16 h-16 rounded-full overflow-hidden mb-2 shadow-md border border-white/10 relative">
             <img loading="lazy" decoding="async" src={dial.img} alt={dial.name} class="w-full h-full object-cover group-hover:scale-110 transition duration-500" />
-            <div class="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 flex items-center justify-center transition">
-              <span class="material-symbols-rounded filled text-white text-xl">play_arrow</span>
+            <div class="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity duration-200">
+              <div class="w-8 h-8 rounded-full bg-black/60 backdrop-blur-md border border-white/20 text-white flex items-center justify-center shadow-md">
+                <svg viewBox="0 0 24 24" class="w-4 h-4 fill-current translate-x-0.5" xmlns="http://www.w3.org/2000/svg">
+                  <path d="M8 5.14v13.72a1 1 0 0 0 1.5.86l11.04-6.86a1 1 0 0 0 0-1.72L9.5 4.28A1 1 0 0 0 8 5.14z"/>
+                </svg>
+              </div>
             </div>
           </div>
           <div class="text-xs font-bold text-white truncate max-w-full">{dial.name}</div>
@@ -512,8 +558,8 @@
   <!-- Top Daily Charts -->
   <section class="space-y-3.5 pt-2">
     <div class="flex items-center justify-between">
-      <h2 class="text-sm font-bold uppercase tracking-wider text-[var(--md-sys-on-surface-variant)] flex items-center gap-2">
-        <span class="material-symbols-rounded text-sm text-[var(--md-sys-primary)]">leaderboard</span>
+      <h2 class="text-xl font-bold tracking-tight text-white flex items-center gap-2.5">
+        <span class="material-symbols-rounded text-lg text-[var(--md-sys-primary)]">leaderboard</span>
         Top Charts • Regional Daily
       </h2>
       <button onclick={() => { playerState.activeTab = 'search'; playerState.searchYouTube('Top 50 Songs Daily'); }} class="text-xs font-bold text-[var(--md-sys-primary)] hover:underline">
@@ -526,17 +572,26 @@
         {@const isCurrent = playerState.currentTrack?.id === track.id}
         <button
           onclick={() => playerState.playTrack(track)}
-          class="p-3 rounded-2xl {isCurrent ? 'bg-[var(--md-sys-primary-container)]/25 border-[var(--md-sys-primary)]/40 shadow-sm' : 'm3-acrylic-card hover:bg-white/10 border-white/5'} border cursor-pointer transition flex items-center gap-3.5 group text-left w-full gpu-card"
+          class="p-3 rounded-2xl {isCurrent ? 'bg-[var(--md-sys-primary-container)]/25 border-[var(--md-sys-primary)]/40' : 'm3-acrylic-card hover:bg-white/10 border-white/5'} border shadow-md shadow-black/30 hover:shadow-black/50 hover:scale-[1.02] transition-all duration-200 cursor-pointer flex items-center gap-3.5 group text-left w-full gpu-card"
         >
           <div class="w-6 text-center font-heading font-black text-sm {idx === 0 ? 'text-amber-400' : idx === 1 ? 'text-slate-300' : idx === 2 ? 'text-amber-600' : 'text-white/40'} shrink-0">
             {idx + 1}
           </div>
           <div class="relative w-12 h-12 rounded-xl overflow-hidden shadow shrink-0 border border-white/10">
-            <img loading="lazy" decoding="async" src={track.cover_art} alt={track.title} class="w-full h-full object-cover group-hover:scale-105 transition" />
-            <div class="absolute inset-0 bg-black/40 {isCurrent ? 'opacity-100 bg-black/50' : 'opacity-0 group-hover:opacity-100'} flex items-center justify-center transition">
-              <span class="material-symbols-rounded {isCurrent ? 'text-[var(--md-sys-primary)]' : 'text-white'} text-lg filled">
-                {isCurrent && playerState.playback.is_playing ? 'equalizer' : 'play_arrow'}
-              </span>
+            <img loading="lazy" decoding="async" src={track.cover_art} alt={track.title} class="w-full h-full object-cover group-hover:scale-105 transition duration-300" />
+            <div class="absolute inset-0 bg-black/30 backdrop-blur-[2px] {isCurrent ? 'opacity-100 bg-black/40' : 'opacity-0 group-hover:opacity-100'} flex items-center justify-center transition-opacity duration-200">
+              <div class="w-7 h-7 rounded-full bg-black/60 backdrop-blur-md border border-white/20 text-white flex items-center justify-center shadow-md">
+                {#if isCurrent && playerState.playback.is_playing}
+                  <svg viewBox="0 0 24 24" class="w-3 h-3 fill-current" xmlns="http://www.w3.org/2000/svg">
+                    <rect x="6" y="4" width="4" height="16" rx="1.5" />
+                    <rect x="14" y="4" width="4" height="16" rx="1.5" />
+                  </svg>
+                {:else}
+                  <svg viewBox="0 0 24 24" class="w-3 h-3 fill-current translate-x-0.5" xmlns="http://www.w3.org/2000/svg">
+                    <path d="M8 5.14v13.72a1 1 0 0 0 1.5.86l11.04-6.86a1 1 0 0 0 0-1.72L9.5 4.28A1 1 0 0 0 8 5.14z"/>
+                  </svg>
+                {/if}
+              </div>
             </div>
           </div>
           <div class="min-w-0 flex-1">
@@ -544,7 +599,7 @@
               {track.title}
             </div>
             <div class="text-[11px] text-[var(--md-sys-on-surface-variant)]/75 truncate mt-0.5 flex items-center gap-1.5">
-              <span class="truncate">{track.artist}</span>
+              <span class="truncate">{sanitizeArtist(track.artist)}</span>
               {#if track.duration > 0}
                 <span class="text-white/30 shrink-0">•</span>
                 <span class="font-mono text-[10px] text-white/50 shrink-0">
@@ -561,8 +616,8 @@
   <!-- Editorial Activity Mixes -->
   <section class="space-y-3 pt-2">
     <div class="flex items-center justify-between">
-      <h2 class="text-sm font-bold uppercase tracking-wider text-[var(--md-sys-on-surface-variant)] flex items-center gap-2">
-        <span class="material-symbols-rounded text-sm text-[var(--md-sys-primary)]">auto_awesome</span>
+      <h2 class="text-xl font-bold tracking-tight text-white flex items-center gap-2.5">
+        <span class="material-symbols-rounded text-lg text-[var(--md-sys-primary)]">auto_awesome</span>
         Curated Activity Mixes
       </h2>
       <span class="text-xs text-[var(--md-sys-on-surface-variant)]">Tailored listening</span>
@@ -577,7 +632,7 @@
       ] as mood}
         <button
           onclick={() => { playerState.activeTab = 'search'; playerState.searchYouTube(mood.query); }}
-          class="p-4 rounded-2xl bg-gradient-to-br {mood.gradient} border {mood.border} hover:scale-[1.02] hover:brightness-110 transition-all text-left group cursor-pointer h-28 flex flex-col justify-between shadow-sm gpu-card"
+          class="p-4 rounded-2xl bg-gradient-to-br {mood.gradient} border {mood.border} shadow-md shadow-black/30 hover:shadow-black/50 hover:scale-[1.02] transition-all duration-200 text-left group cursor-pointer h-28 flex flex-col justify-between gpu-card"
         >
           <div class="flex items-center justify-between">
             <span class="material-symbols-rounded text-white/80 text-xl group-hover:scale-110 transition-transform">

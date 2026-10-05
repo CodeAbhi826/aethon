@@ -51,11 +51,6 @@
             {playerState.currentTrack.artist}
           </button>
         </div>
-        <div class="flex items-center gap-1.5 mt-0.5 hidden sm:flex">
-          <span class="text-[9px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full bg-[var(--md-sys-primary-container)] text-[var(--md-sys-on-primary-container)]">
-            {playerState.currentTrack.format || 'Opus 256k'}
-          </span>
-        </div>
       </div>
 
       <button
@@ -116,9 +111,16 @@
             <line x1="4.93" y1="4.93" x2="7.76" y2="7.76" stroke-width="2.5" stroke-linecap="round" class="opacity-15" />
           </svg>
         {:else}
-          <span class="material-symbols-rounded filled text-xl sm:text-2xl">
-            {playerState.playback.is_playing ? 'pause' : 'play_arrow'}
-          </span>
+          {#if playerState.playback.is_playing}
+            <svg viewBox="0 0 24 24" class="w-5 h-5 sm:w-6 sm:h-6 fill-current" xmlns="http://www.w3.org/2000/svg">
+              <rect x="6" y="4" width="4" height="16" rx="1.5" />
+              <rect x="14" y="4" width="4" height="16" rx="1.5" />
+            </svg>
+          {:else}
+            <svg viewBox="0 0 24 24" class="w-5 h-5 sm:w-6 sm:h-6 fill-current translate-x-0.5" xmlns="http://www.w3.org/2000/svg">
+              <path d="M8 5.14v13.72a1 1 0 0 0 1.5.86l11.04-6.86a1 1 0 0 0 0-1.72L9.5 4.28A1 1 0 0 0 8 5.14z"/>
+            </svg>
+          {/if}
         {/if}
       </button>
 

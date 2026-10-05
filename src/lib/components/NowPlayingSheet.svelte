@@ -41,6 +41,13 @@
   let isOffsetOpen = $state(false);
   let isRomanizedMode = $state(false);
 
+  const audioQualityLabel = $derived.by(() => {
+    const fmt = playerState.currentTrack?.format;
+    if (!fmt) return 'Lossless';
+    if (fmt.toLowerCase().includes('lossless')) return fmt;
+    return `Lossless • ${fmt}`;
+  });
+
   function adjustOffset(delta: number) {
     settingsState.lyricOffsetSeconds = Math.round((settingsState.lyricOffsetSeconds + delta) * 10) / 10;
     settingsState.scheduleSave();
@@ -240,9 +247,11 @@
 
       <!-- Right: Equalizer + Format + Window Traffic Controls -->
       <div class="flex items-center gap-1.5 shrink-0">
-        <span class="text-[11px] px-2 py-0.5 rounded-full bg-white/[0.07] text-white border border-white/[0.08] font-mono hidden sm:inline-block">
-          {playerState.currentTrack?.format || 'Lossless'}
-        </span>
+        {#if settingsState.showAudioQualityBadge && playerState.currentTrack}
+          <span class="border border-white/20 text-white/60 text-[10px] tracking-wider uppercase px-2 py-0.5 rounded-full font-medium hidden sm:inline-block">
+            {audioQualityLabel}
+          </span>
+        {/if}
         <button
           onclick={() => playerState.isEqualizerOpen = true}
           class="w-7 h-7 sm:w-8 sm:h-8 rounded-full bg-white/[0.06] hover:bg-white/[0.12] flex items-center justify-center text-[#9ea2b0] hover:text-white transition-colors cursor-pointer"
@@ -327,13 +336,20 @@
           <!-- Bottom: Track Info + 60FPS Ambient Visualizer + Integrated Controls -->
           <div class="w-full max-w-sm flex flex-col items-center shrink-0 space-y-2.5">
             <!-- Title & Artist -->
-            <div class="text-center w-full px-2">
-              <h2 class="font-display font-bold text-base sm:text-xl text-white truncate">
+            <div class="text-center w-full px-2 flex flex-col items-center">
+              <h2 class="font-display font-bold text-base sm:text-xl text-white truncate max-w-full">
                 {playerState.currentTrack?.title || 'No Track Selected'}
               </h2>
-              <p class="text-xs sm:text-sm text-[#9ea2b0] truncate mt-0.5">
+              <p class="text-xs sm:text-sm text-[#9ea2b0] truncate mt-0.5 max-w-full">
                 {playerState.currentTrack?.artist || 'Select a song to start listening'}
               </p>
+              {#if settingsState.showAudioQualityBadge && playerState.currentTrack}
+                <div class="mt-2 flex items-center justify-center">
+                  <span class="border border-white/20 text-white/60 text-[10px] tracking-wider uppercase px-2 py-0.5 rounded-full font-medium">
+                    {audioQualityLabel}
+                  </span>
+                </div>
+              {/if}
             </div>
 
             <!-- Mini 60FPS Canvas Visualizer -->
@@ -390,9 +406,16 @@
                     <line x1="4.93" y1="4.93" x2="7.76" y2="7.76" stroke-width="2.5" stroke-linecap="round" class="opacity-15" />
                   </svg>
                 {:else}
-                  <span class="material-symbols-rounded text-[28px] sm:text-[32px] filled">
-                    {playerState.playback.is_playing ? 'pause' : 'play_arrow'}
-                  </span>
+                  {#if playerState.playback.is_playing}
+                    <svg viewBox="0 0 24 24" class="w-6 h-6 sm:w-7 sm:h-7 fill-current" xmlns="http://www.w3.org/2000/svg">
+                      <rect x="6" y="4" width="4" height="16" rx="1.5" />
+                      <rect x="14" y="4" width="4" height="16" rx="1.5" />
+                    </svg>
+                  {:else}
+                    <svg viewBox="0 0 24 24" class="w-6 h-6 sm:w-7 sm:h-7 fill-current translate-x-0.5" xmlns="http://www.w3.org/2000/svg">
+                      <path d="M8 5.14v13.72a1 1 0 0 0 1.5.86l11.04-6.86a1 1 0 0 0 0-1.72L9.5 4.28A1 1 0 0 0 8 5.14z"/>
+                    </svg>
+                  {/if}
                 {/if}
               </button>
 

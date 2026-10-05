@@ -31,6 +31,7 @@ class SettingsState {
   exclusiveDeviceMode = $state(false);
   resamplingRate = $state('auto');
   equalizerPreset = $state('flat');
+  showAudioQualityBadge = $state(true);
 
   // 4. Lyrics
   lyricsSource = $state<'lrclib' | 'local_lrc' | 'musixmatch'>('lrclib');
@@ -127,6 +128,7 @@ class SettingsState {
         if ('exclusiveDeviceMode' in records) this.exclusiveDeviceMode = records['exclusiveDeviceMode'] === 'true';
         if ('resamplingRate' in records) this.resamplingRate = records['resamplingRate'];
         if ('equalizerPreset' in records) this.equalizerPreset = records['equalizerPreset'];
+        if ('showAudioQualityBadge' in records) this.showAudioQualityBadge = records['showAudioQualityBadge'] === 'true';
 
         if ('lyricsSource' in records) this.lyricsSource = records['lyricsSource'] as any;
         if ('karaokeAnimation' in records) this.karaokeAnimation = records['karaokeAnimation'] === 'true';
@@ -220,6 +222,7 @@ class SettingsState {
           exclusiveDeviceMode: String(this.exclusiveDeviceMode),
           resamplingRate: this.resamplingRate,
           equalizerPreset: this.equalizerPreset,
+          showAudioQualityBadge: String(this.showAudioQualityBadge),
 
           lyricsSource: this.lyricsSource,
           karaokeAnimation: String(this.karaokeAnimation),
@@ -379,6 +382,7 @@ class SettingsState {
         exclusiveDeviceMode: this.exclusiveDeviceMode,
         resamplingRate: this.resamplingRate,
         equalizerPreset: this.equalizerPreset,
+        showAudioQualityBadge: this.showAudioQualityBadge,
       },
       lyrics: {
         lyricsSource: this.lyricsSource,
@@ -453,6 +457,7 @@ class SettingsState {
         if (data.audio.exclusiveDeviceMode !== undefined) this.exclusiveDeviceMode = Boolean(data.audio.exclusiveDeviceMode);
         if (data.audio.resamplingRate) this.resamplingRate = data.audio.resamplingRate;
         if (data.audio.equalizerPreset) this.equalizerPreset = data.audio.equalizerPreset;
+        if (data.audio.showAudioQualityBadge !== undefined) this.showAudioQualityBadge = Boolean(data.audio.showAudioQualityBadge);
       }
       if (data.lyrics) {
         if (data.lyrics.lyricsSource) this.lyricsSource = data.lyrics.lyricsSource;
@@ -527,6 +532,7 @@ class SettingsState {
     this.exclusiveDeviceMode = false;
     this.resamplingRate = 'auto';
     this.equalizerPreset = 'flat';
+    this.showAudioQualityBadge = true;
 
     this.lyricsSource = 'lrclib';
     this.karaokeAnimation = true;

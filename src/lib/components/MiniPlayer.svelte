@@ -118,9 +118,16 @@
               <line x1="4.93" y1="4.93" x2="7.76" y2="7.76" stroke-width="2.5" stroke-linecap="round" class="opacity-15" />
             </svg>
           {:else}
-            <span class="material-symbols-rounded text-base">
-              {isPlaying ? 'pause' : 'play_arrow'}
-            </span>
+            {#if isPlaying}
+              <svg viewBox="0 0 24 24" class="w-3.5 h-3.5 fill-current" xmlns="http://www.w3.org/2000/svg">
+                <rect x="6" y="4" width="4" height="16" rx="1.5" />
+                <rect x="14" y="4" width="4" height="16" rx="1.5" />
+              </svg>
+            {:else}
+              <svg viewBox="0 0 24 24" class="w-3.5 h-3.5 fill-current translate-x-0.5" xmlns="http://www.w3.org/2000/svg">
+                <path d="M8 5.14v13.72a1 1 0 0 0 1.5.86l11.04-6.86a1 1 0 0 0 0-1.72L9.5 4.28A1 1 0 0 0 8 5.14z"/>
+              </svg>
+            {/if}
           {/if}
         </button>
 
