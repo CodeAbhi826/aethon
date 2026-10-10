@@ -97,7 +97,7 @@
 
       <button
         onclick={() => playerState.togglePlay()}
-        class="w-9 h-9 sm:w-11 sm:h-11 rounded-full bg-[var(--md-sys-primary)] text-[var(--md-sys-on-primary)] flex items-center justify-center active:scale-90 hover:scale-105 transition-all duration-200 cubic-bezier(0.34, 1.56, 0.64, 1) cursor-pointer select-none shadow-md shadow-black/30 hover:shadow-black/40"
+        class="w-9 h-9 sm:w-11 sm:h-11 {playerState.playback.is_playing ? 'rounded-full' : 'rounded-[12px] sm:rounded-[14px]'} bg-[var(--md-sys-primary)] text-[var(--md-sys-on-primary)] flex items-center justify-center active:scale-90 hover:scale-105 transition-all duration-300 [transition-timing-function:cubic-bezier(0.34,1.56,0.64,1)] cursor-pointer select-none shadow-md shadow-black/30 hover:shadow-black/40"
         title={playerState.isLoading ? 'Buffering stream...' : playerState.playback.is_playing ? 'Pause' : 'Play'}
       >
         {#if playerState.isLoading}
@@ -113,12 +113,14 @@
           </svg>
         {:else}
           {#if playerState.playback.is_playing}
-            <svg viewBox="0 0 24 24" class="w-6 h-6 sm:w-7 sm:h-7 fill-current transition-transform duration-200" xmlns="http://www.w3.org/2000/svg">
-              <path d="M8 19c1.1 0 2-.9 2-2V7c0-1.1-.9-2-2-2s-2 .9-2 2v10c0 1.1.9 2 2 2zm6-12v10c0 1.1.9 2 2 2s2-.9 2-2V7c0-1.1-.9-2-2-2s-2 .9-2 2z"/>
+            <!-- ArchiveTune pause.xml (960x960) -->
+            <svg viewBox="0 0 960 960" class="w-5 h-5 sm:w-6 sm:h-6 fill-current transition-transform duration-200" xmlns="http://www.w3.org/2000/svg">
+              <path d="M640,760Q607,760 583.5,736.5Q560,713 560,680L560,280Q560,247 583.5,223.5Q607,200 640,200L640,200Q673,200 696.5,223.5Q720,247 720,280L720,680Q720,713 696.5,736.5Q673,760 640,760ZM320,760Q287,760 263.5,736.5Q240,713 240,680L240,280Q240,247 263.5,223.5Q287,200 320,200L320,200Q353,200 376.5,223.5Q400,247 400,280L400,680Q400,713 376.5,736.5Q353,760 320,760Z"/>
             </svg>
           {:else}
-            <svg viewBox="0 0 24 24" class="w-6 h-6 sm:w-7 sm:h-7 fill-current translate-x-0.5 transition-transform duration-200" xmlns="http://www.w3.org/2000/svg">
-              <path d="M8 6.82v10.36c0 .79.87 1.27 1.54.84l8.14-5.18c.62-.39.62-1.29 0-1.69L9.54 5.98C8.87 5.55 8 6.03 8 6.82z"/>
+            <!-- ArchiveTune play.xml (960x960) with optical offset -->
+            <svg viewBox="0 0 960 960" class="w-5 h-5 sm:w-6 sm:h-6 fill-current translate-x-0.5 transition-transform duration-200" xmlns="http://www.w3.org/2000/svg">
+              <path d="M320,687L320,273Q320,256 332,244.5Q344,233 360,233Q365,233 370.5,234.5Q376,236 381,239L707,446Q716,452 720.5,461Q725,470 725,480Q725,490 720.5,499Q716,508 707,514L381,721Q376,724 370.5,725.5Q365,727 360,727Q344,727 332,715.5Q320,704 320,687Z"/>
             </svg>
           {/if}
         {/if}
