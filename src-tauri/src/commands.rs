@@ -319,7 +319,9 @@ pub fn reveal_in_file_manager(path: String) -> Result<(), String> {
     } else {
         p.parent().unwrap_or(p)
     };
-    let _ = std::process::Command::new("xdg-open")
+    let mut cmd = std::process::Command::new("xdg-open");
+    crate::sanitize_host_command(&mut cmd);
+    let _ = cmd
         .arg(target)
         .spawn()
         .map_err(|e| e.to_string())?;
@@ -358,19 +360,7 @@ pub async fn download_track(
             .arg("-o").arg(out_template.to_string_lossy().to_string())
             .arg(&url);
 
-        if let Ok(ld) = std::env::var("LD_LIBRARY_PATH") {
-            let filtered: Vec<&str> = ld
-                .split(':')
-                .filter(|p| !p.contains(".mount_") && !p.is_empty())
-                .collect();
-            if filtered.is_empty() {
-                cmd.env_remove("LD_LIBRARY_PATH");
-            } else {
-                cmd.env("LD_LIBRARY_PATH", filtered.join(":"));
-            }
-        }
-        cmd.env_remove("PYTHONHOME");
-        cmd.env_remove("PYTHONPATH");
+        crate::sanitize_host_command(&mut cmd);
 
         let output = cmd.output().map_err(|e| format!("Failed to spawn yt-dlp: {}", e))?;
         if !output.status.success() {
@@ -457,6 +447,7 @@ pub async fn send_desktop_notification(
         }
     }
     let mut cmd = std::process::Command::new("notify-send");
+    crate::sanitize_host_command(&mut cmd);
     cmd.arg("-a").arg("Aethon");
     cmd.arg("-c").arg("media");
     cmd.arg("-i").arg(&icon_arg);

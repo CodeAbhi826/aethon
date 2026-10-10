@@ -326,7 +326,7 @@
                       <rect x="14" y="4" width="4" height="16" rx="1.5" />
                     </svg>
                   {:else}
-                    <svg viewBox="0 0 24 24" class="w-3.5 h-3.5 fill-current " xmlns="http://www.w3.org/2000/svg">
+                    <svg viewBox="2.27 0 24 24" class="w-3.5 h-3.5 fill-current" xmlns="http://www.w3.org/2000/svg">
                       <path d="M8 5.14v13.72a1 1 0 0 0 1.5.86l11.04-6.86a1 1 0 0 0 0-1.72L9.5 4.28A1 1 0 0 0 8 5.14z"/>
                     </svg>
                   {/if}
@@ -379,7 +379,7 @@
                       <rect x="14" y="4" width="4" height="16" rx="1.5" />
                     </svg>
                   {:else}
-                    <svg viewBox="0 0 24 24" class="w-5 h-5 fill-current " xmlns="http://www.w3.org/2000/svg">
+                    <svg viewBox="2.27 0 24 24" class="w-5 h-5 fill-current" xmlns="http://www.w3.org/2000/svg">
                       <path d="M8 5.14v13.72a1 1 0 0 0 1.5.86l11.04-6.86a1 1 0 0 0 0-1.72L9.5 4.28A1 1 0 0 0 8 5.14z"/>
                     </svg>
                   {/if}
@@ -429,7 +429,7 @@
                       <rect x="14" y="4" width="4" height="16" rx="1.5" />
                     </svg>
                   {:else}
-                    <svg viewBox="0 0 24 24" class="w-3.5 h-3.5 fill-current " xmlns="http://www.w3.org/2000/svg">
+                    <svg viewBox="2.27 0 24 24" class="w-3.5 h-3.5 fill-current" xmlns="http://www.w3.org/2000/svg">
                       <path d="M8 5.14v13.72a1 1 0 0 0 1.5.86l11.04-6.86a1 1 0 0 0 0-1.72L9.5 4.28A1 1 0 0 0 8 5.14z"/>
                     </svg>
                   {/if}
@@ -478,7 +478,7 @@
                     <rect x="14" y="4" width="4" height="16" rx="1.5" />
                   </svg>
                 {:else}
-                  <svg viewBox="0 0 24 24" class="w-3.5 h-3.5 fill-current " xmlns="http://www.w3.org/2000/svg">
+                  <svg viewBox="2.27 0 24 24" class="w-3.5 h-3.5 fill-current" xmlns="http://www.w3.org/2000/svg">
                     <path d="M8 5.14v13.72a1 1 0 0 0 1.5.86l11.04-6.86a1 1 0 0 0 0-1.72L9.5 4.28A1 1 0 0 0 8 5.14z"/>
                   </svg>
                 {/if}
@@ -532,7 +532,7 @@
             <img loading="lazy" decoding="async" src={dial.img} alt={dial.name} class="w-full h-full object-cover group-hover:scale-110 transition duration-500" />
             <div class="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity duration-200">
               <div class="w-8 h-8 rounded-full bg-black/60 backdrop-blur-md border border-white/20 text-white flex items-center justify-center shadow-md">
-                <svg viewBox="0 0 24 24" class="w-4 h-4 fill-current " xmlns="http://www.w3.org/2000/svg">
+                <svg viewBox="2.27 0 24 24" class="w-4 h-4 fill-current" xmlns="http://www.w3.org/2000/svg">
                   <path d="M8 5.14v13.72a1 1 0 0 0 1.5.86l11.04-6.86a1 1 0 0 0 0-1.72L9.5 4.28A1 1 0 0 0 8 5.14z"/>
                 </svg>
               </div>
@@ -577,7 +577,7 @@
                     <rect x="14" y="4" width="4" height="16" rx="1.5" />
                   </svg>
                 {:else}
-                  <svg viewBox="0 0 24 24" class="w-3 h-3 fill-current " xmlns="http://www.w3.org/2000/svg">
+                  <svg viewBox="2.27 0 24 24" class="w-3 h-3 fill-current" xmlns="http://www.w3.org/2000/svg">
                     <path d="M8 5.14v13.72a1 1 0 0 0 1.5.86l11.04-6.86a1 1 0 0 0 0-1.72L9.5 4.28A1 1 0 0 0 8 5.14z"/>
                   </svg>
                 {/if}

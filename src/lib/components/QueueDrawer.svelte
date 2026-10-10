@@ -149,7 +149,9 @@
                       class="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity cursor-pointer"
                       title="Play now"
                     >
-                      <span class="material-symbols-rounded text-white text-base filled">play_arrow</span>
+                      <svg viewBox="2.27 0 24 24" class="w-4 h-4 fill-current text-white" xmlns="http://www.w3.org/2000/svg">
+                        <path d="M8 5.14v13.72a1 1 0 0 0 1.5.86l11.04-6.86a1 1 0 0 0 0-1.72L9.5 4.28A1 1 0 0 0 8 5.14z"/>
+                      </svg>
                     </button>
                   </div>
 

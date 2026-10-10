@@ -119,24 +119,8 @@ impl MpvEngine {
             .stdout(stdout_cfg)
             .stderr(stderr_cfg);
 
-        // AppImage isolation: AppImage sets LD_LIBRARY_PATH and Python env pointing to bundled Ubuntu libs.
-        // Clean them so host mpv and yt-dlp use Arch Linux native host libraries and python runtime.
-        if let Ok(ld) = std::env::var("LD_LIBRARY_PATH") {
-            let filtered: Vec<&str> = ld
-                .split(':')
-                .filter(|p| !p.contains(".mount_") && !p.contains("/tmp/"))
-                .collect();
-            if filtered.is_empty() {
-                cmd.env_remove("LD_LIBRARY_PATH");
-            } else {
-                cmd.env("LD_LIBRARY_PATH", filtered.join(":"));
-            }
-        } else {
-            cmd.env_remove("LD_LIBRARY_PATH");
-        }
-
-        cmd.env_remove("PYTHONHOME");
-        cmd.env_remove("PYTHONPATH");
+        // AppImage isolation: Clean host process environment completely so host mpv and yt-dlp use Arch Linux native host libraries and python runtime
+        crate::sanitize_host_command(&mut cmd);
 
         let child = cmd.spawn()?;
 

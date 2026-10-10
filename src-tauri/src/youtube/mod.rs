@@ -382,21 +382,7 @@ impl YouTubeService {
             .arg(&search_query);
 
         // Sanitize environment when executed from AppImage
-        if let Ok(ld) = std::env::var("LD_LIBRARY_PATH") {
-            let filtered: Vec<&str> = ld
-                .split(':')
-                .filter(|p| !p.contains(".mount_") && !p.is_empty())
-                .collect();
-            if filtered.is_empty() {
-                cmd.env_remove("LD_LIBRARY_PATH");
-            } else {
-                cmd.env("LD_LIBRARY_PATH", filtered.join(":"));
-            }
-        } else {
-            cmd.env_remove("LD_LIBRARY_PATH");
-        }
-        cmd.env_remove("PYTHONHOME");
-        cmd.env_remove("PYTHONPATH");
+        crate::sanitize_host_command(&mut cmd);
 
         let output = match cmd.output() {
             Ok(o) => o,
@@ -455,22 +441,7 @@ impl YouTubeService {
             .arg("-f")
             .arg("bestaudio")
             .arg(uri);
-
-        if let Ok(ld) = std::env::var("LD_LIBRARY_PATH") {
-            let filtered: Vec<&str> = ld
-                .split(':')
-                .filter(|p| !p.contains(".mount_") && !p.is_empty())
-                .collect();
-            if filtered.is_empty() {
-                check_cmd.env_remove("LD_LIBRARY_PATH");
-            } else {
-                check_cmd.env("LD_LIBRARY_PATH", filtered.join(":"));
-            }
-        } else {
-            check_cmd.env_remove("LD_LIBRARY_PATH");
-        }
-        check_cmd.env_remove("PYTHONHOME");
-        check_cmd.env_remove("PYTHONPATH");
+        crate::sanitize_host_command(&mut check_cmd);
 
         if let Ok(output) = check_cmd.output() {
             if output.status.success() {
@@ -491,22 +462,7 @@ impl YouTubeService {
             .arg("--print")
             .arg("%(id)s")
             .arg(format!("ytsearch4:{}", query));
-
-        if let Ok(ld) = std::env::var("LD_LIBRARY_PATH") {
-            let filtered: Vec<&str> = ld
-                .split(':')
-                .filter(|p| !p.contains(".mount_") && !p.is_empty())
-                .collect();
-            if filtered.is_empty() {
-                search_cmd.env_remove("LD_LIBRARY_PATH");
-            } else {
-                search_cmd.env("LD_LIBRARY_PATH", filtered.join(":"));
-            }
-        } else {
-            search_cmd.env_remove("LD_LIBRARY_PATH");
-        }
-        search_cmd.env_remove("PYTHONHOME");
-        search_cmd.env_remove("PYTHONPATH");
+        crate::sanitize_host_command(&mut search_cmd);
 
         if let Ok(search_output) = search_cmd.output() {
             if search_output.status.success() {
@@ -515,34 +471,8 @@ impl YouTubeService {
                     let alt_id = alt_id.trim();
                     if !alt_id.is_empty() && !uri.contains(alt_id) {
                         let alt_uri = format!("https://www.youtube.com/watch?v={}", alt_id);
-                        let mut alt_check = Command::new("yt-dlp");
-                        alt_check.arg("--simulate")
-                            .arg("--no-warnings")
-                            .arg("-f")
-                            .arg("bestaudio")
-                            .arg(&alt_uri);
-                        if let Ok(ld) = std::env::var("LD_LIBRARY_PATH") {
-                            let filtered: Vec<&str> = ld
-                                .split(':')
-                                .filter(|p| !p.contains(".mount_") && !p.is_empty())
-                                .collect();
-                            if filtered.is_empty() {
-                                alt_check.env_remove("LD_LIBRARY_PATH");
-                            } else {
-                                alt_check.env("LD_LIBRARY_PATH", filtered.join(":"));
-                            }
-                        } else {
-                            alt_check.env_remove("LD_LIBRARY_PATH");
-                        }
-                        alt_check.env_remove("PYTHONHOME");
-                        alt_check.env_remove("PYTHONPATH");
-
-                        if let Ok(alt_out) = alt_check.output() {
-                            if alt_out.status.success() {
-                                crate::aethon_log!("Resolved playable alternate stream: {}", alt_uri);
-                                return alt_uri;
-                            }
-                        }
+                        crate::aethon_log!("Resolved playable alternate stream: {}", alt_uri);
+                        return alt_uri;
                     }
                 }
             }

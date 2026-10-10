@@ -13,6 +13,17 @@ use tauri::{Emitter, Manager};
 
 pub static VERBOSE: AtomicBool = AtomicBool::new(false);
 
+pub fn sanitize_host_command(cmd: &mut std::process::Command) {
+    cmd.env_remove("LD_LIBRARY_PATH");
+    cmd.env_remove("LD_PRELOAD");
+    cmd.env_remove("PYTHONHOME");
+    cmd.env_remove("PYTHONPATH");
+    cmd.env_remove("GI_TYPELIB_PATH");
+    cmd.env_remove("GST_PLUGIN_SYSTEM_PATH");
+    cmd.env_remove("GST_PLUGIN_SYSTEM_PATH_1_0");
+    cmd.env_remove("QT_PLUGIN_PATH");
+}
+
 pub fn is_verbose() -> bool {
     VERBOSE.load(Ordering::Relaxed)
 }

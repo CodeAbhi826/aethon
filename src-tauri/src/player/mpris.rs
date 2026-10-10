@@ -67,23 +67,9 @@ impl MprisManager {
             .stderr(if crate::is_verbose() { Stdio::inherit() } else { Stdio::null() });
 
         // Clean AppImage env vars and optimize Python memory
-        cmd.env_remove("PYTHONHOME");
-        cmd.env_remove("PYTHONPATH");
+        crate::sanitize_host_command(&mut cmd);
         cmd.env("PYTHONOPTIMIZE", "2");
         cmd.env("PYTHONDONTWRITEBYTECODE", "1");
-        if let Ok(ld) = std::env::var("LD_LIBRARY_PATH") {
-            let filtered: Vec<&str> = ld
-                .split(':')
-                .filter(|p| !p.contains(".mount_") && !p.contains("appimage") && !p.contains("/tmp/") && !p.is_empty())
-                .collect();
-            if filtered.is_empty() {
-                cmd.env_remove("LD_LIBRARY_PATH");
-            } else {
-                cmd.env("LD_LIBRARY_PATH", filtered.join(":"));
-            }
-        } else {
-            cmd.env_remove("LD_LIBRARY_PATH");
-        }
 
         let child = match cmd.spawn() {
             Ok(c) => Some(c),
