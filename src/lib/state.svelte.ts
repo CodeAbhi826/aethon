@@ -602,7 +602,7 @@ class PlayerState {
     if (!query.trim()) return;
     this.isSearching = true;
     try {
-      const res = await invoke<YouTubeTrack[]>('search_youtube', { query, limit: 12 });
+      const res = await invoke<YouTubeTrack[]>('search_youtube', { query, limit: 30 });
       this.youtubeResults = res;
     } catch (e) {
       console.error('YouTube search error:', e);

@@ -15,7 +15,7 @@ pub struct YouTubeService;
 
 impl YouTubeService {
     pub async fn search(query: &str, limit: usize) -> Vec<YouTubeTrack> {
-        let max_results = limit.clamp(1, 25);
+        let max_results = limit.clamp(1, 50);
 
         // 1. Direct YouTube Music InnerTube API (matching ArchiveTune with India geo "IN")
         if let Some(tracks) = Self::search_innertube(query, max_results, "IN").await {
@@ -190,6 +190,57 @@ impl YouTubeService {
         }
 
         if let Some(map) = value.as_object() {
+            // 1. Top Hit Hero Card (musicCardShelfRenderer)
+            if let Some(card) = map.get("musicCardShelfRenderer") {
+                let card_title = card
+                    .pointer("/title/runs")
+                    .and_then(|r| r.as_array())
+                    .and_then(|a| a.first())
+                    .and_then(|o| o.get("text"))
+                    .and_then(|t| t.as_str())
+                    .unwrap_or("");
+                let card_vid = card
+                    .pointer("/title/runs")
+                    .and_then(|r| r.as_array())
+                    .and_then(|a| a.first())
+                    .and_then(|o| o.pointer("/navigationEndpoint/watchEndpoint/videoId"))
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("");
+                let mut card_artist = String::new();
+                if let Some(sub_runs) = card.pointer("/subtitle/runs").and_then(|r| r.as_array()) {
+                    let mut parts = Vec::new();
+                    for r in sub_runs {
+                        if let Some(t) = r.get("text").and_then(|s| s.as_str()) {
+                            if !Self::is_metadata_noise_run(t) {
+                                parts.push(t.trim());
+                            }
+                        }
+                    }
+                    card_artist = Self::strip_artist_metadata_suffixes(&parts.join(" "));
+                }
+
+                if !card_vid.is_empty() && !card_title.is_empty() && !results.iter().any(|r| r.id == card_vid) {
+                    let thumb = card
+                        .pointer("/thumbnail/musicThumbnailRenderer/thumbnail/thumbnails")
+                        .and_then(|th| th.as_array())
+                        .and_then(|arr| arr.last())
+                        .and_then(|t| t.get("url"))
+                        .and_then(|u| u.as_str())
+                        .map(|s| s.to_string())
+                        .unwrap_or_else(|| format!("https://i.ytimg.com/vi/{}/hqdefault.jpg", card_vid));
+
+                    results.push(YouTubeTrack {
+                        id: card_vid.to_string(),
+                        title: card_title.to_string(),
+                        artist: card_artist,
+                        duration: 0.0,
+                        thumbnail: thumb,
+                        stream_url: format!("https://www.youtube.com/watch?v={}", card_vid),
+                    });
+                }
+            }
+
+            // 2. Standard Search List Item (musicResponsiveListItemRenderer)
             if let Some(item) = map.get("musicResponsiveListItemRenderer") {
                 let cols = item.get("flexColumns").and_then(|c| c.as_array());
 
@@ -279,7 +330,7 @@ impl YouTubeService {
     }
 
     pub fn search_ytdlp(query: &str, limit: usize) -> Vec<YouTubeTrack> {
-        let max_results = limit.clamp(1, 20);
+        let max_results = limit.clamp(1, 50);
         let search_query = format!("ytsearch{}:{}", max_results, query);
 
         // Run yt-dlp to quickly extract search entries
