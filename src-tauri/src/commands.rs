@@ -21,9 +21,18 @@ pub async fn play_track(
     state: State<'_, AppState>,
 ) -> Result<(), String> {
     crate::aethon_log!("play_track: uri={}, track_id={:?}", uri, track_id);
-    state.mpv.load_file(&uri).await.map_err(|e| e.to_string())?;
-    if let Some(ref t) = track {
-        let _ = state.db.upsert_track(t);
+    let playable_uri = if let Some(ref t) = track {
+        crate::youtube::YouTubeService::resolve_playable_stream(&uri, &t.title, &t.artist)
+    } else {
+        crate::youtube::YouTubeService::resolve_playable_stream(&uri, "", "")
+    };
+
+    state.mpv.load_file(&playable_uri).await.map_err(|e| e.to_string())?;
+    if let Some(mut t) = track {
+        if playable_uri != uri {
+            t.file_path = playable_uri;
+        }
+        let _ = state.db.upsert_track(&t);
         let _ = state.db.record_play(&t.id);
     } else if let Some(id) = track_id {
         let _ = state.db.record_play(&id);

@@ -441,4 +441,113 @@ impl YouTubeService {
 
         results
     }
+
+    pub fn resolve_playable_stream(uri: &str, title: &str, artist: &str) -> String {
+        // If not a YouTube watch URL, return as-is
+        if !uri.contains("youtube.com/watch?v=") && !uri.contains("youtu.be/") {
+            return uri.to_string();
+        }
+
+        // Fast probe: check if stream is directly accessible without auth
+        let mut check_cmd = Command::new("yt-dlp");
+        check_cmd.arg("--simulate")
+            .arg("--no-warnings")
+            .arg("-f")
+            .arg("bestaudio")
+            .arg(uri);
+
+        if let Ok(ld) = std::env::var("LD_LIBRARY_PATH") {
+            let filtered: Vec<&str> = ld
+                .split(':')
+                .filter(|p| !p.contains(".mount_") && !p.is_empty())
+                .collect();
+            if filtered.is_empty() {
+                check_cmd.env_remove("LD_LIBRARY_PATH");
+            } else {
+                check_cmd.env("LD_LIBRARY_PATH", filtered.join(":"));
+            }
+        } else {
+            check_cmd.env_remove("LD_LIBRARY_PATH");
+        }
+        check_cmd.env_remove("PYTHONHOME");
+        check_cmd.env_remove("PYTHONPATH");
+
+        if let Ok(output) = check_cmd.output() {
+            if output.status.success() {
+                return uri.to_string();
+            }
+        }
+
+        crate::aethon_log!("Stream URI {} is login-gated or restricted, searching playable fallback for '{} - {}'", uri, title, artist);
+
+        // Find alternate playable release using ytsearch
+        let query = format!("{} {}", title, artist).trim().to_string();
+        if query.is_empty() {
+            return uri.to_string();
+        }
+
+        let mut search_cmd = Command::new("yt-dlp");
+        search_cmd.arg("--flat-playlist")
+            .arg("--print")
+            .arg("%(id)s")
+            .arg(format!("ytsearch4:{}", query));
+
+        if let Ok(ld) = std::env::var("LD_LIBRARY_PATH") {
+            let filtered: Vec<&str> = ld
+                .split(':')
+                .filter(|p| !p.contains(".mount_") && !p.is_empty())
+                .collect();
+            if filtered.is_empty() {
+                search_cmd.env_remove("LD_LIBRARY_PATH");
+            } else {
+                search_cmd.env("LD_LIBRARY_PATH", filtered.join(":"));
+            }
+        } else {
+            search_cmd.env_remove("LD_LIBRARY_PATH");
+        }
+        search_cmd.env_remove("PYTHONHOME");
+        search_cmd.env_remove("PYTHONPATH");
+
+        if let Ok(search_output) = search_cmd.output() {
+            if search_output.status.success() {
+                let stdout = String::from_utf8_lossy(&search_output.stdout);
+                for alt_id in stdout.lines() {
+                    let alt_id = alt_id.trim();
+                    if !alt_id.is_empty() && !uri.contains(alt_id) {
+                        let alt_uri = format!("https://www.youtube.com/watch?v={}", alt_id);
+                        let mut alt_check = Command::new("yt-dlp");
+                        alt_check.arg("--simulate")
+                            .arg("--no-warnings")
+                            .arg("-f")
+                            .arg("bestaudio")
+                            .arg(&alt_uri);
+                        if let Ok(ld) = std::env::var("LD_LIBRARY_PATH") {
+                            let filtered: Vec<&str> = ld
+                                .split(':')
+                                .filter(|p| !p.contains(".mount_") && !p.is_empty())
+                                .collect();
+                            if filtered.is_empty() {
+                                alt_check.env_remove("LD_LIBRARY_PATH");
+                            } else {
+                                alt_check.env("LD_LIBRARY_PATH", filtered.join(":"));
+                            }
+                        } else {
+                            alt_check.env_remove("LD_LIBRARY_PATH");
+                        }
+                        alt_check.env_remove("PYTHONHOME");
+                        alt_check.env_remove("PYTHONPATH");
+
+                        if let Ok(alt_out) = alt_check.output() {
+                            if alt_out.status.success() {
+                                crate::aethon_log!("Resolved playable alternate stream: {}", alt_uri);
+                                return alt_uri;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        uri.to_string()
+    }
 }
