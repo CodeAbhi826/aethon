@@ -392,7 +392,7 @@
 
               <button
                 onclick={() => playerState.togglePlay()}
-                class="w-11 h-11 sm:w-13 sm:h-13 rounded-full bg-[var(--md-sys-primary)] text-[var(--md-sys-on-primary)] shadow-lg shadow-[var(--md-sys-primary)]/20 hover:scale-105 active:scale-95 transition-all flex items-center justify-center cursor-pointer"
+                class="w-11 h-11 sm:w-13 sm:h-13 rounded-full bg-[var(--md-sys-primary)] text-[var(--md-sys-on-primary)] flex items-center justify-center active:scale-90 hover:scale-105 transition-all duration-200 cubic-bezier(0.34, 1.56, 0.64, 1) cursor-pointer select-none shadow-md shadow-black/30 hover:shadow-black/40"
                 title={playerState.isLoading ? 'Buffering stream...' : playerState.playback.is_playing ? 'Pause' : 'Play'}
               >
                 {#if playerState.isLoading}
@@ -408,13 +408,12 @@
                   </svg>
                 {:else}
                   {#if playerState.playback.is_playing}
-                    <svg viewBox="0 0 24 24" class="w-6 h-6 sm:w-7 sm:h-7 fill-current" xmlns="http://www.w3.org/2000/svg">
-                      <rect x="6" y="4" width="4" height="16" rx="1.5" />
-                      <rect x="14" y="4" width="4" height="16" rx="1.5" />
+                    <svg viewBox="0 0 24 24" class="w-6 h-6 sm:w-7 sm:h-7 fill-current transition-transform duration-200" xmlns="http://www.w3.org/2000/svg">
+                      <path d="M8 19c1.1 0 2-.9 2-2V7c0-1.1-.9-2-2-2s-2 .9-2 2v10c0 1.1.9 2 2 2zm6-12v10c0 1.1.9 2 2 2s2-.9 2-2V7c0-1.1-.9-2-2-2s-2 .9-2 2z"/>
                     </svg>
                   {:else}
-                    <svg viewBox="0 0 24 24" class="w-6 h-6 sm:w-7 sm:h-7 fill-current translate-x-0.5" xmlns="http://www.w3.org/2000/svg">
-                      <path d="M8 5.14v13.72a1 1 0 0 0 1.5.86l11.04-6.86a1 1 0 0 0 0-1.72L9.5 4.28A1 1 0 0 0 8 5.14z"/>
+                    <svg viewBox="0 0 24 24" class="w-6 h-6 sm:w-7 sm:h-7 fill-current translate-x-0.5 transition-transform duration-200" xmlns="http://www.w3.org/2000/svg">
+                      <path d="M8 6.82v10.36c0 .79.87 1.27 1.54.84l8.14-5.18c.62-.39.62-1.29 0-1.69L9.54 5.98C8.87 5.55 8 6.03 8 6.82z"/>
                     </svg>
                   {/if}
                 {/if}
