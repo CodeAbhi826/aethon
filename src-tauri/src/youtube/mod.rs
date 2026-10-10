@@ -65,6 +65,37 @@ impl YouTubeService {
         let mut results = Vec::new();
         Self::extract_innertube_tracks(&json_data, &mut results, limit);
 
+        // 2. If results are under limit, perform a second pass with Songs filter param ('EgWKAQIIAWoSEAQQAxAJEAUQChAVEA4QERAQ')
+        if results.len() < limit {
+            let songs_body = serde_json::json!({
+                "context": {
+                    "client": {
+                        "clientName": "WEB_REMIX",
+                        "clientVersion": "1.20260408.01.00",
+                        "gl": gl,
+                        "hl": "en-GB"
+                    }
+                },
+                "query": query,
+                "params": "EgWKAQIIAWoSEAQQAxAJEAUQChAVEA4QERAQ"
+            });
+
+            if let Ok(songs_resp) = client
+                .post("https://music.youtube.com/youtubei/v1/search")
+                .header("Content-Type", "application/json")
+                .header("User-Agent", "Mozilla/5.0 (X11; Linux x86_64; rv:135.0) Gecko/20100101 Firefox/135.0")
+                .json(&songs_body)
+                .send()
+                .await
+            {
+                if songs_resp.status().is_success() {
+                    if let Ok(songs_json) = songs_resp.json::<serde_json::Value>().await {
+                        Self::extract_innertube_tracks(&songs_json, &mut results, limit);
+                    }
+                }
+            }
+        }
+
         Some(results)
     }
 
@@ -199,13 +230,23 @@ impl YouTubeService {
                     .and_then(|o| o.get("text"))
                     .and_then(|t| t.as_str())
                     .unwrap_or("");
-                let card_vid = card
+                let mut card_vid = card
                     .pointer("/title/runs")
                     .and_then(|r| r.as_array())
                     .and_then(|a| a.first())
                     .and_then(|o| o.pointer("/navigationEndpoint/watchEndpoint/videoId"))
                     .and_then(|v| v.as_str())
                     .unwrap_or("");
+                if card_vid.is_empty() {
+                    if let Some(vid) = card.pointer("/onTap/watchEndpoint/videoId").and_then(|v| v.as_str()) {
+                        card_vid = vid;
+                    }
+                }
+                if card_vid.is_empty() {
+                    if let Some(vid) = card.pointer("/buttons/0/buttonRenderer/command/watchEndpoint/videoId").and_then(|v| v.as_str()) {
+                        card_vid = vid;
+                    }
+                }
                 let mut card_artist = String::new();
                 if let Some(sub_runs) = card.pointer("/subtitle/runs").and_then(|r| r.as_array()) {
                     let mut parts = Vec::new();

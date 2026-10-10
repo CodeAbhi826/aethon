@@ -247,6 +247,12 @@ impl MpvEngine {
                                         let _ = handle.emit("player-state", &*s);
                                         let _ = handle.emit("track-ended", ());
                                     }
+                                } else if reason == "error" {
+                                    let mut s = state_clone.write();
+                                    s.is_playing = false;
+                                    if let Some(ref handle) = app_handle {
+                                        let _ = handle.emit("player-state", &*s);
+                                    }
                                 }
                             }
                             _ => {}
