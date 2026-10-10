@@ -114,6 +114,7 @@ impl MpvEngine {
             .arg("--demuxer-max-bytes=16777216")
             .arg("--demuxer-max-back-bytes=8388608")
             .arg("--demuxer-readahead-secs=60")
+            .arg("--ao=pipewire,pulse,alsa")
             .stdin(Stdio::null())
             .stdout(stdout_cfg)
             .stderr(stderr_cfg);
@@ -236,12 +237,16 @@ impl MpvEngine {
                                 }
                             }
                             "end-file" => {
-                                let mut s = state_clone.write();
-                                s.is_playing = false;
-                                s.position = 0.0;
-                                if let Some(ref handle) = app_handle {
-                                    let _ = handle.emit("player-state", &*s);
-                                    let _ = handle.emit("track-ended", ());
+                                let reason = val.get("reason").and_then(|r| r.as_str()).unwrap_or("");
+                                crate::aethon_log!("MPV end-file event received: reason={}", reason);
+                                if reason == "eof" {
+                                    let mut s = state_clone.write();
+                                    s.is_playing = false;
+                                    s.position = 0.0;
+                                    if let Some(ref handle) = app_handle {
+                                        let _ = handle.emit("player-state", &*s);
+                                        let _ = handle.emit("track-ended", ());
+                                    }
                                 }
                             }
                             _ => {}

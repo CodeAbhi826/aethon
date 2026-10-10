@@ -208,7 +208,10 @@ class PlayerState {
       });
 
       await listen('track-ended', () => {
-        this.playNext();
+        // Guard: only advance if the track was playing and reached close to the end, not if replaced during loading
+        if (this.playback.duration > 0 && this.playback.position >= Math.max(1, this.playback.duration - 2)) {
+          this.playNext();
+        }
       });
 
       await listen('mpris-next', () => {
