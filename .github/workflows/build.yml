@@ -23,6 +23,7 @@ jobs:
         uses: swatinem/rust-cache@v2
         with:
           workspaces: './src-tauri -> target'
+          key: 'ubuntu-22-x86-generic-v1'
 
       - name: Install dependencies (Ubuntu Linux)
         run: |
@@ -56,6 +57,10 @@ jobs:
         run: pnpm build
 
       - name: Build Desktop App Bundle (No Release)
+        env:
+          CFLAGS: "-march=x86-64 -mtune=generic -O2"
+          CXXFLAGS: "-march=x86-64 -mtune=generic -O2"
+          RUSTFLAGS: "-C target-cpu=generic"
         run: pnpm tauri build
 
       - name: Upload Build Artifacts
