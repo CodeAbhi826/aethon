@@ -88,31 +88,54 @@ impl LyricsService {
 
     fn parse_lrc(lrc_content: &str) -> Vec<LyricLine> {
         let mut lines = Vec::new();
-        for line in lrc_content.lines() {
-            let line = line.trim();
-            if !line.starts_with('[') {
+        for raw_line in lrc_content.lines() {
+            let mut rest = raw_line.trim();
+            if !rest.starts_with('[') {
                 continue;
             }
-
-            if let Some(close_bracket) = line.find(']') {
-                let time_part = &line[1..close_bracket];
-                let text_part = line[close_bracket + 1..].trim();
-
-                // Format: mm:ss.xx or mm:ss:xx
-                let parts: Vec<&str> = time_part.split(':').collect();
-                if parts.len() == 2 {
-                    if let (Ok(minutes), Ok(seconds)) = (parts[0].parse::<f64>(), parts[1].parse::<f64>()) {
-                        let total_secs = minutes * 60.0 + seconds;
-                        lines.push(LyricLine {
-                            time: total_secs,
-                            text: text_part.to_string(),
-                        });
+            let mut timestamps = Vec::new();
+            while rest.starts_with('[') {
+                if let Some(close_idx) = rest.find(']') {
+                    let tag = &rest[1..close_idx];
+                    if let Some(secs) = Self::parse_lrc_timestamp(tag) {
+                        timestamps.push(secs);
+                        rest = &rest[close_idx + 1..];
+                    } else {
+                        break;
                     }
+                } else {
+                    break;
                 }
+            }
+            let text_part = rest.trim().to_string();
+            for t in timestamps {
+                lines.push(LyricLine {
+                    time: t,
+                    text: text_part.clone(),
+                });
             }
         }
         lines.sort_by(|a, b| a.time.partial_cmp(&b.time).unwrap_or(std::cmp::Ordering::Equal));
         lines
+    }
+
+    fn parse_lrc_timestamp(time_part: &str) -> Option<f64> {
+        let parts: Vec<&str> = time_part.split(':').collect();
+        match parts.len() {
+            2 => {
+                let minutes = parts[0].parse::<f64>().ok()?;
+                let seconds = parts[1].replace(',', ".").parse::<f64>().ok()?;
+                Some(minutes * 60.0 + seconds)
+            }
+            3 => {
+                let first = parts[0].parse::<f64>().ok()?;
+                let second = parts[1].parse::<f64>().ok()?;
+                let third = parts[2].parse::<f64>().ok()?;
+                // Handle mm:ss:xx (centiseconds)
+                Some(first * 60.0 + second + (third / 100.0))
+            }
+            _ => None,
+        }
     }
 }
 

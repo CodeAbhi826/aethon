@@ -411,7 +411,7 @@
                 class="w-8 h-8 rounded-full flex items-center justify-center text-white/40 hover:text-rose-400 hover:bg-white/10 transition-colors"
                 title="Favorite"
               >
-                <span class="material-symbols-rounded text-lg {track.favorite ? 'text-rose-400 fill-1' : ''}">
+                <span class="material-symbols-rounded text-lg {track.favorite ? 'text-rose-400 filled' : ''}">
                   {track.favorite ? 'favorite' : 'favorite_border'}
                 </span>
               </button>

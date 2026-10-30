@@ -16,12 +16,10 @@
     )
   );
 
-  onMount(async () => {
-    await fetchArtistData();
-  });
-
+  let lastFetchedArtist = '';
   $effect(() => {
-    if (playerState.selectedArtist) {
+    if (playerState.selectedArtist && playerState.selectedArtist !== lastFetchedArtist) {
+      lastFetchedArtist = playerState.selectedArtist;
       fetchArtistData();
     }
   });

@@ -1,6 +1,8 @@
 use serde::{Deserialize, Serialize};
 use std::process::Command;
 
+pub mod auth_sync;
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct YouTubeTrack {
     pub id: String,
@@ -97,6 +99,28 @@ impl YouTubeService {
         }
 
         Some(results)
+    }
+
+    pub fn parse_duration_text(text: &str) -> Option<f64> {
+        let trimmed = text.trim();
+        if !trimmed.contains(':') || !trimmed.chars().all(|c| c.is_ascii_digit() || c == ':') {
+            return None;
+        }
+        let parts: Vec<&str> = trimmed.split(':').collect();
+        match parts.len() {
+            2 => {
+                let m = parts[0].parse::<f64>().ok()?;
+                let s = parts[1].parse::<f64>().ok()?;
+                Some(m * 60.0 + s)
+            }
+            3 => {
+                let h = parts[0].parse::<f64>().ok()?;
+                let m = parts[1].parse::<f64>().ok()?;
+                let s = parts[2].parse::<f64>().ok()?;
+                Some(h * 3600.0 + m * 60.0 + s)
+            }
+            _ => None,
+        }
     }
 
     fn is_metadata_noise_run(text: &str) -> bool {
@@ -248,11 +272,14 @@ impl YouTubeService {
                     }
                 }
                 let mut card_artist = String::new();
+                let mut card_duration = 0.0;
                 if let Some(sub_runs) = card.pointer("/subtitle/runs").and_then(|r| r.as_array()) {
                     let mut parts = Vec::new();
                     for r in sub_runs {
                         if let Some(t) = r.get("text").and_then(|s| s.as_str()) {
-                            if !Self::is_metadata_noise_run(t) {
+                            if let Some(d) = Self::parse_duration_text(t) {
+                                card_duration = d;
+                            } else if !Self::is_metadata_noise_run(t) {
                                 parts.push(t.trim());
                             }
                         }
@@ -274,7 +301,7 @@ impl YouTubeService {
                         id: card_vid.to_string(),
                         title: card_title.to_string(),
                         artist: card_artist,
-                        duration: 0.0,
+                        duration: card_duration,
                         thumbnail: thumb,
                         stream_url: format!("https://www.youtube.com/watch?v={}", card_vid),
                     });
@@ -287,6 +314,7 @@ impl YouTubeService {
 
                 let mut title = String::new();
                 let mut artist = String::new();
+                let mut duration = 0.0;
                 let mut video_id = item
                     .get("playlistItemData")
                     .and_then(|p| p.get("videoId"))
@@ -295,6 +323,21 @@ impl YouTubeService {
                     .to_string();
 
                 if let Some(col_arr) = cols {
+                    for col in col_arr {
+                        if let Some(runs) = col
+                            .pointer("/musicResponsiveListItemFlexColumnRenderer/text/runs")
+                            .and_then(|r| r.as_array())
+                        {
+                            for r in runs {
+                                if let Some(t) = r.get("text").and_then(|s| s.as_str()) {
+                                    if let Some(d) = Self::parse_duration_text(t) {
+                                        duration = d;
+                                    }
+                                }
+                            }
+                        }
+                    }
+
                     if let Some(first_col) = col_arr.first() {
                         if let Some(runs) = first_col
                             .pointer("/musicResponsiveListItemFlexColumnRenderer/text/runs")
@@ -335,6 +378,25 @@ impl YouTubeService {
                     }
                 }
 
+                if duration == 0.0 {
+                    if let Some(fixed_cols) = item.get("fixedColumns").and_then(|c| c.as_array()) {
+                        for col in fixed_cols {
+                            if let Some(runs) = col
+                                .pointer("/musicResponsiveListItemFixedColumnRenderer/text/runs")
+                                .and_then(|r| r.as_array())
+                            {
+                                for r in runs {
+                                    if let Some(t) = r.get("text").and_then(|s| s.as_str()) {
+                                        if let Some(d) = Self::parse_duration_text(t) {
+                                            duration = d;
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
                 if !video_id.is_empty() && !title.is_empty() {
                     let thumbnail = item
                         .pointer("/thumbnail/musicThumbnailRenderer/thumbnail/thumbnails")
@@ -352,7 +414,7 @@ impl YouTubeService {
                             id: video_id,
                             title,
                             artist,
-                            duration: 0.0,
+                            duration,
                             thumbnail,
                             stream_url,
                         });
@@ -379,6 +441,7 @@ impl YouTubeService {
         cmd.arg("--flat-playlist")
             .arg("--print")
             .arg("%(id)s||%(title)s||%(uploader)s||%(duration)s")
+            .arg("--")
             .arg(&search_query);
 
         // Sanitize environment when executed from AppImage
@@ -440,6 +503,7 @@ impl YouTubeService {
             .arg("--no-warnings")
             .arg("-f")
             .arg("bestaudio")
+            .arg("--")
             .arg(uri);
         crate::sanitize_host_command(&mut check_cmd);
 
@@ -461,6 +525,7 @@ impl YouTubeService {
         search_cmd.arg("--flat-playlist")
             .arg("--print")
             .arg("%(id)s")
+            .arg("--")
             .arg(format!("ytsearch4:{}", query));
         crate::sanitize_host_command(&mut search_cmd);
 

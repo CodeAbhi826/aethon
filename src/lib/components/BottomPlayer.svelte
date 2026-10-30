@@ -56,7 +56,7 @@
 
       <button
         onclick={() => playerState.currentTrack && playerState.toggleFavorite(playerState.currentTrack.id)}
-        class="p-1.5 sm:p-2 rounded-full hover:bg-white/10 text-[var(--md-sys-on-surface-variant)] transition shrink-0 hidden xs:inline-flex"
+        class="p-1.5 sm:p-2 rounded-full hover:bg-white/10 text-[var(--md-sys-on-surface-variant)] transition shrink-0 inline-flex"
         title="Favorite"
       >
         <span class="material-symbols-rounded text-lg sm:text-xl {playerState.currentTrack.favorite ? 'text-rose-400 filled' : ''}">
@@ -151,7 +151,7 @@
       <input
         type="range"
         min="0"
-        max={playerState.playback.duration || (playerState.currentTrack?.duration ?? 100)}
+        max={playerState.playback.duration || playerState.currentTrack?.duration || Math.max(playerState.playback.position, 100)}
         step="0.5"
         value={playerState.playback.position}
         oninput={handleSeek}

@@ -206,7 +206,21 @@ pub fn run() {
             send_desktop_notification,
             update_mpris_metadata,
             update_mpris_status,
+            open_ytm_login,
+            fetch_ytm_profile,
+            sync_ytm_library,
+            set_ytm_like,
+            init_recap_playback_tracking,
+            ping_recap_watchtime,
         ])
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .build(tauri::generate_context!())
+        .expect("error while building tauri application")
+        .run(|app_handle, event| {
+            if let tauri::RunEvent::Exit = event {
+                if let Some(state) = app_handle.try_state::<AppState>() {
+                    state.mpv.shutdown();
+                    state.mpris.shutdown();
+                }
+            }
+        });
 }

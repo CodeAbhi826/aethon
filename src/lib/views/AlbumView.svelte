@@ -16,12 +16,11 @@
     )
   );
 
-  onMount(async () => {
-    await fetchAlbumTracks();
-  });
-
+  let lastFetchedAlbum = '';
   $effect(() => {
-    if (playerState.selectedAlbum) {
+    const cur = `${album.title}::${album.artist}`;
+    if (playerState.selectedAlbum && cur !== lastFetchedAlbum) {
+      lastFetchedAlbum = cur;
       fetchAlbumTracks();
     }
   });

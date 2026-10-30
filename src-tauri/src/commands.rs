@@ -21,11 +21,17 @@ pub async fn play_track(
     state: State<'_, AppState>,
 ) -> Result<(), String> {
     crate::aethon_log!("play_track: uri={}, track_id={:?}", uri, track_id);
-    let playable_uri = if let Some(ref t) = track {
-        crate::youtube::YouTubeService::resolve_playable_stream(&uri, &t.title, &t.artist)
+    let (t_title, t_artist) = if let Some(ref t) = track {
+        (t.title.clone(), t.artist.clone())
     } else {
-        crate::youtube::YouTubeService::resolve_playable_stream(&uri, "", "")
+        (String::new(), String::new())
     };
+    let uri_clone = uri.clone();
+    let playable_uri = tokio::task::spawn_blocking(move || {
+        crate::youtube::YouTubeService::resolve_playable_stream(&uri_clone, &t_title, &t_artist)
+    })
+    .await
+    .unwrap_or_else(|_| uri.clone());
 
     state.mpv.load_file(&playable_uri).await.map_err(|e| e.to_string())?;
     if let Some(mut t) = track {
@@ -358,6 +364,7 @@ pub async fn download_track(
             .arg("--add-metadata")
             .arg("--no-playlist")
             .arg("-o").arg(out_template.to_string_lossy().to_string())
+            .arg("--")
             .arg(&url);
 
         crate::sanitize_host_command(&mut cmd);
@@ -478,5 +485,92 @@ pub async fn update_mpris_status(
 ) -> Result<(), String> {
     state.mpris.update_status(is_playing, position_us).await
 }
+
+#[tauri::command]
+pub async fn open_ytm_login(app: tauri::AppHandle) -> Result<(), String> {
+    crate::youtube::auth_sync::open_ytm_login_window(app).await
+}
+
+#[tauri::command]
+pub async fn fetch_ytm_profile(
+    cookie: String,
+    visitor_data: Option<String>,
+) -> Result<crate::youtube::auth_sync::YtmAccountProfile, String> {
+    crate::youtube::auth_sync::fetch_ytm_account_profile(&cookie, visitor_data.as_deref()).await
+}
+
+#[tauri::command]
+pub async fn sync_ytm_library(
+    cookie: String,
+    visitor_data: Option<String>,
+    page_id: Option<String>,
+    gl: Option<String>,
+    state: State<'_, AppState>,
+) -> Result<crate::youtube::auth_sync::YtmSyncSummary, String> {
+    let gl_str = gl.unwrap_or_else(|| "US".to_string());
+    crate::youtube::auth_sync::sync_ytm_library_internal(
+        &cookie,
+        visitor_data.as_deref(),
+        page_id.as_deref(),
+        &gl_str,
+        &state.db,
+    )
+    .await
+}
+
+#[tauri::command]
+pub async fn set_ytm_like(
+    cookie: String,
+    visitor_data: Option<String>,
+    page_id: Option<String>,
+    video_id: String,
+    like: bool,
+) -> Result<(), String> {
+    crate::youtube::auth_sync::set_ytm_like_status(
+        &cookie,
+        visitor_data.as_deref(),
+        page_id.as_deref(),
+        &video_id,
+        like,
+    )
+    .await
+}
+
+#[tauri::command]
+pub async fn init_recap_playback_tracking(
+    cookie: String,
+    visitor_data: Option<String>,
+    page_id: Option<String>,
+    video_id: String,
+) -> Result<crate::youtube::auth_sync::PlaybackTrackingSession, String> {
+    crate::youtube::auth_sync::init_recap_playback_tracking(
+        &cookie,
+        visitor_data.as_deref(),
+        page_id.as_deref(),
+        &video_id,
+    )
+    .await
+}
+
+#[tauri::command]
+pub async fn ping_recap_watchtime(
+    cookie: String,
+    visitor_data: Option<String>,
+    session: crate::youtube::auth_sync::PlaybackTrackingSession,
+    start_sec: f64,
+    end_sec: f64,
+    is_playing: bool,
+) -> Result<(), String> {
+    crate::youtube::auth_sync::ping_recap_watchtime(
+        &cookie,
+        visitor_data.as_deref(),
+        &session,
+        start_sec,
+        end_sec,
+        is_playing,
+    )
+    .await
+}
+
 
 

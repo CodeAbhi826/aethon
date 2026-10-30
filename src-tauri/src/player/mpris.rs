@@ -16,14 +16,19 @@ pub struct MprisManager {
 
 impl Drop for MprisManager {
     fn drop(&mut self) {
+        self.shutdown();
+    }
+}
+
+impl MprisManager {
+    pub fn shutdown(&self) {
+        let _ = self.cmd_tx.try_send(r#"{"action":"shutdown"}"#.to_string());
         if let Some(mut c) = self.child.lock().take() {
             let _ = c.kill();
         }
         let _ = std::fs::remove_file(&self.ipc_socket_path);
     }
-}
 
-impl MprisManager {
     pub fn dummy() -> Self {
         let (cmd_tx, _rx) = mpsc::channel(1);
         Self {
@@ -61,7 +66,7 @@ impl MprisManager {
         cmd.arg("-O")
             .arg(bridge_script_path)
             .arg(&ipc_socket_path)
-            .arg(mpv_socket)
+            .arg(pid.to_string())
             .stdin(Stdio::null())
             .stdout(if crate::is_verbose() { Stdio::inherit() } else { Stdio::null() })
             .stderr(if crate::is_verbose() { Stdio::inherit() } else { Stdio::null() });

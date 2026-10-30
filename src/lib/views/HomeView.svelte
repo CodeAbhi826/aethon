@@ -4,103 +4,19 @@
   import { playerState } from '../state.svelte';
   import { sanitizeArtist, type Track, type YouTubeTrack } from '../types';
 
-  const moods = ['All', 'Relax', 'Workout', 'Focus', 'Energize', 'Commute', 'Party', 'Romance'] as const;
+  const moods = ['All', 'Relax', 'Focus', 'Energize', 'Workout', 'Commute', 'Local Only'] as const;
   type MoodType = typeof moods[number];
   let activeMood = $state<MoodType>('All');
   let moodTracks = $state<Track[]>([]);
   let isMoodLoading = $state(false);
 
-  const moodQueries: Record<MoodType, string> = {
-    'All': '',
-    'Relax': 'Acoustic Chill Hindi Melodies',
-    'Workout': 'High Energy Workout Hits Bass',
+  const moodQueries: Record<Exclude<MoodType, 'All' | 'Local Only'>, string> = {
+    'Relax': 'Chill Acoustic Melodies',
     'Focus': 'Instrumental Lo-Fi Study Classical Beats',
-    'Energize': 'Upbeat Dance Pop High Energy',
-    'Commute': 'Feel Good Acoustic Travel Songs',
-    'Party': 'Club EDM Dance Party Bangers',
-    'Romance': 'Soulful Romantic Hindi Love Songs',
+    'Energize': 'Upbeat High Energy Pop Electronic Hits',
+    'Workout': 'High Energy Workout Bass Motivation',
+    'Commute': 'Feel Good Travel Acoustic Hits',
   };
-
-  const trendingTracks: Track[] = [
-    {
-      id: 'yt_fsiPzT50ZiM',
-      title: 'Tum Hi Ho',
-      artist: 'Arijit Singh',
-      album: 'Aashiqui 2',
-      duration: 262,
-      file_path: 'https://www.youtube.com/watch?v=fsiPzT50ZiM',
-      cover_art: 'https://i.ytimg.com/vi/fsiPzT50ZiM/hqdefault.jpg',
-      format: 'Opus 256k',
-      play_count: 98,
-      favorite: true,
-      date_added: Date.now() - 3600000,
-    },
-    {
-      id: 'yt_BddP6PYo2gs',
-      title: 'Kesariya',
-      artist: 'Arijit Singh, Pritam',
-      album: 'Brahmastra',
-      duration: 268,
-      file_path: 'https://www.youtube.com/watch?v=BddP6PYo2gs',
-      cover_art: 'https://i.ytimg.com/vi/BddP6PYo2gs/hqdefault.jpg',
-      format: 'Opus 256k',
-      play_count: 85,
-      favorite: true,
-      date_added: Date.now() - 7200000,
-    },
-    {
-      id: 'yt_E_SbwSe15y0',
-      title: 'Ve Haaniyaan',
-      artist: 'Avvy Sra, Danny, Sagar',
-      album: 'Ve Haaniyaan',
-      duration: 236,
-      file_path: 'https://www.youtube.com/watch?v=E_SbwSe15y0',
-      cover_art: 'https://i.ytimg.com/vi/E_SbwSe15y0/hqdefault.jpg',
-      format: 'Opus 256k',
-      play_count: 77,
-      favorite: false,
-      date_added: Date.now() - 14400000,
-    },
-    {
-      id: 'yt_mH_LFkWxpI0',
-      title: 'Lover',
-      artist: 'Diljit Dosanjh',
-      album: 'MoonChild Era',
-      duration: 191,
-      file_path: 'https://www.youtube.com/watch?v=mH_LFkWxpI0',
-      cover_art: 'https://i.ytimg.com/vi/mH_LFkWxpI0/hqdefault.jpg',
-      format: 'Opus 256k',
-      play_count: 91,
-      favorite: true,
-      date_added: Date.now() - 28800000,
-    },
-    {
-      id: 'yt_gvyUuxdRdR4',
-      title: 'Raataan Lambiyan',
-      artist: 'Jubin Nautiyal, Asees Kaur',
-      album: 'Shershaah',
-      duration: 230,
-      file_path: 'https://www.youtube.com/watch?v=gvyUuxdRdR4',
-      cover_art: 'https://i.ytimg.com/vi/gvyUuxdRdR4/hqdefault.jpg',
-      format: 'Opus 256k',
-      play_count: 64,
-      favorite: false,
-      date_added: Date.now() - 40000000,
-    },
-    {
-      id: 'yt_tMgEYaclnQ0',
-      title: 'On Top',
-      artist: 'Karan Aujla',
-      album: 'Four Me',
-      duration: 184,
-      file_path: 'https://www.youtube.com/watch?v=tMgEYaclnQ0',
-      cover_art: 'https://i.ytimg.com/vi/tMgEYaclnQ0/hqdefault.jpg',
-      format: 'Opus 256k',
-      play_count: 82,
-      favorite: true,
-      date_added: Date.now() - 50000000,
-    },
-  ];
 
   let liveTrending = $state<Track[]>([]);
   let similarArtistTracks = $state<Track[]>([]);
@@ -109,7 +25,7 @@
     return sanitizeArtist(raw).split(',')[0].trim();
   }
 
-  // Compute recommended artist based on history or library
+  // Compute recommended artist dynamically based on history, current track, or local library
   let recommendedArtist = $derived.by(() => {
     const fromHistory = playerState.playHistoryTracks.find(t => t.artist && t.artist.trim().toLowerCase() !== 'unknown')?.artist;
     if (fromHistory) return cleanArtistName(fromHistory);
@@ -121,13 +37,17 @@
     const fromLibrary = playerState.library.find(t => t.artist && t.artist.trim().toLowerCase() !== 'unknown')?.artist;
     if (fromLibrary) return cleanArtistName(fromLibrary);
 
-    return 'Arijit Singh';
+    return null;
   });
 
   async function handleMoodChange(mood: MoodType) {
     activeMood = mood;
     if (mood === 'All') {
       moodTracks = [];
+      return;
+    }
+    if (mood === 'Local Only') {
+      moodTracks = playerState.library.slice(0, 12);
       return;
     }
     isMoodLoading = true;
@@ -146,7 +66,7 @@
           format: 'Opus 256k',
           play_count: 10 + idx,
           favorite: false,
-          date_added: Date.now(),
+          date_added: Math.floor(Date.now() / 1000),
         }));
       }
     } catch (e) {
@@ -161,20 +81,20 @@
     if (!artist || !artist.trim() || artist.trim().toLowerCase() === 'unknown' || isLoadingSimilar) return;
     isLoadingSimilar = true;
     try {
-      const results = await invoke<YouTubeTrack[]>('search_youtube', { query: `${artist} top popular songs`, limit: 6 });
+      const results = await invoke<YouTubeTrack[]>('search_youtube', { query: `${artist} top songs radio`, limit: 6 });
       if (results && results.length > 0) {
         similarArtistTracks = results.map((yt, idx) => ({
           id: `yt_${yt.id}`,
           title: yt.title,
           artist: sanitizeArtist(yt.artist) || artist,
-          album: `${artist} Dynamic Radio`,
+          album: `${artist} Radio`,
           duration: yt.duration || 215,
           file_path: yt.stream_url,
           cover_art: yt.thumbnail,
           format: 'Opus 256k',
           play_count: 40 + idx * 3,
           favorite: false,
-          date_added: Date.now(),
+          date_added: Math.floor(Date.now() / 1000),
         }));
       }
     } catch (e) {
@@ -186,20 +106,20 @@
 
   onMount(async () => {
     try {
-      const results = await invoke<YouTubeTrack[]>('search_youtube', { query: 'trending indian songs', limit: 6 });
+      const results = await invoke<YouTubeTrack[]>('search_youtube', { query: 'Global Top Trending Hits', limit: 6 });
       if (results && results.length > 0) {
         liveTrending = results.map((yt, idx) => ({
           id: `yt_${yt.id}`,
           title: yt.title,
-          artist: sanitizeArtist(yt.artist) || 'Popular',
-          album: 'Top Daily Charts',
+          artist: sanitizeArtist(yt.artist) || 'Top Chart',
+          album: 'Daily Hot Hits',
           duration: yt.duration || 210,
           file_path: yt.stream_url,
           cover_art: yt.thumbnail,
           format: 'Opus 256k',
           play_count: 50 + idx * 5,
           favorite: false,
-          date_added: Date.now(),
+          date_added: Math.floor(Date.now() / 1000),
         }));
       }
     } catch (e) {
@@ -216,7 +136,7 @@
         clearTimeout(artistDebounceTimer);
       }
       artistDebounceTimer = setTimeout(() => {
-        if (artist !== lastLoadedArtist) {
+        if (artist && artist !== lastLoadedArtist) {
           lastLoadedArtist = artist;
           loadSimilarArtist(artist);
         }
@@ -232,14 +152,40 @@
   let displayQuickPicks = $derived(
     playerState.library.length > 0 
       ? playerState.library.slice(0, 6) 
-      : (liveTrending.length > 0 ? liveTrending : trendingTracks)
+      : liveTrending.slice(0, 6)
   );
 
   let listenAgainTracks = $derived(
     playerState.playHistoryTracks.length > 0
       ? playerState.playHistoryTracks.slice(0, 8)
-      : (playerState.library.length > 0 ? playerState.library.slice(0, 8) : trendingTracks)
+      : (playerState.library.length > 0 ? playerState.library.slice(0, 8) : liveTrending.slice(0, 8))
   );
+
+  // Dynamic stations based on library artists or high-fidelity genres
+  let dynamicStations = $derived.by(() => {
+    const artists = Array.from(new Set(
+      [...playerState.playHistoryTracks, ...playerState.library]
+        .map(t => cleanArtistName(t.artist))
+        .filter(a => a && a.toLowerCase() !== 'unknown')
+    )).slice(0, 3);
+
+    const stations = artists.map(a => ({
+      name: a,
+      type: 'Artist Station',
+      img: 'https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?w=160&auto=format&fit=crop',
+      query: `${a} top songs`,
+    }));
+
+    const defaults = [
+      { name: 'Lo-Fi Chill', type: 'Study & Sleep', img: 'https://images.unsplash.com/photo-1518609878373-06d740f60d8b?w=160&auto=format&fit=crop', query: 'Lo-Fi Chill Beats' },
+      { name: 'Synthwave', type: 'Retro Neon', img: 'https://images.unsplash.com/photo-1508700115892-45ecd05ae2ad?w=160&auto=format&fit=crop', query: 'Synthwave Chillwave' },
+      { name: 'Acoustic', type: 'Unplugged Coffee', img: 'https://images.unsplash.com/photo-1510915361894-db8b60106cb1?w=160&auto=format&fit=crop', query: 'Acoustic Guitar Hits' },
+      { name: 'Electronic', type: 'Club & Dance', img: 'https://images.unsplash.com/photo-1470225620780-dba8ba36b745?w=160&auto=format&fit=crop', query: 'Electronic Dance Anthems' },
+      { name: 'Deep Focus', type: 'Ambient Strings', img: 'https://images.unsplash.com/photo-1445985543469-433ec003388b?w=160&auto=format&fit=crop', query: 'Deep Focus Ambient Instrumental' },
+    ];
+
+    return [...stations, ...defaults].slice(0, 6);
+  });
 
   const greeting = $derived.by(() => {
     const hours = new Date().getHours();
@@ -256,7 +202,7 @@
     <div>
       <div class="flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-[var(--md-sys-primary)] font-display">
         <span class="material-symbols-rounded text-base">waving_hand</span>
-        <span>Welcome Back</span>
+        <span>Welcome to Aethon</span>
       </div>
       <h1 class="text-3xl md:text-4xl font-extrabold text-white tracking-tight font-display mt-0.5">{greeting}</h1>
     </div>
@@ -281,10 +227,8 @@
             <span class="material-symbols-rounded text-sm">local_fire_department</span>
           {:else if mood === 'Commute'}
             <span class="material-symbols-rounded text-sm">directions_car</span>
-          {:else if mood === 'Party'}
-            <span class="material-symbols-rounded text-sm">celebration</span>
-          {:else if mood === 'Romance'}
-            <span class="material-symbols-rounded text-sm">favorite</span>
+          {:else if mood === 'Local Only'}
+            <span class="material-symbols-rounded text-sm">folder_special</span>
           {:else}
             <span class="material-symbols-rounded text-sm">all_inclusive</span>
           {/if}
@@ -300,7 +244,7 @@
       <div class="flex items-center justify-between">
         <h2 class="text-xl font-bold tracking-tight text-white flex items-center gap-2.5">
           <span class="material-symbols-rounded text-lg text-[var(--md-sys-primary)]">tune</span>
-          {activeMood} Mixes & Sessions
+          {activeMood} Mixes & Tracks
         </h2>
         {#if isMoodLoading}
           <span class="text-xs text-[var(--md-sys-primary)] animate-pulse">Curating tracks...</span>
@@ -309,100 +253,110 @@
         {/if}
       </div>
 
-      <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3.5">
-        {#each moodTracks as track}
-          {@const isCurrent = playerState.currentTrack?.id === track.id}
-          <button
-            onclick={() => playerState.playTrack(track)}
-            class="p-3 rounded-2xl {isCurrent ? 'bg-[var(--md-sys-primary-container)]/25 border-[var(--md-sys-primary)]/40' : 'm3-acrylic-card hover:bg-white/10 border-white/5'} border shadow-md shadow-black/30 hover:shadow-black/50 hover:scale-[1.02] transition-all duration-200 cursor-pointer flex items-center gap-3.5 group text-left w-full gpu-card"
-          >
-            <div class="relative w-14 h-14 rounded-xl overflow-hidden shadow shrink-0 border border-white/10">
-              <img loading="lazy" decoding="async" src={track.cover_art} alt={track.title} class="w-full h-full object-cover group-hover:scale-105 transition duration-300" />
-              <div class="absolute inset-0 bg-black/30 backdrop-blur-[2px] {isCurrent && playerState.playback.is_playing ? 'opacity-100 bg-black/40' : 'opacity-0 group-hover:opacity-100'} flex items-center justify-center transition-opacity duration-200">
-                <div class="w-8 h-8 rounded-full bg-black/60 backdrop-blur-md border border-white/20 text-white flex items-center justify-center shadow-md">
-                  {#if isCurrent && playerState.playback.is_playing}
-                    <svg viewBox="0 0 24 24" class="w-3.5 h-3.5 fill-current" xmlns="http://www.w3.org/2000/svg">
-                      <rect x="6" y="4" width="4" height="16" rx="1.5" />
-                      <rect x="14" y="4" width="4" height="16" rx="1.5" />
-                    </svg>
-                  {:else}
-                    <svg viewBox="2.27 0 24 24" class="w-3.5 h-3.5 fill-current" xmlns="http://www.w3.org/2000/svg">
-                      <path d="M8 5.14v13.72a1 1 0 0 0 1.5.86l11.04-6.86a1 1 0 0 0 0-1.72L9.5 4.28A1 1 0 0 0 8 5.14z"/>
-                    </svg>
-                  {/if}
+      {#if moodTracks.length === 0 && !isMoodLoading}
+        <div class="p-8 text-center text-white/50 text-xs border border-white/5 rounded-2xl bg-white/[0.02]">
+          No tracks available for this category.
+        </div>
+      {:else}
+        <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3.5">
+          {#each moodTracks as track}
+            {@const isCurrent = playerState.currentTrack?.id === track.id}
+            <button
+              onclick={() => playerState.playTrack(track)}
+              oncontextmenu={(e) => { e.preventDefault(); playerState.openContextMenu(track, e.clientX, e.clientY); }}
+              class="p-3 rounded-2xl {isCurrent ? 'bg-[var(--md-sys-primary-container)]/25 border-[var(--md-sys-primary)]/40' : 'm3-acrylic-card hover:bg-white/10 border-white/5'} border shadow-md shadow-black/30 hover:shadow-black/50 hover:scale-[1.02] transition-all duration-200 cursor-pointer flex items-center gap-3.5 group text-left w-full gpu-card"
+            >
+              <div class="relative w-14 h-14 rounded-xl overflow-hidden shadow shrink-0 border border-white/10">
+                <img loading="lazy" decoding="async" src={track.cover_art} alt={track.title} class="w-full h-full object-cover group-hover:scale-105 transition duration-300" />
+                <div class="absolute inset-0 bg-black/30 backdrop-blur-[2px] {isCurrent && playerState.playback.is_playing ? 'opacity-100 bg-black/40' : 'opacity-0 group-hover:opacity-100'} flex items-center justify-center transition-opacity duration-200">
+                  <div class="w-8 h-8 rounded-full bg-black/60 backdrop-blur-md border border-white/20 text-white flex items-center justify-center shadow-md">
+                    {#if isCurrent && playerState.playback.is_playing}
+                      <svg viewBox="0 0 24 24" class="w-3.5 h-3.5 fill-current" xmlns="http://www.w3.org/2000/svg">
+                        <rect x="6" y="4" width="4" height="16" rx="1.5" />
+                        <rect x="14" y="4" width="4" height="16" rx="1.5" />
+                      </svg>
+                    {:else}
+                      <svg viewBox="2.27 0 24 24" class="w-3.5 h-3.5 fill-current" xmlns="http://www.w3.org/2000/svg">
+                        <path d="M8 5.14v13.72a1 1 0 0 0 1.5.86l11.04-6.86a1 1 0 0 0 0-1.72L9.5 4.28A1 1 0 0 0 8 5.14z"/>
+                      </svg>
+                    {/if}
+                  </div>
                 </div>
               </div>
-            </div>
 
-            <div class="min-w-0 flex-1">
-              <div class="text-xs font-semibold {isCurrent ? 'text-[var(--md-sys-primary)]' : 'text-white'} truncate group-hover:text-[var(--md-sys-primary)] transition">
-                {track.title}
+              <div class="min-w-0 flex-1">
+                <div class="text-xs font-semibold {isCurrent ? 'text-[var(--md-sys-primary)]' : 'text-white'} truncate group-hover:text-[var(--md-sys-primary)] transition">
+                  {track.title}
+                </div>
+                <div class="text-[11px] text-[var(--md-sys-on-surface-variant)]/75 truncate mt-0.5 flex items-center gap-1.5">
+                  <span class="truncate">{sanitizeArtist(track.artist)}</span>
+                </div>
               </div>
-              <div class="text-[11px] text-[var(--md-sys-on-surface-variant)]/75 truncate mt-0.5 flex items-center gap-1.5">
-                <span class="truncate">{sanitizeArtist(track.artist)}</span>
-              </div>
-            </div>
-          </button>
-        {/each}
-      </div>
+            </button>
+          {/each}
+        </div>
+      {/if}
     </section>
   {/if}
 
   <!-- Listen Again (Recently Played from SQLite History) -->
-  <section class="space-y-3.5">
-    <div class="flex items-center justify-between">
-      <h2 class="text-xl font-bold tracking-tight text-white flex items-center gap-2.5">
-        <span class="material-symbols-rounded text-lg text-[var(--md-sys-primary)]">history</span>
-        Listen Again
-      </h2>
-      <span class="text-xs text-[var(--md-sys-on-surface-variant)]">From your listening history</span>
-    </div>
+  {#if listenAgainTracks.length > 0}
+    <section class="space-y-3.5">
+      <div class="flex items-center justify-between">
+        <h2 class="text-xl font-bold tracking-tight text-white flex items-center gap-2.5">
+          <span class="material-symbols-rounded text-lg text-[var(--md-sys-primary)]">history</span>
+          Listen Again
+        </h2>
+        <span class="text-xs text-[var(--md-sys-on-surface-variant)]">From your listening history</span>
+      </div>
 
-    <div class="overflow-x-auto scrollbar-none -mx-6 px-6 pb-2">
-      <div class="flex items-center gap-4 min-w-max">
-        {#each listenAgainTracks as track}
-          {@const isCurrent = playerState.currentTrack?.id === track.id}
-          <div
-            role="button"
-            tabindex="0"
-            onclick={() => playerState.playTrack(track)}
-            onkeydown={(e) => { if (e.key === 'Enter' || e.key === ' ') playerState.playTrack(track); }}
-            class="w-44 p-3 rounded-2xl m3-acrylic-card {isCurrent ? 'border-[var(--md-sys-primary)]/40 bg-[var(--md-sys-primary-container)]/15' : 'border-white/[0.06] hover:bg-white/[0.09]'} border shadow-md shadow-black/30 hover:shadow-black/50 hover:scale-[1.02] transition-all duration-200 group flex flex-col justify-between gpu-card cursor-pointer"
-          >
-            <div class="relative w-full aspect-square rounded-xl overflow-hidden shadow-md mb-2.5 border border-white/10">
-              <img loading="lazy" decoding="async" src={track.cover_art} alt={track.title} class="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" />
-              <div class="absolute inset-0 bg-black/20 {isCurrent && playerState.playback.is_playing ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'} transition-opacity duration-200 flex items-center justify-center">
-                <div class="w-11 h-11 rounded-full bg-black/60 backdrop-blur-md border border-white/20 text-white shadow-xl flex items-center justify-center hover:scale-110 active:scale-95 transition-all duration-200">
-                  {#if isCurrent && playerState.playback.is_playing}
-                    <svg viewBox="0 0 24 24" class="w-5 h-5 fill-current" xmlns="http://www.w3.org/2000/svg">
-                      <rect x="6" y="4" width="4" height="16" rx="1.5" />
-                      <rect x="14" y="4" width="4" height="16" rx="1.5" />
-                    </svg>
-                  {:else}
-                    <svg viewBox="2.27 0 24 24" class="w-5 h-5 fill-current" xmlns="http://www.w3.org/2000/svg">
-                      <path d="M8 5.14v13.72a1 1 0 0 0 1.5.86l11.04-6.86a1 1 0 0 0 0-1.72L9.5 4.28A1 1 0 0 0 8 5.14z"/>
-                    </svg>
-                  {/if}
+      <div class="overflow-x-auto scrollbar-none -mx-6 px-6 pb-2">
+        <div class="flex items-center gap-4 min-w-max">
+          {#each listenAgainTracks as track}
+            {@const isCurrent = playerState.currentTrack?.id === track.id}
+            <div
+              role="button"
+              tabindex="0"
+              onclick={() => playerState.playTrack(track)}
+              onkeydown={(e) => { if (e.key === 'Enter' || e.key === ' ') playerState.playTrack(track); }}
+              oncontextmenu={(e) => { e.preventDefault(); playerState.openContextMenu(track, e.clientX, e.clientY); }}
+              class="w-44 p-3 rounded-2xl m3-acrylic-card {isCurrent ? 'border-[var(--md-sys-primary)]/40 bg-[var(--md-sys-primary-container)]/15' : 'border-white/[0.06] hover:bg-white/[0.09]'} border shadow-md shadow-black/30 hover:shadow-black/50 hover:scale-[1.02] transition-all duration-200 group flex flex-col justify-between gpu-card cursor-pointer"
+            >
+              <div class="relative w-full aspect-square rounded-xl overflow-hidden shadow-md mb-2.5 border border-white/10">
+                <img loading="lazy" decoding="async" src={track.cover_art} alt={track.title} class="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" />
+                <div class="absolute inset-0 bg-black/20 {isCurrent && playerState.playback.is_playing ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'} transition-opacity duration-200 flex items-center justify-center">
+                  <div class="w-11 h-11 rounded-full bg-black/60 backdrop-blur-md border border-white/20 text-white shadow-xl flex items-center justify-center hover:scale-110 active:scale-95 transition-all duration-200">
+                    {#if isCurrent && playerState.playback.is_playing}
+                      <svg viewBox="0 0 24 24" class="w-5 h-5 fill-current" xmlns="http://www.w3.org/2000/svg">
+                        <rect x="6" y="4" width="4" height="16" rx="1.5" />
+                        <rect x="14" y="4" width="4" height="16" rx="1.5" />
+                      </svg>
+                    {:else}
+                      <svg viewBox="2.27 0 24 24" class="w-5 h-5 fill-current" xmlns="http://www.w3.org/2000/svg">
+                        <path d="M8 5.14v13.72a1 1 0 0 0 1.5.86l11.04-6.86a1 1 0 0 0 0-1.72L9.5 4.28A1 1 0 0 0 8 5.14z"/>
+                      </svg>
+                    {/if}
+                  </div>
+                </div>
+              </div>
+
+              <div class="min-w-0">
+                <div class="text-xs font-semibold {isCurrent ? 'text-[var(--md-sys-primary)]' : 'text-white'} truncate group-hover:text-[var(--md-sys-primary)] transition">
+                  {track.title}
+                </div>
+                <div class="text-[11px] text-white/50 truncate mt-0.5">
+                  {sanitizeArtist(track.artist)}
                 </div>
               </div>
             </div>
-
-            <div class="min-w-0">
-              <div class="text-xs font-semibold {isCurrent ? 'text-[var(--md-sys-primary)]' : 'text-white'} truncate group-hover:text-[var(--md-sys-primary)] transition">
-                {track.title}
-              </div>
-              <div class="text-[11px] text-white/50 truncate mt-0.5">
-                {sanitizeArtist(track.artist)}
-              </div>
-            </div>
-          </div>
-        {/each}
+          {/each}
+        </div>
       </div>
-    </div>
-  </section>
+    </section>
+  {/if}
 
   <!-- Similar to [Artist] / Recommended Radio Row -->
-  {#if similarArtistTracks.length > 0}
+  {#if recommendedArtist && similarArtistTracks.length > 0}
     <section class="space-y-3.5 pt-1">
       <div class="flex items-center justify-between">
         <h2 class="text-xl font-bold tracking-tight text-white flex items-center gap-2.5">
@@ -417,6 +371,7 @@
           {@const isCurrent = playerState.currentTrack?.id === track.id}
           <button
             onclick={() => playerState.playTrack(track)}
+            oncontextmenu={(e) => { e.preventDefault(); playerState.openContextMenu(track, e.clientX, e.clientY); }}
             class="p-3 rounded-2xl {isCurrent ? 'bg-[var(--md-sys-primary-container)]/25 border-[var(--md-sys-primary)]/40' : 'm3-acrylic-card hover:bg-white/10 border-white/5'} border shadow-md shadow-black/30 hover:shadow-black/50 hover:scale-[1.02] transition-all duration-200 cursor-pointer flex items-center gap-3.5 group text-left w-full gpu-card"
           >
             <div class="relative w-14 h-14 rounded-xl overflow-hidden shadow shrink-0 border border-white/10">
@@ -452,58 +407,61 @@
   {/if}
 
   <!-- Top Picks Grid -->
-  <section class="space-y-3.5">
-    <div class="flex items-center justify-between">
-      <h2 class="text-xl font-bold tracking-tight text-white flex items-center gap-2.5">
-        <span class="material-symbols-rounded text-lg text-[var(--md-sys-primary)]">bolt</span>
-        Top Picks
-      </h2>
-      <span class="text-xs text-[var(--md-sys-on-surface-variant)]">{displayQuickPicks.length} tracks ready</span>
-    </div>
+  {#if displayQuickPicks.length > 0}
+    <section class="space-y-3.5">
+      <div class="flex items-center justify-between">
+        <h2 class="text-xl font-bold tracking-tight text-white flex items-center gap-2.5">
+          <span class="material-symbols-rounded text-lg text-[var(--md-sys-primary)]">bolt</span>
+          Top Picks
+        </h2>
+        <span class="text-xs text-[var(--md-sys-on-surface-variant)]">{displayQuickPicks.length} tracks ready</span>
+      </div>
 
-    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3.5">
-      {#each displayQuickPicks as track}
-        {@const isCurrent = playerState.currentTrack?.id === track.id}
-        <button
-          onclick={() => playerState.playTrack(track)}
-          class="p-3 rounded-2xl {isCurrent ? 'bg-[var(--md-sys-primary-container)]/25 border-[var(--md-sys-primary)]/40' : 'm3-acrylic-card hover:bg-white/10 border-white/5'} border shadow-md shadow-black/30 hover:shadow-black/50 hover:scale-[1.02] transition-all duration-200 cursor-pointer flex items-center gap-3.5 group text-left w-full gpu-card"
-        >
-          <div class="relative w-14 h-14 rounded-xl overflow-hidden shadow shrink-0 border border-white/10">
-            <img loading="lazy" decoding="async" src={track.cover_art} alt={track.title} class="w-full h-full object-cover group-hover:scale-105 transition duration-300" />
-            <div class="absolute inset-0 bg-black/30 backdrop-blur-[2px] {isCurrent && playerState.playback.is_playing ? 'opacity-100 bg-black/40' : 'opacity-0 group-hover:opacity-100'} flex items-center justify-center transition-opacity duration-200">
-              <div class="w-8 h-8 rounded-full bg-black/60 backdrop-blur-md border border-white/20 text-white flex items-center justify-center shadow-md">
-                {#if isCurrent && playerState.playback.is_playing}
-                  <svg viewBox="0 0 24 24" class="w-3.5 h-3.5 fill-current" xmlns="http://www.w3.org/2000/svg">
-                    <rect x="6" y="4" width="4" height="16" rx="1.5" />
-                    <rect x="14" y="4" width="4" height="16" rx="1.5" />
-                  </svg>
-                {:else}
-                  <svg viewBox="2.27 0 24 24" class="w-3.5 h-3.5 fill-current" xmlns="http://www.w3.org/2000/svg">
-                    <path d="M8 5.14v13.72a1 1 0 0 0 1.5.86l11.04-6.86a1 1 0 0 0 0-1.72L9.5 4.28A1 1 0 0 0 8 5.14z"/>
-                  </svg>
+      <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3.5">
+        {#each displayQuickPicks as track}
+          {@const isCurrent = playerState.currentTrack?.id === track.id}
+          <button
+            onclick={() => playerState.playTrack(track)}
+            oncontextmenu={(e) => { e.preventDefault(); playerState.openContextMenu(track, e.clientX, e.clientY); }}
+            class="p-3 rounded-2xl {isCurrent ? 'bg-[var(--md-sys-primary-container)]/25 border-[var(--md-sys-primary)]/40' : 'm3-acrylic-card hover:bg-white/10 border-white/5'} border shadow-md shadow-black/30 hover:shadow-black/50 hover:scale-[1.02] transition-all duration-200 cursor-pointer flex items-center gap-3.5 group text-left w-full gpu-card"
+          >
+            <div class="relative w-14 h-14 rounded-xl overflow-hidden shadow shrink-0 border border-white/10">
+              <img loading="lazy" decoding="async" src={track.cover_art} alt={track.title} class="w-full h-full object-cover group-hover:scale-105 transition duration-300" />
+              <div class="absolute inset-0 bg-black/30 backdrop-blur-[2px] {isCurrent && playerState.playback.is_playing ? 'opacity-100 bg-black/40' : 'opacity-0 group-hover:opacity-100'} flex items-center justify-center transition-opacity duration-200">
+                <div class="w-8 h-8 rounded-full bg-black/60 backdrop-blur-md border border-white/20 text-white flex items-center justify-center shadow-md">
+                  {#if isCurrent && playerState.playback.is_playing}
+                    <svg viewBox="0 0 24 24" class="w-3.5 h-3.5 fill-current" xmlns="http://www.w3.org/2000/svg">
+                      <rect x="6" y="4" width="4" height="16" rx="1.5" />
+                      <rect x="14" y="4" width="4" height="16" rx="1.5" />
+                    </svg>
+                  {:else}
+                    <svg viewBox="2.27 0 24 24" class="w-3.5 h-3.5 fill-current" xmlns="http://www.w3.org/2000/svg">
+                      <path d="M8 5.14v13.72a1 1 0 0 0 1.5.86l11.04-6.86a1 1 0 0 0 0-1.72L9.5 4.28A1 1 0 0 0 8 5.14z"/>
+                    </svg>
+                  {/if}
+                </div>
+              </div>
+            </div>
+
+            <div class="min-w-0 flex-1">
+              <div class="text-xs font-semibold {isCurrent ? 'text-[var(--md-sys-primary)]' : 'text-white'} truncate group-hover:text-[var(--md-sys-primary)] transition">
+                {track.title}
+              </div>
+              <div class="text-[11px] text-[var(--md-sys-on-surface-variant)]/75 truncate mt-0.5 flex items-center gap-1.5">
+                <span class="truncate">{sanitizeArtist(track.artist)}</span>
+                {#if track.duration > 0}
+                  <span class="text-white/30 shrink-0">•</span>
+                  <span class="font-mono text-[10px] text-white/50 shrink-0">
+                    {Math.floor(track.duration / 60)}:{Math.floor(track.duration % 60) < 10 ? '0' : ''}{Math.floor(track.duration % 60)}
+                  </span>
                 {/if}
               </div>
             </div>
-          </div>
-
-          <div class="min-w-0 flex-1">
-            <div class="text-xs font-semibold {isCurrent ? 'text-[var(--md-sys-primary)]' : 'text-white'} truncate group-hover:text-[var(--md-sys-primary)] transition">
-              {track.title}
-            </div>
-            <div class="text-[11px] text-[var(--md-sys-on-surface-variant)]/75 truncate mt-0.5 flex items-center gap-1.5">
-              <span class="truncate">{sanitizeArtist(track.artist)}</span>
-              {#if track.duration > 0}
-                <span class="text-white/30 shrink-0">•</span>
-                <span class="font-mono text-[10px] text-white/50 shrink-0">
-                  {Math.floor(track.duration / 60)}:{Math.floor(track.duration % 60) < 10 ? '0' : ''}{Math.floor(track.duration % 60)}
-                </span>
-              {/if}
-            </div>
-          </div>
-        </button>
-      {/each}
-    </div>
-  </section>
+          </button>
+        {/each}
+      </div>
+    </section>
+  {/if}
 
   <!-- Dynamic Stations (Speed Dial) -->
   <section class="space-y-3 pt-2">
@@ -516,14 +474,7 @@
     </div>
 
     <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-6 gap-3">
-      {#each [
-        { name: 'Arijit Singh', type: 'Artist Radio', img: 'https://i.ytimg.com/vi/fsiPzT50ZiM/hqdefault.jpg', query: 'Arijit Singh' },
-        { name: 'Diljit Dosanjh', type: 'Punjabi Hits', img: 'https://i.ytimg.com/vi/mH_LFkWxpI0/hqdefault.jpg', query: 'Diljit Dosanjh' },
-        { name: 'Romantic Melodies', type: 'Soulful Mix', img: 'https://i.ytimg.com/vi/BddP6PYo2gs/hqdefault.jpg', query: 'Bollywood Romantic Songs' },
-        { name: 'Karan Aujla', type: 'Pop Radio', img: 'https://i.ytimg.com/vi/tMgEYaclnQ0/hqdefault.jpg', query: 'Karan Aujla' },
-        { name: 'South Melodies', type: 'Regional Mix', img: 'https://images.unsplash.com/photo-1518709268805-4e9042af9f23?w=160&auto=format&fit=crop', query: 'South Indian Hits' },
-        { name: 'Lo-Fi Chill', type: 'Study Beats', img: 'https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?w=160&auto=format&fit=crop', query: 'Indian Lo-Fi Chill' },
-      ] as dial}
+      {#each dynamicStations as dial}
         <button
           onclick={() => { playerState.activeTab = 'search'; playerState.searchYouTube(dial.query); }}
           class="p-3 rounded-2xl m3-acrylic-card hover:bg-white/10 border border-white/5 cursor-pointer shadow-md shadow-black/30 hover:shadow-black/50 hover:scale-[1.02] transition-all duration-200 text-center group flex flex-col items-center gpu-card"
@@ -540,64 +491,6 @@
           </div>
           <div class="text-xs font-bold text-white truncate max-w-full">{dial.name}</div>
           <div class="text-[10px] text-[var(--md-sys-on-surface-variant)]">{dial.type}</div>
-        </button>
-      {/each}
-    </div>
-  </section>
-
-  <!-- Top Daily Charts -->
-  <section class="space-y-3.5 pt-2">
-    <div class="flex items-center justify-between">
-      <h2 class="text-xl font-bold tracking-tight text-white flex items-center gap-2.5">
-        <span class="material-symbols-rounded text-lg text-[var(--md-sys-primary)]">leaderboard</span>
-        Top Charts • Regional Daily
-      </h2>
-      <button onclick={() => { playerState.activeTab = 'search'; playerState.searchYouTube('Top 50 Songs Daily'); }} class="text-xs font-bold text-[var(--md-sys-primary)] hover:underline">
-        Explore Chart
-      </button>
-    </div>
-
-    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-      {#each (liveTrending.length > 0 ? liveTrending : trendingTracks).slice(0, 6) as track, idx}
-        {@const isCurrent = playerState.currentTrack?.id === track.id}
-        <button
-          onclick={() => playerState.playTrack(track)}
-          class="p-3 rounded-2xl {isCurrent ? 'bg-[var(--md-sys-primary-container)]/25 border-[var(--md-sys-primary)]/40' : 'm3-acrylic-card hover:bg-white/10 border-white/5'} border shadow-md shadow-black/30 hover:shadow-black/50 hover:scale-[1.02] transition-all duration-200 cursor-pointer flex items-center gap-3.5 group text-left w-full gpu-card"
-        >
-          <div class="w-6 text-center font-heading font-black text-sm {idx === 0 ? 'text-amber-400' : idx === 1 ? 'text-slate-300' : idx === 2 ? 'text-amber-600' : 'text-white/40'} shrink-0">
-            {idx + 1}
-          </div>
-          <div class="relative w-12 h-12 rounded-xl overflow-hidden shadow shrink-0 border border-white/10">
-            <img loading="lazy" decoding="async" src={track.cover_art} alt={track.title} class="w-full h-full object-cover group-hover:scale-105 transition duration-300" />
-            <div class="absolute inset-0 bg-black/30 backdrop-blur-[2px] {isCurrent && playerState.playback.is_playing ? 'opacity-100 bg-black/40' : 'opacity-0 group-hover:opacity-100'} flex items-center justify-center transition-opacity duration-200">
-              <div class="w-7 h-7 rounded-full bg-black/60 backdrop-blur-md border border-white/20 text-white flex items-center justify-center shadow-md">
-                {#if isCurrent && playerState.playback.is_playing}
-                  <svg viewBox="0 0 24 24" class="w-3 h-3 fill-current" xmlns="http://www.w3.org/2000/svg">
-                    <rect x="6" y="4" width="4" height="16" rx="1.5" />
-                    <rect x="14" y="4" width="4" height="16" rx="1.5" />
-                  </svg>
-                {:else}
-                  <svg viewBox="2.27 0 24 24" class="w-3 h-3 fill-current" xmlns="http://www.w3.org/2000/svg">
-                    <path d="M8 5.14v13.72a1 1 0 0 0 1.5.86l11.04-6.86a1 1 0 0 0 0-1.72L9.5 4.28A1 1 0 0 0 8 5.14z"/>
-                  </svg>
-                {/if}
-              </div>
-            </div>
-          </div>
-          <div class="min-w-0 flex-1">
-            <div class="text-xs font-semibold {isCurrent ? 'text-[var(--md-sys-primary)]' : 'text-white'} truncate group-hover:text-[var(--md-sys-primary)] transition">
-              {track.title}
-            </div>
-            <div class="text-[11px] text-[var(--md-sys-on-surface-variant)]/75 truncate mt-0.5 flex items-center gap-1.5">
-              <span class="truncate">{sanitizeArtist(track.artist)}</span>
-              {#if track.duration > 0}
-                <span class="text-white/30 shrink-0">•</span>
-                <span class="font-mono text-[10px] text-white/50 shrink-0">
-                  {Math.floor(track.duration / 60)}:{Math.floor(track.duration % 60) < 10 ? '0' : ''}{Math.floor(track.duration % 60)}
-                </span>
-              {/if}
-            </div>
-          </div>
         </button>
       {/each}
     </div>
@@ -644,7 +537,6 @@
 </div>
 
 <style>
-  /* Composite-only hardware-accelerated transforms avoiding repaint triggers */
   .contain-gpu {
     contain: layout style;
   }

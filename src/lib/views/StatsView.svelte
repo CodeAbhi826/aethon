@@ -6,6 +6,31 @@
       .sort((a, b) => b.play_count - a.play_count)
       .slice(0, 5);
   });
+
+  const codecBreakdown = $derived.by(() => {
+    const total = playerState.library.length;
+    if (total === 0) {
+      return [
+        { label: 'FLAC / ALAC / WAV (Lossless)', pct: 0, color: 'bg-emerald-400' },
+        { label: 'Opus / OGG / AAC', pct: 0, color: 'bg-indigo-400' },
+        { label: 'MP3 / Other', pct: 0, color: 'bg-purple-400' },
+      ];
+    }
+    let lossless = 0;
+    let modernLossy = 0;
+    let mp3Other = 0;
+    for (const t of playerState.library) {
+      const f = (t.format || '').toUpperCase();
+      if (/FLAC|ALAC|WAV|PCM/.test(f)) lossless++;
+      else if (/OPUS|OGG|AAC|M4A/.test(f)) modernLossy++;
+      else mp3Other++;
+    }
+    return [
+      { label: 'FLAC / ALAC / WAV (Lossless)', pct: Math.round((lossless / total) * 100), color: 'bg-emerald-400' },
+      { label: 'Opus / OGG / AAC', pct: Math.round((modernLossy / total) * 100), color: 'bg-indigo-400' },
+      { label: 'MP3 / Other', pct: Math.round((mp3Other / total) * 100), color: 'bg-purple-400' },
+    ];
+  });
 </script>
 
 <div class="p-6 space-y-6 max-w-7xl mx-auto pb-28">
@@ -58,35 +83,17 @@
       <h3 class="font-heading font-bold text-base text-white mb-4">Codec Distribution</h3>
       
       <div class="space-y-3">
-        <div>
-          <div class="flex justify-between text-xs text-[#9ea2b0] mb-1 font-mono">
-            <span>FLAC Lossless (24-bit / 96kHz)</span>
-            <span>68%</span>
+        {#each codecBreakdown as item}
+          <div>
+            <div class="flex justify-between text-xs text-[#9ea2b0] mb-1 font-mono">
+              <span>{item.label}</span>
+              <span>{item.pct}%</span>
+            </div>
+            <div class="h-2 w-full bg-white/[0.05] rounded-full overflow-hidden">
+              <div class="h-full {item.color} rounded-full transition-all duration-500" style="width: {item.pct}%;"></div>
+            </div>
           </div>
-          <div class="h-2 w-full bg-white/[0.05] rounded-full overflow-hidden">
-            <div class="h-full bg-emerald-400 rounded-full" style="width: 68%;"></div>
-          </div>
-        </div>
-
-        <div>
-          <div class="flex justify-between text-xs text-[#9ea2b0] mb-1 font-mono">
-            <span>Lossless Stream Opus (256kbps)</span>
-            <span>22%</span>
-          </div>
-          <div class="h-2 w-full bg-white/[0.05] rounded-full overflow-hidden">
-            <div class="h-full bg-indigo-400 rounded-full" style="width: 22%;"></div>
-          </div>
-        </div>
-
-        <div>
-          <div class="flex justify-between text-xs text-[#9ea2b0] mb-1 font-mono">
-            <span>ALAC / MP3</span>
-            <span>10%</span>
-          </div>
-          <div class="h-2 w-full bg-white/[0.05] rounded-full overflow-hidden">
-            <div class="h-full bg-purple-400 rounded-full" style="width: 10%;"></div>
-          </div>
-        </div>
+        {/each}
       </div>
     </div>
 

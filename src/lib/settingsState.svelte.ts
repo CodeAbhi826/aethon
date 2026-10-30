@@ -1,4 +1,5 @@
 import { invoke } from '@tauri-apps/api/core';
+import { listen } from '@tauri-apps/api/event';
 import { generateThemeFromHex, applyThemeTokens, THEME_PRESETS } from './theme';
 
 export type ThemeListener = () => void;
@@ -6,6 +7,14 @@ const themeListeners: Set<ThemeListener> = new Set();
 export function registerThemeListener(fn: ThemeListener): () => void {
   themeListeners.add(fn);
   return () => themeListeners.delete(fn);
+}
+
+export interface YtmAccountProfile {
+  name: string;
+  email_or_handle: string;
+  avatar_url: string;
+  cookie: string;
+  visitor_data?: string | null;
 }
 
 class SettingsState {
@@ -89,6 +98,8 @@ class SettingsState {
   ytmSyncFavorites = $state(true);
   ytmSyncHistory = $state(true);
   ytmAutoSync = $state(true);
+  ytmRecapTracking = $state(true);
+  isSyncingYtm = $state(false);
   savedAccounts = $state<Array<{ name: string; email: string; avatar: string; cookie: string }>>([]);
 
   // Internal state
@@ -103,6 +114,15 @@ class SettingsState {
     await this.loadFromDb();
     this.updateActiveTheme();
     this.refreshCacheSize();
+    try {
+      await listen<YtmAccountProfile>('ytm-login-success', async (event) => {
+        const p = event.payload;
+        this.connectYtmAccount(p.cookie, p.name, p.email_or_handle, p.avatar_url);
+        await this.syncYtmLibrary();
+      });
+    } catch (e) {
+      console.warn('Failed to register ytm-login-success listener:', e);
+    }
   }
 
   async loadFromDb() {
@@ -178,6 +198,7 @@ class SettingsState {
         if ('ytmSyncFavorites' in records) this.ytmSyncFavorites = records['ytmSyncFavorites'] === 'true';
         if ('ytmSyncHistory' in records) this.ytmSyncHistory = records['ytmSyncHistory'] === 'true';
         if ('ytmAutoSync' in records) this.ytmAutoSync = records['ytmAutoSync'] === 'true';
+        if ('ytmRecapTracking' in records) this.ytmRecapTracking = records['ytmRecapTracking'] === 'true';
         if ('savedAccounts' in records) {
           try {
             this.savedAccounts = JSON.parse(records['savedAccounts']);
@@ -272,6 +293,7 @@ class SettingsState {
           ytmSyncFavorites: String(this.ytmSyncFavorites),
           ytmSyncHistory: String(this.ytmSyncHistory),
           ytmAutoSync: String(this.ytmAutoSync),
+          ytmRecapTracking: String(this.ytmRecapTracking),
           savedAccounts: JSON.stringify(this.savedAccounts),
         };
 
@@ -282,14 +304,44 @@ class SettingsState {
     }, 300);
   }
 
-  connectYtmAccount(cookie: string, name?: string, email?: string) {
+  async openYtmLogin() {
+    try {
+      await invoke('open_ytm_login');
+    } catch (e) {
+      console.error('Failed to open YTM login window:', e);
+    }
+  }
+
+  async syncYtmLibrary(): Promise<number> {
+    if (!this.ytmCookie || !this.ytmConnected) return 0;
+    this.isSyncingYtm = true;
+    try {
+      const count = await invoke<number>('sync_ytm_library', { cookie: this.ytmCookie });
+      return count;
+    } catch (err) {
+      console.error('Failed to sync YTM library:', err);
+      return 0;
+    } finally {
+      this.isSyncingYtm = false;
+    }
+  }
+
+  connectYtmAccount(cookie: string, name?: string, email?: string, avatar?: string) {
     this.ytmCookie = cookie.trim();
     this.ytmConnected = true;
     this.ytmAccountName = name || 'Google Account';
     this.ytmAccountEmail = email || (cookie.includes('SAPISID') ? 'authenticated@google.com' : 'cookie-auth@user');
-    this.ytmAccountAvatar = 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=120&auto=format&fit=crop';
+    this.ytmAccountAvatar = avatar || 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=120&auto=format&fit=crop';
 
-    if (!this.savedAccounts.some((a) => a.cookie === this.ytmCookie)) {
+    const existingIdx = this.savedAccounts.findIndex((a) => a.cookie === this.ytmCookie);
+    if (existingIdx >= 0) {
+      this.savedAccounts[existingIdx] = {
+        name: this.ytmAccountName,
+        email: this.ytmAccountEmail,
+        avatar: this.ytmAccountAvatar,
+        cookie: this.ytmCookie,
+      };
+    } else {
       this.savedAccounts.push({
         name: this.ytmAccountName,
         email: this.ytmAccountEmail,

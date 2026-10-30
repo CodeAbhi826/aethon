@@ -136,11 +136,60 @@ impl Database {
         Ok(())
     }
 
+    pub fn upsert_tracks_batch(&self, tracks: &[Track]) -> Result<()> {
+        let mut conn = self.conn.lock();
+        let tx = conn.transaction()?;
+        {
+            let mut stmt = tx.prepare(
+                "INSERT INTO tracks (id, title, artist, album, duration, file_path, cover_art, format, bitrate, sample_rate, play_count, favorite, date_added)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)
+                 ON CONFLICT(file_path) DO UPDATE SET
+                    title = excluded.title,
+                    artist = excluded.artist,
+                    album = excluded.album,
+                    duration = excluded.duration,
+                    cover_art = COALESCE(excluded.cover_art, tracks.cover_art),
+                    format = excluded.format,
+                    bitrate = excluded.bitrate,
+                    sample_rate = excluded.sample_rate",
+            )?;
+
+            for track in tracks {
+                stmt.execute(params![
+                    track.id,
+                    track.title,
+                    track.artist,
+                    track.album,
+                    track.duration,
+                    track.file_path,
+                    track.cover_art,
+                    track.format,
+                    track.bitrate,
+                    track.sample_rate,
+                    track.play_count,
+                    if track.favorite { 1 } else { 0 },
+                    track.date_added
+                ])?;
+            }
+        }
+        tx.commit()?;
+        Ok(())
+    }
+
+    pub fn set_favorite_explicit(&self, track_id: &str, favorite: bool) -> Result<()> {
+        let conn = self.conn.lock();
+        conn.execute(
+            "UPDATE tracks SET favorite = ?1 WHERE id = ?2",
+            params![if favorite { 1 } else { 0 }, track_id],
+        )?;
+        Ok(())
+    }
+
     pub fn get_all_tracks(&self) -> Result<Vec<Track>> {
         let conn = self.conn.lock();
         let mut stmt = conn.prepare(
             "SELECT id, title, artist, album, duration, file_path, cover_art, format, bitrate, sample_rate, play_count, favorite, date_added
-             FROM tracks ORDER BY title COLLATE NOCASE ASC",
+             FROM tracks WHERE file_path NOT LIKE 'http://%' AND file_path NOT LIKE 'https://%' ORDER BY title COLLATE NOCASE ASC",
         )?;
 
         let rows = stmt.query_map([], |row| {
@@ -324,7 +373,8 @@ impl Database {
 
     pub fn create_playlist(&self, name: &str, description: Option<&str>) -> Result<Playlist> {
         let conn = self.conn.lock();
-        let id = format!("pl_{}", chrono_now());
+        let nanos = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_nanos();
+        let id = format!("pl_{:x}", nanos);
         let now = chrono_now();
         conn.execute(
             "INSERT INTO playlists (id, name, description, created_at) VALUES (?1, ?2, ?3, ?4)",

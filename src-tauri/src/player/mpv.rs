@@ -46,14 +46,18 @@ pub struct MpvEngine {
 
 impl Drop for MpvEngine {
     fn drop(&mut self) {
+        self.shutdown();
+    }
+}
+
+impl MpvEngine {
+    pub fn shutdown(&self) {
         if let Some(mut child) = self.process.lock().take() {
             let _ = child.kill();
         }
         let _ = std::fs::remove_file(&self.socket_path);
     }
-}
 
-impl MpvEngine {
     pub fn dummy() -> Self {
         let (cmd_tx, _cmd_rx) = mpsc::channel(1);
         Self {

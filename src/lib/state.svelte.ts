@@ -45,6 +45,8 @@ class PlayerState {
   selectedAlbum = $state<{ title: string; artist: string; cover?: string; year?: string } | null>(null);
   lastMprisPlaying = false;
   pendingResumePosition: number | null = null;
+  currentRecapSession = $state<{ videoId: string; cpn: string } | null>(null);
+  lastRecapReportedPos = 0;
 
   // Derived properties
   formattedTime = $derived.by(() => {
@@ -196,6 +198,30 @@ class PlayerState {
             } catch {}
           }
         }
+
+        // YouTube Recap watch-time heartbeat (sent every ~30s of actual playback)
+        if (
+          event.payload.is_playing &&
+          this.currentRecapSession &&
+          settingsState.ytmConnected &&
+          settingsState.ytmRecapTracking &&
+          settingsState.ytmCookie
+        ) {
+          const pos = event.payload.position;
+          if (pos - this.lastRecapReportedPos >= 30) {
+            const dur = event.payload.duration || (this.currentTrack ? this.currentTrack.duration : 0) || 0;
+            const { videoId, cpn } = this.currentRecapSession;
+            this.lastRecapReportedPos = pos;
+            invoke('ping_recap_watchtime', {
+              cookie: settingsState.ytmCookie,
+              videoId,
+              cpn,
+              currentPositionSecs: pos,
+              totalDurationSecs: dur,
+            }).catch((err) => console.warn('ping_recap_watchtime error:', err));
+          }
+        }
+
         if (settingsState.mprisIntegration) {
           if (this.playback.is_playing !== this.lastMprisPlaying) {
             this.lastMprisPlaying = this.playback.is_playing;
@@ -208,6 +234,8 @@ class PlayerState {
       });
 
       await listen('track-ended', () => {
+        this.currentRecapSession = null;
+        this.lastRecapReportedPos = 0;
         // Guard: only advance if the track was playing and reached close to the end, not if replaced during loading
         if (this.playback.duration > 0 && this.playback.position >= Math.max(1, this.playback.duration - 2)) {
           this.playNext();
@@ -276,6 +304,12 @@ class PlayerState {
     } catch (e) {
       console.warn('Error loading library from SQLite:', e);
     }
+  }
+
+  async refreshLibrary() {
+    await this.loadLibrary();
+    await this.loadPlaylists();
+    await this.loadPlayHistory();
   }
 
   async loadPlaylists() {
@@ -445,6 +479,32 @@ class PlayerState {
     this.updateMediaSession(sanitized);
     this.updateMpris(sanitized, true);
     this.notifyTrackChange(sanitized);
+
+    // Initialize YouTube Music Recap tracking if stream is YouTube-based
+    let videoId: string | null = null;
+    if (sanitized.id.startsWith('yt_')) {
+      videoId = sanitized.id.replace('yt_', '');
+    } else if (sanitized.file_path.startsWith('http://') || sanitized.file_path.startsWith('https://')) {
+      const match = sanitized.file_path.match(/(?:v=|\/)([0-9A-Za-z_-]{11})/);
+      if (match) videoId = match[1];
+    }
+
+    if (videoId && settingsState.ytmConnected && settingsState.ytmRecapTracking && settingsState.ytmCookie) {
+      invoke<string>('init_recap_playback_tracking', {
+        cookie: settingsState.ytmCookie,
+        videoId,
+      }).then((cpn) => {
+        this.currentRecapSession = { videoId: videoId!, cpn };
+        this.lastRecapReportedPos = 0;
+      }).catch((err) => {
+        console.warn('init_recap_playback_tracking error:', err);
+        this.currentRecapSession = null;
+      });
+    } else {
+      this.currentRecapSession = null;
+      this.lastRecapReportedPos = 0;
+    }
+
     try {
       await invoke('play_track', { uri: sanitized.file_path, trackId: sanitized.id, track: sanitized });
       this.fetchLyrics(sanitized.title, sanitized.artist, sanitized.duration);
@@ -472,41 +532,9 @@ class PlayerState {
       format: 'Opus 256k',
       play_count: 0,
       favorite: false,
-      date_added: Date.now(),
+      date_added: Math.floor(Date.now() / 1000),
     };
-    if (this.currentTrack && this.currentTrack.id !== syntheticTrack.id) {
-      this.pendingResumePosition = null;
-      this.history.unshift(this.currentTrack);
-      if (this.history.length > 50) this.history.pop();
-      if (typeof localStorage !== 'undefined') {
-        try {
-          localStorage.setItem('aethon_last_track_id', syntheticTrack.id);
-          localStorage.setItem('aethon_last_position', '0');
-        } catch {}
-      }
-    } else if (typeof localStorage !== 'undefined') {
-      try {
-        localStorage.setItem('aethon_last_track_id', syntheticTrack.id);
-      } catch {}
-    }
-    this.currentTrack = syntheticTrack;
-    this.isLoading = true;
-    this.updateMediaSession(syntheticTrack);
-    this.updateMpris(syntheticTrack, true);
-    this.notifyTrackChange(syntheticTrack);
-    try {
-      await invoke('play_track', { uri: yt.stream_url, trackId: syntheticTrack.id, track: syntheticTrack });
-      this.fetchLyrics(yt.title, yt.artist, yt.duration);
-      this.loadPlayHistory();
-      if (yt.thumbnail) {
-        this.applyMonetColorFromImage(yt.thumbnail);
-      } else {
-        this.reapplyTheme();
-      }
-    } catch (e) {
-      console.error('Stream play error:', e);
-      this.isLoading = false;
-    }
+    await this.playTrack(syntheticTrack);
   }
 
   async togglePlay() {
@@ -583,6 +611,14 @@ class PlayerState {
       if (t) t.favorite = fav;
       if (this.currentTrack?.id === trackId) {
         this.currentTrack.favorite = fav;
+      }
+      if (trackId.startsWith('yt_') && settingsState.ytmConnected && settingsState.ytmCookie) {
+        const videoId = trackId.replace('yt_', '');
+        invoke('set_ytm_like', {
+          cookie: settingsState.ytmCookie,
+          videoId,
+          like: fav,
+        }).catch((err) => console.warn('set_ytm_like error:', err));
       }
     } catch (e) {
       console.error('Toggle favorite error:', e);
@@ -683,7 +719,7 @@ class PlayerState {
               format: 'Opus 256k',
               play_count: 0,
               favorite: false,
-              date_added: Date.now(),
+              date_added: Math.floor(Date.now() / 1000),
             }));
 
           if (suggestions.length > 0) {

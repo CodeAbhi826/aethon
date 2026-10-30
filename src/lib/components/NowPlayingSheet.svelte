@@ -43,10 +43,14 @@
   let isRomanizedMode = $state(false);
 
   const audioQualityLabel = $derived.by(() => {
-    const fmt = playerState.currentTrack?.format;
-    if (!fmt) return 'Lossless';
-    if (fmt.toLowerCase().includes('lossless')) return fmt;
-    return `Lossless • ${fmt}`;
+    const codec = (playerState.playback.codec || playerState.currentTrack?.format || '').toUpperCase();
+    const sr = playerState.playback.sample_rate || playerState.currentTrack?.sample_rate;
+    const srKhz = sr ? `${(sr / 1000).toFixed(1).replace(/\.0$/, '')}kHz` : '';
+    const isLossless = /FLAC|ALAC|WAV|PCM|APE|WV/.test(codec);
+    if (isLossless) {
+      return srKhz ? `Lossless • ${codec} ${srKhz}` : `Lossless • ${codec}`;
+    }
+    return codec ? `High Quality • ${codec}${srKhz ? ` ${srKhz}` : ''}` : 'Audio Stream';
   });
 
   function adjustOffset(delta: number) {
@@ -137,8 +141,8 @@
   }
 
   // 60FPS Ambient Audio Visualizer
-  onMount(() => {
-    if (!canvasEl) return;
+  $effect(() => {
+    if (!playerState.isNowPlayingOpen || !canvasEl) return;
     const ctx = canvasEl.getContext('2d');
     if (!ctx) return;
 
@@ -151,7 +155,7 @@
       const height = canvasEl.height;
       ctx.clearRect(0, 0, width, height);
 
-      const isPlaying = playerState.playback.is_playing;
+      const isPlaying = playerState.playback.is_playing && !settingsState.reduceMotion;
       const bars = 44;
       const barWidth = width / bars - 2;
 
