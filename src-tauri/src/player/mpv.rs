@@ -106,7 +106,7 @@ impl MpvEngine {
             .arg(format!("--input-ipc-server={}", socket_path))
             .arg("--ytdl=yes")
             .arg("--ytdl-format=251/140/bestaudio[ext=webm]/bestaudio/best")
-            .arg("--ytdl-raw-options=no-playlist=,no-check-certificates=,extractor-args=youtube:player_client=android_vr,ios")
+            .arg("--ytdl-raw-options=no-playlist=,no-check-certificates=")
             .arg("--keep-open=yes")
             .arg("--gapless-audio=yes")
             .arg("--cache=yes")
