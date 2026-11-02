@@ -5,22 +5,24 @@ use lofty::probe::Probe;
 use std::path::{Path, PathBuf};
 use walkdir::WalkDir;
 
-pub fn deterministic_track_id(path_str: &str) -> String {
-    let mut hash: u64 = 0xcbf29ce484222325;
-    for byte in path_str.as_bytes() {
-        hash ^= *byte as u64;
-        hash = hash.wrapping_mul(0x100000001b3);
-    }
-    format!("trk_{:016x}", hash)
-}
-
 pub struct Scanner;
 
 impl Scanner {
+    pub fn deterministic_hash(bytes: &[u8]) -> u64 {
+        let mut hash: u64 = 0xcbf29ce484222325;
+        for b in bytes {
+            hash ^= *b as u64;
+            hash = hash.wrapping_mul(0x100000001b3);
+        }
+        hash
+    }
+
     pub fn scan_directory(dir_path: Option<PathBuf>, db: &Database) -> Vec<Track> {
         let music_dir = dir_path.unwrap_or_else(|| {
             dirs::audio_dir().unwrap_or_else(|| {
-                dirs::home_dir().map(|h| h.join("Music")).unwrap_or_else(|| PathBuf::from("."))
+                dirs::home_dir()
+                    .map(|h| h.join("Music"))
+                    .unwrap_or_else(|| PathBuf::from("."))
             })
         });
 
@@ -45,7 +47,10 @@ impl Scanner {
                 None => continue,
             };
 
-            if !matches!(ext.as_str(), "flac" | "mp3" | "m4a" | "alac" | "opus" | "ogg" | "wav" | "aac") {
+            if !matches!(
+                ext.as_str(),
+                "flac" | "mp3" | "m4a" | "alac" | "opus" | "ogg" | "wav" | "aac"
+            ) {
                 continue;
             }
 
@@ -55,13 +60,17 @@ impl Scanner {
         }
 
         let _ = db.upsert_tracks_batch(&scanned_tracks);
-        scanned_tracks
+        db.get_all_tracks().unwrap_or(scanned_tracks)
     }
 
-    fn read_metadata(path: &Path, ext: &str) -> Option<Track> {
+    pub fn read_metadata(path: &Path, ext: &str) -> Option<Track> {
         let path_str = path.to_string_lossy().to_string();
-        let file_stem = path.file_stem().and_then(|s| s.to_str()).unwrap_or("Unknown Track");
-        let id = deterministic_track_id(&path_str);
+        let file_stem = path
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .unwrap_or("Unknown Track");
+
+        let id = format!("trk_{:016x}", Self::deterministic_hash(path_str.as_bytes()));
 
         let mut title = file_stem.to_string();
         let mut artist = "Unknown Artist".to_string();
@@ -78,7 +87,10 @@ impl Scanner {
                 bitrate = properties.audio_bitrate();
                 sample_rate = properties.sample_rate();
 
-                if let Some(tag) = tagged_file.primary_tag().or_else(|| tagged_file.first_tag()) {
+                if let Some(tag) = tagged_file
+                    .primary_tag()
+                    .or_else(|| tagged_file.first_tag())
+                {
                     if let Some(t) = tag.title() {
                         if !t.trim().is_empty() {
                             title = t.trim().to_string();
@@ -97,21 +109,23 @@ impl Scanner {
 
                     if let Some(pic) = tag.pictures().first() {
                         let data = pic.data();
-                        if !data.is_empty() {
-                            let mut art_hasher = 0xcbf29ce484222325u64;
-                            for b in data.iter().take(8192) {
-                                art_hasher ^= *b as u64;
-                                art_hasher = art_hasher.wrapping_mul(0x100000001b3);
-                            }
-                            let ext_pic = if pic.mime_type().map(|m| m.as_str()).unwrap_or("").contains("png") { "png" } else { "jpg" };
-                            let cache_dir = dirs::cache_dir().unwrap_or_else(|| PathBuf::from(".")).join("aethon").join("covers");
-                            let _ = std::fs::create_dir_all(&cache_dir);
-                            let cover_file = cache_dir.join(format!("{:016x}.{}", art_hasher, ext_pic));
-                            if !cover_file.exists() {
-                                let _ = std::fs::write(&cover_file, data);
-                            }
-                            cover_art = Some(cover_file.to_string_lossy().to_string());
+                        let img_hash = Self::deterministic_hash(data);
+                        let ext_img =
+                            match pic.mime_type().map(|m| m.as_str()).unwrap_or("image/jpeg") {
+                                "image/png" => "png",
+                                _ => "jpg",
+                            };
+                        let covers_dir = dirs::cache_dir()
+                            .unwrap_or_else(|| PathBuf::from("."))
+                            .join("aethon")
+                            .join("covers");
+                        let _ = std::fs::create_dir_all(&covers_dir);
+                        let cover_file =
+                            covers_dir.join(format!("{:016x}.{}", img_hash, ext_img));
+                        if !cover_file.exists() {
+                            let _ = std::fs::write(&cover_file, data);
                         }
+                        cover_art = Some(cover_file.to_string_lossy().to_string());
                     }
                 }
             }
@@ -140,3 +154,5 @@ impl Scanner {
         })
     }
 }
+
+

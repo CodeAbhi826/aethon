@@ -54,8 +54,11 @@ impl MpvEngine {
     pub fn shutdown(&self) {
         if let Some(mut child) = self.process.lock().take() {
             let _ = child.kill();
+            let _ = child.wait();
         }
-        let _ = std::fs::remove_file(&self.socket_path);
+        if !self.socket_path.is_empty() {
+            let _ = std::fs::remove_file(&self.socket_path);
+        }
     }
 
     pub fn dummy() -> Self {
@@ -68,16 +71,17 @@ impl MpvEngine {
         }
     }
 
-    pub async fn new(app: Option<AppHandle>) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
+    pub async fn new(
+        app: Option<AppHandle>,
+    ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
         let pid = std::process::id();
-        let socket_path = format!("/tmp/aethon-mpv-{}.sock", pid);
+        let sock_buf = crate::runtime_socket_dir().join(format!("aethon-mpv-{}.sock", pid));
+        let socket_path = sock_buf.to_string_lossy().to_string();
 
-        // 1. Remove old socket file if it exists
         if std::path::Path::new(&socket_path).exists() {
             let _ = std::fs::remove_file(&socket_path);
         }
 
-        // 2. Locate mpv binary (handle AppImage PATH differences)
         let mpv_bin = if std::path::Path::new("/usr/bin/mpv").exists() {
             "/usr/bin/mpv"
         } else if std::path::Path::new("/usr/local/bin/mpv").exists() {
@@ -94,45 +98,40 @@ impl MpvEngine {
 
         crate::aethon_log!("Spawning MPV engine: {} (socket: {})", mpv_bin, socket_path);
 
-        // Prepare stream cache directory (~/.cache/aethon/streams/)
-        let mut cache_dir = dirs::cache_dir().unwrap_or_else(|| std::path::PathBuf::from("."));
-        cache_dir.push("aethon");
-        cache_dir.push("streams");
-        let _ = std::fs::create_dir_all(&cache_dir);
-        let cache_dir_str = cache_dir.to_string_lossy().to_string();
-
-        // 3. Spawn headless MPV process
+        // Low-latency RAM-buffered MPV configuration for <1s stream startup
         let mut cmd = Command::new(mpv_bin);
         cmd.arg("--idle=yes")
             .arg("--no-video")
             .arg("--no-terminal")
             .arg(format!("--input-ipc-server={}", socket_path))
             .arg("--ytdl=yes")
-            .arg("--ytdl-format=bestaudio/best")
+            .arg("--ytdl-format=251/140/bestaudio[ext=webm]/bestaudio/best")
+            .arg("--ytdl-raw-options=no-playlist=,no-check-certificates=,extractor-args=youtube:player_client=android_vr,ios")
             .arg("--keep-open=yes")
             .arg("--gapless-audio=yes")
             .arg("--cache=yes")
-            .arg("--cache-on-disk=yes")
-            .arg(format!("--demuxer-cache-dir={}", cache_dir_str))
-            .arg("--demuxer-cache-unlink-files=no")
-            .arg("--demuxer-max-bytes=16777216")
+            .arg("--cache-on-disk=no")
+            .arg("--cache-pause=yes")
+            .arg("--cache-pause-wait=0.15")
+            .arg("--cache-pause-initial=yes")
+            .arg("--demuxer-max-bytes=33554432")
             .arg("--demuxer-max-back-bytes=8388608")
-            .arg("--demuxer-readahead-secs=60")
+            .arg("--demuxer-readahead-secs=20")
+            .arg("--audio-buffer=0.15")
+            .arg("--demuxer-lavf-o=http_persistent=1,reconnect=1,reconnect_streamed=1,reconnect_delay_max=2")
             .arg("--ao=pipewire,pulse,alsa")
             .stdin(Stdio::null())
             .stdout(stdout_cfg)
             .stderr(stderr_cfg);
 
-        // AppImage isolation: Clean host process environment completely so host mpv and yt-dlp use Arch Linux native host libraries and python runtime
         crate::sanitize_host_command(&mut cmd);
 
         let child = cmd.spawn()?;
 
-        // 4. Wait up to 3 seconds for socket to be created
         let mut connected = false;
         let mut stream = None;
-        for _ in 0..30 {
-            tokio::time::sleep(Duration::from_millis(100)).await;
+        for _ in 0..40 {
+            tokio::time::sleep(Duration::from_millis(60)).await;
             if let Ok(s) = UnixStream::connect(&socket_path).await {
                 stream = Some(s);
                 connected = true;
@@ -151,7 +150,6 @@ impl MpvEngine {
         let state = Arc::new(RwLock::new(PlaybackState::default()));
         let state_clone = Arc::clone(&state);
 
-        // Task: Write commands to mpv socket
         tokio::spawn(async move {
             while let Some(cmd) = cmd_rx.recv().await {
                 let mut line = cmd;
@@ -165,7 +163,6 @@ impl MpvEngine {
             }
         });
 
-        // Task: Read events and property changes from mpv socket
         let app_handle = app.clone();
         tokio::spawn(async move {
             let mut buf_reader = BufReader::new(reader);
@@ -205,15 +202,20 @@ impl MpvEngine {
                                             }
                                         }
                                         "audio-codec-name" => {
-                                            s.codec = data.and_then(|d| d.as_str()).map(String::from);
+                                            s.codec =
+                                                data.and_then(|d| d.as_str()).map(String::from);
                                         }
                                         "audio-bitrate" => {
                                             s.bitrate = data.and_then(|d| d.as_i64());
                                         }
                                         "audio-params" => {
                                             if let Some(obj) = data.and_then(|d| d.as_object()) {
-                                                s.sample_rate = obj.get("samplerate").and_then(|sr| sr.as_i64());
-                                                s.channels = obj.get("channel-count").and_then(|c| c.as_i64());
+                                                s.sample_rate = obj
+                                                    .get("samplerate")
+                                                    .and_then(|sr| sr.as_i64());
+                                                s.channels = obj
+                                                    .get("channel-count")
+                                                    .and_then(|c| c.as_i64());
                                             }
                                         }
                                         _ => {}
@@ -225,7 +227,8 @@ impl MpvEngine {
                                 }
                             }
                             "end-file" => {
-                                let reason = val.get("reason").and_then(|r| r.as_str()).unwrap_or("");
+                                let reason =
+                                    val.get("reason").and_then(|r| r.as_str()).unwrap_or("");
                                 crate::aethon_log!("MPV end-file event received: reason={}", reason);
                                 if reason == "eof" {
                                     let mut s = state_clone.write();
@@ -258,25 +261,44 @@ impl MpvEngine {
             state,
         };
 
-        // Register property observers
-        engine.send_cmd(r#"{"command": ["observe_property", 1, "time-pos"]}"#).await?;
-        engine.send_cmd(r#"{"command": ["observe_property", 2, "duration"]}"#).await?;
-        engine.send_cmd(r#"{"command": ["observe_property", 3, "pause"]}"#).await?;
-        engine.send_cmd(r#"{"command": ["observe_property", 4, "volume"]}"#).await?;
-        engine.send_cmd(r#"{"command": ["observe_property", 5, "audio-codec-name"]}"#).await?;
-        engine.send_cmd(r#"{"command": ["observe_property", 6, "audio-params"]}"#).await?;
-        engine.send_cmd(r#"{"command": ["observe_property", 7, "audio-bitrate"]}"#).await?;
+        engine
+            .send_cmd(r#"{"command": ["observe_property", 1, "time-pos"]}"#)
+            .await?;
+        engine
+            .send_cmd(r#"{"command": ["observe_property", 2, "duration"]}"#)
+            .await?;
+        engine
+            .send_cmd(r#"{"command": ["observe_property", 3, "pause"]}"#)
+            .await?;
+        engine
+            .send_cmd(r#"{"command": ["observe_property", 4, "volume"]}"#)
+            .await?;
+        engine
+            .send_cmd(r#"{"command": ["observe_property", 5, "audio-codec-name"]}"#)
+            .await?;
+        engine
+            .send_cmd(r#"{"command": ["observe_property", 6, "audio-params"]}"#)
+            .await?;
+        engine
+            .send_cmd(r#"{"command": ["observe_property", 7, "audio-bitrate"]}"#)
+            .await?;
 
         Ok(engine)
     }
 
-    pub async fn send_cmd(&self, json_cmd: &str) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    pub async fn send_cmd(
+        &self,
+        json_cmd: &str,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         crate::aethon_log!("MPV IPC >> {}", json_cmd);
         self.cmd_tx.send(json_cmd.to_string()).await?;
         Ok(())
     }
 
-    pub async fn load_file(&self, uri: &str) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    pub async fn load_file(
+        &self,
+        uri: &str,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         {
             let mut s = self.state.write();
             s.current_uri = Some(uri.to_string());
@@ -322,7 +344,10 @@ impl MpvEngine {
         self.send_cmd(&msg.to_string()).await
     }
 
-    pub async fn set_volume(&self, vol: f64) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    pub async fn set_volume(
+        &self,
+        vol: f64,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         let clamped = vol.clamp(0.0, 100.0);
         let msg = serde_json::json!({
             "command": ["set_property", "volume", clamped]
@@ -330,36 +355,42 @@ impl MpvEngine {
         self.send_cmd(&msg.to_string()).await
     }
 
-    pub async fn set_equalizer(&self, gains: &[f64]) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    pub async fn set_equalizer(
+        &self,
+        gains: &[f64],
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         let is_flat = gains.iter().all(|&g| g.abs() < 0.05);
         if is_flat {
-            crate::aethon_log!("set_equalizer: flat preset active, bypassing audio filters");
             let msg = serde_json::json!({
                 "command": ["set_property", "af", ""]
             });
             return self.send_cmd(&msg.to_string()).await;
         }
 
-        let freqs = [31.25, 62.5, 125.0, 250.0, 500.0, 1000.0, 2000.0, 4000.0, 8000.0, 16000.0];
+        let freqs = [
+            31.25, 62.5, 125.0, 250.0, 500.0, 1000.0, 2000.0, 4000.0, 8000.0, 16000.0,
+        ];
         let mut filters = Vec::new();
         for (i, &f) in freqs.iter().enumerate() {
             let gain = gains.get(i).copied().unwrap_or(0.0).clamp(-12.0, 12.0);
             if gain.abs() >= 0.05 {
-                filters.push(format!("equalizer=f={:.1}:width_type=o:width=1.0:g={:.1}", f, gain));
+                filters.push(format!(
+                    "equalizer=f={:.1}:width_type=o:width=1.0:g={:.1}",
+                    f, gain
+                ));
             }
         }
-        let filter_chain = if filters.is_empty() {
-            String::new()
-        } else {
-            filters.join(",")
-        };
+        let filter_chain = filters.join(",");
         let msg = serde_json::json!({
             "command": ["set_property", "af", filter_chain]
         });
         self.send_cmd(&msg.to_string()).await
     }
 
-    pub async fn set_replaygain(&self, mode: &str) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    pub async fn set_replaygain(
+        &self,
+        mode: &str,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         let val = match mode {
             "track" | "album" => mode,
             _ => "no",
@@ -370,15 +401,13 @@ impl MpvEngine {
         self.send_cmd(&msg.to_string()).await
     }
 
-    pub async fn set_crossfade(&self, seconds: f64) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        if seconds <= 0.05 {
-            let msg = serde_json::json!({
-                "command": ["set_property", "gapless-audio", "yes"]
-            });
-            return self.send_cmd(&msg.to_string()).await;
-        }
+    pub async fn set_crossfade(
+        &self,
+        seconds: f64,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        let val = if seconds <= 0.05 { "yes" } else { "weak" };
         let msg = serde_json::json!({
-            "command": ["set_property", "gapless-audio", "weak"]
+            "command": ["set_property", "gapless-audio", val]
         });
         self.send_cmd(&msg.to_string()).await
     }
@@ -387,3 +416,4 @@ impl MpvEngine {
         self.state.read().clone()
     }
 }
+

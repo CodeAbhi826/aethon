@@ -13,6 +13,18 @@ use tauri::{Emitter, Manager};
 
 pub static VERBOSE: AtomicBool = AtomicBool::new(false);
 
+
+pub fn shutdown_daemons(app: &tauri::AppHandle) {
+    if let Some(state) = app.try_state::<AppState>() {
+        state.mpv.shutdown();
+        state.mpris.shutdown();
+    }
+}
+
+pub fn runtime_socket_dir() -> std::path::PathBuf {
+    dirs::runtime_dir().unwrap_or_else(std::env::temp_dir)
+}
+
 pub fn sanitize_host_command(cmd: &mut std::process::Command) {
     cmd.env_remove("LD_LIBRARY_PATH");
     cmd.env_remove("LD_PRELOAD");
@@ -39,13 +51,14 @@ macro_rules! aethon_log {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    let verbose_enabled = std::env::args().any(|arg| {
-        arg == "--verbose" || arg == "-v" || arg == "--debug"
-    });
+    let verbose_enabled = std::env::args()
+        .any(|arg| arg == "--verbose" || arg == "-v" || arg == "--debug");
     VERBOSE.store(verbose_enabled, Ordering::Relaxed);
 
     if verbose_enabled {
-        eprintln!("\x1b[32m[Aethon]\x1b[0m Verbose debug logging enabled via CLI flag (--verbose / -v)");
+        eprintln!(
+            "\x1b[32m[Aethon]\x1b[0m Verbose debug logging enabled via CLI flag (--verbose / -v)"
+        );
     }
 
     tauri::Builder::default()
@@ -59,14 +72,20 @@ pub fn run() {
             }) {
                 Ok(engine) => Arc::new(engine),
                 Err(e) => {
-                    eprintln!("[Aethon Warning] First attempt to start MPV failed: {:?}. Retrying...", e);
+                    eprintln!(
+                        "[Aethon Warning] First attempt to start MPV failed: {:?}. Retrying...",
+                        e
+                    );
                     std::thread::sleep(std::time::Duration::from_millis(500));
                     match tauri::async_runtime::block_on(async {
                         MpvEngine::new(Some(handle.clone())).await
                     }) {
                         Ok(retry_engine) => Arc::new(retry_engine),
                         Err(err) => {
-                            eprintln!("[Aethon Error] MPV engine initialization failed: {:?}. Launching in safe mode.", err);
+                            eprintln!(
+                                "[Aethon Error] MPV engine initialization failed: {:?}. Launching in safe mode.",
+                                err
+                            );
                             Arc::new(MpvEngine::dummy())
                         }
                     }
@@ -75,7 +94,6 @@ pub fn run() {
 
             let mpris = Arc::new(player::MprisManager::new(handle.clone(), &mpv.socket_path));
 
-            // Native System Tray configuration
             let menu = tauri::menu::MenuBuilder::new(app)
                 .text("tray_toggle_play", "Play / Pause")
                 .text("tray_next", "Next Track")
@@ -95,43 +113,50 @@ pub fn run() {
                 .tooltip("Aethon")
                 .menu(&menu)
                 .show_menu_on_left_click(false)
-                .on_menu_event(|app, event| {
-                    match event.id().as_ref() {
-                        "tray_toggle_play" => {
-                            if let Some(state) = app.try_state::<AppState>() {
-                                let mpv = Arc::clone(&state.mpv);
-                                tauri::async_runtime::spawn(async move {
-                                    let _ = mpv.toggle_pause().await;
-                                });
-                            }
+                .on_menu_event(|app, event| match event.id().as_ref() {
+                    "tray_toggle_play" => {
+                        if let Some(state) = app.try_state::<AppState>() {
+                            let mpv = Arc::clone(&state.mpv);
+                            tauri::async_runtime::spawn(async move {
+                                let _ = mpv.toggle_pause().await;
+                            });
                         }
-                        "tray_next" => {
-                            let _ = app.emit("tray-next", ());
-                        }
-                        "tray_prev" => {
-                            let _ = app.emit("tray-prev", ());
-                        }
-                        "tray_mini_player" => {
-                            let _ = app.emit("tray-mini-player", ());
-                        }
-                        "tray_show" => {
-                            if let Some(window) = app.get_webview_window("main") {
-                                if window.is_visible().unwrap_or(false) {
-                                    let _ = window.hide();
-                                } else {
-                                    let _ = window.show();
-                                    let _ = window.set_focus();
-                                }
-                            }
-                        }
-                        "tray_quit" => {
-                            app.exit(0);
-                        }
-                        _ => {}
                     }
+                    "tray_next" => {
+                        let _ = app.emit("tray-next", ());
+                    }
+                    "tray_prev" => {
+                        let _ = app.emit("tray-prev", ());
+                    }
+                    "tray_mini_player" => {
+                        let _ = app.emit("tray-mini-player", ());
+                    }
+                    "tray_show" => {
+                        if let Some(window) = app.get_webview_window("main") {
+                            if window.is_visible().unwrap_or(false) {
+                                let _ = window.hide();
+                            } else {
+                                let _ = window.show();
+                                let _ = window.set_focus();
+                            }
+                        }
+                    }
+                    "tray_quit" => {
+                        if let Some(state) = app.try_state::<AppState>() {
+                            state.mpv.shutdown();
+                            state.mpris.shutdown();
+                        }
+                        app.exit(0);
+                    }
+                    _ => {}
                 })
                 .on_tray_icon_event(|tray, event| {
-                    if let tauri::tray::TrayIconEvent::Click { button: tauri::tray::MouseButton::Left, button_state: tauri::tray::MouseButtonState::Up, .. } = event {
+                    if let tauri::tray::TrayIconEvent::Click {
+                        button: tauri::tray::MouseButton::Left,
+                        button_state: tauri::tray::MouseButtonState::Up,
+                        ..
+                    } = event
+                    {
                         let app = tray.app_handle();
                         if let Some(window) = app.get_webview_window("main") {
                             if window.is_visible().unwrap_or(false) {
@@ -170,6 +195,7 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             play_track,
+            prefetch_stream,
             toggle_play,
             pause_track,
             resume_track,
@@ -224,3 +250,4 @@ pub fn run() {
             }
         });
 }
+

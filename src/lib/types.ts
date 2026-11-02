@@ -29,12 +29,16 @@ export interface PlaybackState {
 export interface LyricLine {
   time: number;
   text: string;
+  romanized?: string | null;
+  translation?: string | null;
 }
 
 export interface LyricsResult {
   synced: boolean;
   lines: LyricLine[];
   plain_text?: string;
+  provider?: string;
+  has_romanized?: boolean;
 }
 
 export interface YouTubeTrack {
@@ -44,6 +48,20 @@ export interface YouTubeTrack {
   duration: number;
   thumbnail: string;
   stream_url: string;
+}
+
+export interface PlaybackTrackingSession {
+  video_id: string;
+  cpn: string;
+  playback_url: string;
+  watchtime_url: string;
+  last_reported_pos: number;
+}
+
+export interface YtmSyncSummary {
+  liked_songs_count: number;
+  playlists_count: number;
+  history_count: number;
 }
 
 export type TabType = 'home' | 'search' | 'library' | 'stats' | 'settings' | 'artist' | 'album';

@@ -2,6 +2,9 @@ use rusqlite::{params, Connection, Result};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicU64, Ordering};
+
+static PLAYLIST_SEQ: AtomicU64 = AtomicU64::new(1);
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Track {
@@ -112,11 +115,11 @@ impl Database {
                 title = excluded.title,
                 artist = excluded.artist,
                 album = excluded.album,
-                duration = excluded.duration,
+                duration = CASE WHEN excluded.duration > 0 THEN excluded.duration ELSE tracks.duration END,
                 cover_art = coalesce(excluded.cover_art, tracks.cover_art),
                 format = excluded.format,
-                bitrate = excluded.bitrate,
-                sample_rate = excluded.sample_rate",
+                bitrate = coalesce(excluded.bitrate, tracks.bitrate),
+                sample_rate = coalesce(excluded.sample_rate, tracks.sample_rate)",
             params![
                 track.id,
                 track.title,
@@ -147,13 +150,12 @@ impl Database {
                     title = excluded.title,
                     artist = excluded.artist,
                     album = excluded.album,
-                    duration = excluded.duration,
-                    cover_art = COALESCE(excluded.cover_art, tracks.cover_art),
+                    duration = CASE WHEN excluded.duration > 0 THEN excluded.duration ELSE tracks.duration END,
+                    cover_art = coalesce(excluded.cover_art, tracks.cover_art),
                     format = excluded.format,
-                    bitrate = excluded.bitrate,
-                    sample_rate = excluded.sample_rate",
+                    bitrate = coalesce(excluded.bitrate, tracks.bitrate),
+                    sample_rate = coalesce(excluded.sample_rate, tracks.sample_rate)",
             )?;
-
             for track in tracks {
                 stmt.execute(params![
                     track.id,
@@ -176,20 +178,14 @@ impl Database {
         Ok(())
     }
 
-    pub fn set_favorite_explicit(&self, track_id: &str, favorite: bool) -> Result<()> {
-        let conn = self.conn.lock();
-        conn.execute(
-            "UPDATE tracks SET favorite = ?1 WHERE id = ?2",
-            params![if favorite { 1 } else { 0 }, track_id],
-        )?;
-        Ok(())
-    }
-
     pub fn get_all_tracks(&self) -> Result<Vec<Track>> {
         let conn = self.conn.lock();
         let mut stmt = conn.prepare(
             "SELECT id, title, artist, album, duration, file_path, cover_art, format, bitrate, sample_rate, play_count, favorite, date_added
-             FROM tracks WHERE file_path NOT LIKE 'http://%' AND file_path NOT LIKE 'https://%' ORDER BY title COLLATE NOCASE ASC",
+             FROM tracks
+             WHERE (file_path NOT LIKE 'http://%' AND file_path NOT LIKE 'https://%')
+                OR favorite = 1
+             ORDER BY title COLLATE NOCASE ASC",
         )?;
 
         let rows = stmt.query_map([], |row| {
@@ -211,21 +207,21 @@ impl Database {
         })?;
 
         let mut tracks = Vec::new();
-        for r in rows {
-            if let Ok(track) = r {
-                tracks.push(track);
-            }
+        for r in rows.flatten() {
+            tracks.push(r);
         }
         Ok(tracks)
     }
 
     pub fn toggle_favorite(&self, track_id: &str) -> Result<bool> {
         let conn = self.conn.lock();
-        let current: i64 = conn.query_row(
-            "SELECT favorite FROM tracks WHERE id = ?1",
-            params![track_id],
-            |row| row.get(0),
-        ).unwrap_or(0);
+        let current: i64 = conn
+            .query_row(
+                "SELECT favorite FROM tracks WHERE id = ?1",
+                params![track_id],
+                |row| row.get(0),
+            )
+            .unwrap_or(0);
 
         let new_val = if current == 1 { 0 } else { 1 };
         conn.execute(
@@ -234,6 +230,15 @@ impl Database {
         )?;
 
         Ok(new_val == 1)
+    }
+
+    pub fn set_favorite_explicit(&self, track_id: &str, fav: bool) -> Result<()> {
+        let conn = self.conn.lock();
+        conn.execute(
+            "UPDATE tracks SET favorite = ?1 WHERE id = ?2",
+            params![if fav { 1 } else { 0 }, track_id],
+        )?;
+        Ok(())
     }
 
     pub fn record_play(&self, track_id: &str) -> Result<()> {
@@ -280,41 +285,9 @@ impl Database {
         })?;
 
         let mut tracks = Vec::new();
-        for r in rows {
-            if let Ok(track) = r {
-                tracks.push(track);
-            }
+        for r in rows.flatten() {
+            tracks.push(r);
         }
-
-        if tracks.is_empty() {
-            let mut fallback_stmt = conn.prepare(
-                "SELECT id, title, artist, album, duration, file_path, cover_art, format, bitrate, sample_rate, play_count, favorite, date_added
-                 FROM tracks ORDER BY play_count DESC, date_added DESC LIMIT ?1",
-            )?;
-            let fallback_rows = fallback_stmt.query_map(params![limit as i64], |row| {
-                Ok(Track {
-                    id: row.get(0)?,
-                    title: row.get(1)?,
-                    artist: row.get(2)?,
-                    album: row.get(3)?,
-                    duration: row.get(4)?,
-                    file_path: row.get(5)?,
-                    cover_art: row.get(6)?,
-                    format: row.get(7)?,
-                    bitrate: row.get(8)?,
-                    sample_rate: row.get(9)?,
-                    play_count: row.get(10)?,
-                    favorite: row.get::<_, i64>(11)? == 1,
-                    date_added: row.get(12)?,
-                })
-            })?;
-            for r in fallback_rows {
-                if let Ok(track) = r {
-                    tracks.push(track);
-                }
-            }
-        }
-
         Ok(tracks)
     }
 
@@ -326,10 +299,8 @@ impl Database {
         })?;
 
         let mut map = HashMap::new();
-        for r in rows {
-            if let Ok((k, v)) = r {
-                map.insert(k, v);
-            }
+        for (k, v) in rows.flatten() {
+            map.insert(k, v);
         }
         Ok(map)
     }
@@ -373,8 +344,12 @@ impl Database {
 
     pub fn create_playlist(&self, name: &str, description: Option<&str>) -> Result<Playlist> {
         let conn = self.conn.lock();
-        let nanos = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_nanos();
-        let id = format!("pl_{:x}", nanos);
+        let now_ms = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_millis() as u64)
+            .unwrap_or(0);
+        let seq = PLAYLIST_SEQ.fetch_add(1, Ordering::Relaxed);
+        let id = format!("pl_{}_{}", now_ms, seq);
         let now = chrono_now();
         conn.execute(
             "INSERT INTO playlists (id, name, description, created_at) VALUES (?1, ?2, ?3, ?4)",
@@ -389,9 +364,29 @@ impl Database {
         })
     }
 
+    pub fn upsert_cloud_playlist(
+        &self,
+        cloud_id: &str,
+        name: &str,
+        description: Option<&str>,
+    ) -> Result<()> {
+        let conn = self.conn.lock();
+        let now = chrono_now();
+        conn.execute(
+            "INSERT INTO playlists (id, name, description, created_at)
+             VALUES (?1, ?2, ?3, ?4)
+             ON CONFLICT(id) DO UPDATE SET name = excluded.name",
+            params![cloud_id, name, description, now],
+        )?;
+        Ok(())
+    }
+
     pub fn delete_playlist(&self, playlist_id: &str) -> Result<()> {
         let conn = self.conn.lock();
-        conn.execute("DELETE FROM playlist_tracks WHERE playlist_id = ?1", params![playlist_id])?;
+        conn.execute(
+            "DELETE FROM playlist_tracks WHERE playlist_id = ?1",
+            params![playlist_id],
+        )?;
         conn.execute("DELETE FROM playlists WHERE id = ?1", params![playlist_id])?;
         Ok(())
     }
@@ -403,7 +398,7 @@ impl Database {
              FROM playlists p
              LEFT JOIN playlist_tracks pt ON p.id = pt.playlist_id
              GROUP BY p.id
-             ORDER BY p.name COLLATE NOCASE ASC"
+             ORDER BY p.name COLLATE NOCASE ASC",
         )?;
 
         let rows = stmt.query_map([], |row| {
@@ -417,21 +412,21 @@ impl Database {
         })?;
 
         let mut list = Vec::new();
-        for r in rows {
-            if let Ok(pl) = r {
-                list.push(pl);
-            }
+        for pl in rows.flatten() {
+            list.push(pl);
         }
         Ok(list)
     }
 
     pub fn add_to_playlist(&self, playlist_id: &str, track_id: &str) -> Result<()> {
         let conn = self.conn.lock();
-        let max_pos: i64 = conn.query_row(
-            "SELECT COALESCE(MAX(position), 0) FROM playlist_tracks WHERE playlist_id = ?1",
-            params![playlist_id],
-            |row| row.get(0),
-        ).unwrap_or(0);
+        let max_pos: i64 = conn
+            .query_row(
+                "SELECT COALESCE(MAX(position), 0) FROM playlist_tracks WHERE playlist_id = ?1",
+                params![playlist_id],
+                |row| row.get(0),
+            )
+            .unwrap_or(0);
 
         conn.execute(
             "INSERT INTO playlist_tracks (playlist_id, track_id, position)
@@ -458,7 +453,7 @@ impl Database {
              FROM playlist_tracks pt
              JOIN tracks t ON pt.track_id = t.id
              WHERE pt.playlist_id = ?1
-             ORDER BY pt.position ASC"
+             ORDER BY pt.position ASC",
         )?;
 
         let rows = stmt.query_map(params![playlist_id], |row| {
@@ -480,10 +475,8 @@ impl Database {
         })?;
 
         let mut tracks = Vec::new();
-        for r in rows {
-            if let Ok(track) = r {
-                tracks.push(track);
-            }
+        for r in rows.flatten() {
+            tracks.push(r);
         }
         Ok(tracks)
     }
@@ -495,3 +488,5 @@ fn chrono_now() -> i64 {
         .map(|d| d.as_secs() as i64)
         .unwrap_or(0)
 }
+
+

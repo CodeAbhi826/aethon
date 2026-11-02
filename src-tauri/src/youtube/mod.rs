@@ -1,5 +1,9 @@
+use parking_lot::Mutex;
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use std::process::Command;
+use std::sync::OnceLock;
+use std::time::{SystemTime, UNIX_EPOCH};
 
 pub mod auth_sync;
 
@@ -13,92 +17,428 @@ pub struct YouTubeTrack {
     pub stream_url: String,
 }
 
+#[derive(Debug, Clone)]
+struct CachedStream {
+    direct_url: String,
+    expires_at: u64,
+}
+
+static HTTP_CLIENT: OnceLock<reqwest::Client> = OnceLock::new();
+static STREAM_CACHE: OnceLock<Mutex<HashMap<String, CachedStream>>> = OnceLock::new();
+
+fn http_client() -> &'static reqwest::Client {
+    HTTP_CLIENT.get_or_init(|| {
+        reqwest::Client::builder()
+            .tcp_nodelay(true)
+            .pool_max_idle_per_host(8)
+            .pool_idle_timeout(std::time::Duration::from_secs(90))
+            .timeout(std::time::Duration::from_secs(5))
+            .build()
+            .unwrap_or_else(|_| reqwest::Client::new())
+    })
+}
+
+fn stream_cache() -> &'static Mutex<HashMap<String, CachedStream>> {
+    STREAM_CACHE.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+fn now_unix() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0)
+}
+
 pub struct YouTubeService;
 
 impl YouTubeService {
-    pub async fn search(query: &str, limit: usize) -> Vec<YouTubeTrack> {
-        let max_results = limit.clamp(1, 50);
+    pub fn extract_video_id(uri: &str) -> Option<String> {
+        if let Some(idx) = uri.find("v=") {
+            let rest = &uri[idx + 2..];
+            let id: String = rest
+                .chars()
+                .take_while(|&c| c != '&' && c != '#' && c != '?')
+                .collect();
+            if id.len() == 11 {
+                return Some(id);
+            }
+        }
+        if let Some(idx) = uri.find("youtu.be/") {
+            let rest = &uri[idx + 9..];
+            let id: String = rest
+                .chars()
+                .take_while(|&c| c != '&' && c != '#' && c != '?')
+                .collect();
+            if id.len() == 11 {
+                return Some(id);
+            }
+        }
+        if uri.len() == 11
+            && uri
+                .chars()
+                .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
+        {
+            return Some(uri.to_string());
+        }
+        None
+    }
 
-        // 1. Direct YouTube Music InnerTube API (matching ArchiveTune with India geo "IN")
-        if let Some(tracks) = Self::search_innertube(query, max_results, "IN").await {
+    pub fn upgrade_thumbnail_url(url: &str, video_id: &str) -> String {
+        if url.contains("lh3.googleusercontent.com") || url.contains("yt3.ggpht.com") {
+            if let Some(eq_idx) = url.rfind('=') {
+                let suffix = &url[eq_idx + 1..];
+                if suffix.starts_with('w') || suffix.starts_with('s') {
+                    return format!("{}=w544-h544-l90-rj", &url[..eq_idx]);
+                }
+            }
+            return url.to_string();
+        }
+        if !video_id.is_empty() && (url.is_empty() || url.contains("default.jpg")) {
+            return format!("https://i.ytimg.com/vi/{}/hqdefault.jpg", video_id);
+        }
+        url.to_string()
+    }
+
+    pub async fn search(query: &str, limit: usize, gl: &str) -> Vec<YouTubeTrack> {
+        let max_results = limit.clamp(1, 50);
+        let region = if gl.trim().is_empty() { "US" } else { gl.trim() };
+
+        if let Some(tracks) = Self::search_innertube(query, max_results, region).await {
             if !tracks.is_empty() {
-                crate::aethon_log!("InnerTube API returned {} tracks for query '{}'", tracks.len(), query);
                 return tracks;
             }
         }
 
-        // 2. Fallback: yt-dlp CLI
-        crate::aethon_log!("InnerTube returned 0 tracks, falling back to yt-dlp for query '{}'", query);
-        Self::search_ytdlp(query, max_results)
+        let q = query.to_string();
+        tokio::task::spawn_blocking(move || Self::search_ytdlp(&q, max_results))
+            .await
+            .unwrap_or_default()
     }
 
-    pub async fn search_innertube(query: &str, limit: usize, gl: &str) -> Option<Vec<YouTubeTrack>> {
-        let client = reqwest::Client::builder()
-            .timeout(std::time::Duration::from_secs(5))
-            .build()
-            .ok()?;
+    pub async fn search_innertube(
+        query: &str,
+        limit: usize,
+        gl: &str,
+    ) -> Option<Vec<YouTubeTrack>> {
+        let client = http_client();
 
-        let body = serde_json::json!({
+        // Run filtered Songs search + general search concurrently over shared HTTP/2 pool
+        let songs_body = serde_json::json!({
             "context": {
                 "client": {
                     "clientName": "WEB_REMIX",
                     "clientVersion": "1.20260408.01.00",
                     "gl": gl,
-                    "hl": "en-GB"
+                    "hl": "en"
+                }
+            },
+            "query": query,
+            "params": "EgWKAQIIAWoSEAQQAxAJEAUQChAVEA4QERAQ"
+        });
+
+        let general_body = serde_json::json!({
+            "context": {
+                "client": {
+                    "clientName": "WEB_REMIX",
+                    "clientVersion": "1.20260408.01.00",
+                    "gl": gl,
+                    "hl": "en"
                 }
             },
             "query": query
         });
 
-        let resp = client
-            .post("https://music.youtube.com/youtubei/v1/search")
+        let songs_fut = client
+            .post("https://music.youtube.com/youtubei/v1/search?prettyPrint=false")
             .header("Content-Type", "application/json")
-            .header("User-Agent", "Mozilla/5.0 (X11; Linux x86_64; rv:135.0) Gecko/20100101 Firefox/135.0")
-            .json(&body)
-            .send()
-            .await
-            .ok()?;
+            .header(
+                "User-Agent",
+                "Mozilla/5.0 (X11; Linux x86_64; rv:135.0) Gecko/20100101 Firefox/135.0",
+            )
+            .json(&songs_body)
+            .send();
 
-        if !resp.status().is_success() {
-            return None;
+        let general_fut = client
+            .post("https://music.youtube.com/youtubei/v1/search?prettyPrint=false")
+            .header("Content-Type", "application/json")
+            .header(
+                "User-Agent",
+                "Mozilla/5.0 (X11; Linux x86_64; rv:135.0) Gecko/20100101 Firefox/135.0",
+            )
+            .json(&general_body)
+            .send();
+
+        let (songs_res, general_res) = tokio::join!(songs_fut, general_fut);
+
+        let mut results = Vec::new();
+
+        if let Ok(resp) = songs_res {
+            if resp.status().is_success() {
+                if let Ok(json_data) = resp.json::<serde_json::Value>().await {
+                    Self::extract_innertube_tracks(&json_data, &mut results, limit);
+                }
+            }
         }
 
-        let json_data: serde_json::Value = resp.json().await.ok()?;
-        let mut results = Vec::new();
-        Self::extract_innertube_tracks(&json_data, &mut results, limit);
-
-        // 2. If results are under limit, perform a second pass with Songs filter param ('EgWKAQIIAWoSEAQQAxAJEAUQChAVEA4QERAQ')
         if results.len() < limit {
-            let songs_body = serde_json::json!({
-                "context": {
-                    "client": {
-                        "clientName": "WEB_REMIX",
-                        "clientVersion": "1.20260408.01.00",
-                        "gl": gl,
-                        "hl": "en-GB"
-                    }
-                },
-                "query": query,
-                "params": "EgWKAQIIAWoSEAQQAxAJEAUQChAVEA4QERAQ"
-            });
-
-            if let Ok(songs_resp) = client
-                .post("https://music.youtube.com/youtubei/v1/search")
-                .header("Content-Type", "application/json")
-                .header("User-Agent", "Mozilla/5.0 (X11; Linux x86_64; rv:135.0) Gecko/20100101 Firefox/135.0")
-                .json(&songs_body)
-                .send()
-                .await
-            {
-                if songs_resp.status().is_success() {
-                    if let Ok(songs_json) = songs_resp.json::<serde_json::Value>().await {
-                        Self::extract_innertube_tracks(&songs_json, &mut results, limit);
+            if let Ok(resp) = general_res {
+                if resp.status().is_success() {
+                    if let Ok(json_data) = resp.json::<serde_json::Value>().await {
+                        Self::extract_innertube_tracks(&json_data, &mut results, limit);
                     }
                 }
             }
         }
 
         Some(results)
+    }
+
+    /// Fast ~300ms InnerTube `/youtubei/v1/player` direct stream extraction (ArchiveTune architecture)
+    pub async fn resolve_innertube_direct_stream(video_id: &str) -> Option<String> {
+        let client = http_client();
+
+        // Try ANDROID_VR and IOS clients in parallel (both return direct un-ciphered adaptiveFormats URLs)
+        let vr_body = serde_json::json!({
+            "context": {
+                "client": {
+                    "clientName": "ANDROID_VR",
+                    "clientVersion": "1.60.19",
+                    "androidSdkVersion": 34,
+                    "osName": "Android",
+                    "osVersion": "14",
+                    "hl": "en",
+                    "gl": "US"
+                }
+            },
+            "videoId": video_id,
+            "contentCheckOk": true,
+            "racyCheckOk": true
+        });
+
+        let ios_body = serde_json::json!({
+            "context": {
+                "client": {
+                    "clientName": "IOS",
+                    "clientVersion": "20.03.02",
+                    "deviceMake": "Apple",
+                    "deviceModel": "iPhone16,2",
+                    "osName": "iPhone",
+                    "osVersion": "18.2.1.22C161",
+                    "hl": "en",
+                    "gl": "US"
+                }
+            },
+            "videoId": video_id,
+            "contentCheckOk": true,
+            "racyCheckOk": true
+        });
+
+        let vr_fut = client
+            .post("https://www.youtube.com/youtubei/v1/player?prettyPrint=false")
+            .header("Content-Type", "application/json")
+            .header(
+                "User-Agent",
+                "com.google.android.apps.youtube.vr.oculus/1.60.19 (Linux; U; Android 14; en_US; Quest 3; Build/UP1A.231005.007.A1; Cronet/132.0.6808.3)",
+            )
+            .json(&vr_body)
+            .send();
+
+        let ios_fut = client
+            .post("https://www.youtube.com/youtubei/v1/player?prettyPrint=false")
+            .header("Content-Type", "application/json")
+            .header(
+                "User-Agent",
+                "com.google.ios.youtube/20.03.02 (iPhone16,2; U; CPU iOS 18_2_1 like Mac OS X;)",
+            )
+            .json(&ios_body)
+            .send();
+
+        let (vr_res, ios_res) = tokio::join!(vr_fut, ios_fut);
+
+        for resp_res in [vr_res, ios_res] {
+            if let Ok(resp) = resp_res {
+                if resp.status().is_success() {
+                    if let Ok(json) = resp.json::<serde_json::Value>().await {
+                        if let Some(url) = Self::pick_best_audio_format(&json) {
+                            return Some(url);
+                        }
+                    }
+                }
+            }
+        }
+
+        None
+    }
+
+    fn pick_best_audio_format(player_json: &serde_json::Value) -> Option<String> {
+        let status = player_json
+            .pointer("/playabilityStatus/status")
+            .and_then(|s| s.as_str())
+            .unwrap_or("");
+        if status != "OK" {
+            return None;
+        }
+
+        let formats = player_json
+            .pointer("/streamingData/adaptiveFormats")
+            .and_then(|f| f.as_array())?;
+
+        let mut best_url: Option<String> = None;
+        let mut best_score: i64 = -1;
+
+        for fmt in formats {
+            let mime = fmt
+                .get("mimeType")
+                .and_then(|m| m.as_str())
+                .unwrap_or("");
+            if !mime.starts_with("audio/") {
+                continue;
+            }
+            let Some(url) = fmt.get("url").and_then(|u| u.as_str()) else {
+                continue;
+            };
+            let itag = fmt.get("itag").and_then(|i| i.as_i64()).unwrap_or(0);
+            let bitrate = fmt.get("bitrate").and_then(|b| b.as_i64()).unwrap_or(0);
+
+            // Prefer itag 251 (Opus ~160kbps WebM) then 140 (AAC M4A ~128kbps) then highest bitrate
+            let bonus = match itag {
+                251 => 500_000,
+                140 => 350_000,
+                250 => 200_000,
+                _ => 0,
+            };
+            let score = bitrate + bonus;
+            if score > best_score {
+                best_score = score;
+                best_url = Some(url.to_string());
+            }
+        }
+
+        best_url
+    }
+
+    /// Ultra-fast stream resolver:
+    /// 1. Checks in-memory TTL cache (<1ms)
+    /// 2. Queries InnerTube `/youtubei/v1/player` (`ANDROID_VR` / `IOS`) directly (~300ms)
+    /// 3. Falls back to single-pass `yt-dlp -g` with `player_skip=webpage,configs` (~1.2s)
+    /// Returns a direct `googlevideo.com/videoplayback` URL so `mpv` starts playing immediately without running `yt-dlp` a second time!
+    pub async fn resolve_playable_stream_async(
+        uri: &str,
+        title: &str,
+        artist: &str,
+    ) -> String {
+        if !uri.contains("youtube.com/watch?v=") && !uri.contains("youtu.be/") {
+            return uri.to_string();
+        }
+
+        let video_id = Self::extract_video_id(uri).unwrap_or_default();
+
+        // 1. Check in-memory TTL stream cache
+        if !video_id.is_empty() {
+            let now = now_unix();
+            if let Some(cached) = stream_cache().lock().get(&video_id) {
+                if cached.expires_at > now {
+                    crate::aethon_log!("Stream cache HIT for video_id={}", video_id);
+                    return cached.direct_url.clone();
+                }
+            }
+
+            // 2. Try direct InnerTube `/youtubei/v1/player` (~300ms)
+            if let Some(direct_url) = Self::resolve_innertube_direct_stream(&video_id).await {
+                stream_cache().lock().insert(
+                    video_id.clone(),
+                    CachedStream {
+                        direct_url: direct_url.clone(),
+                        expires_at: now + 14_400, // 4 hours
+                    },
+                );
+                crate::aethon_log!(
+                    "Resolved direct InnerTube stream in fast-path for video_id={}",
+                    video_id
+                );
+                return direct_url;
+            }
+        }
+
+        // 3. Fallback: Single-pass `yt-dlp -g` in blocking thread pool
+        let uri_owned = uri.to_string();
+        let title_owned = title.to_string();
+        let artist_owned = artist.to_string();
+        let vid_owned = video_id.clone();
+
+        tokio::task::spawn_blocking(move || {
+            let resolved = Self::resolve_via_ytdlp_direct(&uri_owned, &title_owned, &artist_owned);
+            if !vid_owned.is_empty() && resolved.contains("googlevideo.com") {
+                stream_cache().lock().insert(
+                    vid_owned,
+                    CachedStream {
+                        direct_url: resolved.clone(),
+                        expires_at: now_unix() + 14_400,
+                    },
+                );
+            }
+            resolved
+        })
+        .await
+        .unwrap_or_else(|_| uri.to_string())
+    }
+
+    pub fn resolve_via_ytdlp_direct(uri: &str, title: &str, artist: &str) -> String {
+        let mut cmd = Command::new("yt-dlp");
+        cmd.arg("--get-url")
+            .arg("--no-playlist")
+            .arg("--no-warnings")
+            .arg("--no-check-certificates")
+            .arg("-f")
+            .arg("251/140/bestaudio[ext=webm]/bestaudio/best")
+            .arg("--extractor-args")
+            .arg("youtube:player_client=android_vr,ios,web_music;player_skip=webpage,configs")
+            .arg("--")
+            .arg(uri);
+        crate::sanitize_host_command(&mut cmd);
+
+        if let Ok(output) = cmd.output() {
+            if output.status.success() {
+                if let Some(first_url) = String::from_utf8_lossy(&output.stdout)
+                    .lines()
+                    .map(str::trim)
+                    .find(|l| l.starts_with("http"))
+                {
+                    return first_url.to_string();
+                }
+            }
+        }
+
+        // Fallback for region/age-gated tracks: search alternate playable release and extract its direct URL in one step
+        let query = format!("{} {}", title, artist).trim().to_string();
+        if !query.is_empty() {
+            let mut alt_cmd = Command::new("yt-dlp");
+            alt_cmd
+                .arg("--get-url")
+                .arg("--no-playlist")
+                .arg("--no-warnings")
+                .arg("-f")
+                .arg("251/140/bestaudio/best")
+                .arg("--extractor-args")
+                .arg("youtube:player_client=android_vr,ios;player_skip=webpage,configs")
+                .arg("--")
+                .arg(format!("ytsearch1:{}", query));
+            crate::sanitize_host_command(&mut alt_cmd);
+
+            if let Ok(alt_out) = alt_cmd.output() {
+                if alt_out.status.success() {
+                    if let Some(first_url) = String::from_utf8_lossy(&alt_out.stdout)
+                        .lines()
+                        .map(str::trim)
+                        .find(|l| l.starts_with("http"))
+                    {
+                        return first_url.to_string();
+                    }
+                }
+            }
+        }
+
+        uri.to_string()
     }
 
     pub fn parse_duration_text(text: &str) -> Option<f64> {
@@ -125,117 +465,63 @@ impl YouTubeService {
 
     fn is_metadata_noise_run(text: &str) -> bool {
         let trimmed = text.trim();
-        if trimmed.is_empty() || trimmed == "•" || trimmed == "·" || trimmed == "|" || trimmed == "-" {
+        if trimmed.is_empty()
+            || trimmed == "•"
+            || trimmed == "·"
+            || trimmed == "|"
+            || trimmed == "-"
+        {
             return true;
         }
         let lower = trimmed.to_lowercase();
-        if lower == "song"
-            || lower == "video"
-            || lower == "artist"
-            || lower == "album"
-            || lower == "single"
-            || lower == "ep"
-            || lower == "station"
-            || lower == "playlist"
-            || lower == "chart"
-            || lower == "episode"
-            || lower == "podcast"
-        {
+        if matches!(
+            lower.as_str(),
+            "song"
+                | "video"
+                | "artist"
+                | "album"
+                | "single"
+                | "ep"
+                | "station"
+                | "playlist"
+                | "chart"
+                | "episode"
+                | "podcast"
+        ) {
             return true;
         }
-        // Duration pattern: e.g. "3:45", "1:02:15"
         if trimmed.contains(':') && trimmed.chars().all(|c| c.is_ascii_digit() || c == ':') {
             return true;
         }
-        // 4-digit release year: e.g. "2018", "1999"
-        if trimmed.len() == 4 && trimmed.chars().all(|c| c.is_ascii_digit()) {
-            if let Ok(yr) = trimmed.parse::<u32>() {
-                if (1900..=2099).contains(&yr) {
-                    return true;
-                }
-            }
-        }
-        // Solitary metric or metadata words
-        if lower == "views"
-            || lower == "view"
-            || lower == "subscribers"
-            || lower == "subscriber"
-            || lower == "plays"
-            || lower == "play"
-            || lower == "audience"
-            || lower == "songs"
-            || lower == "tracks"
+        if trimmed.len() == 4
+            && (trimmed.starts_with("19") || trimmed.starts_with("20"))
+            && trimmed.chars().all(|c| c.is_ascii_digit())
         {
             return true;
         }
-        // View count, subscriber count, or play count: e.g. "3.8M views", "319M subscribers", "12M plays"
-        let is_metric_suffix = lower.ends_with("views")
-            || lower.ends_with("view")
-            || lower.ends_with("subscribers")
-            || lower.ends_with("subscriber")
+        if lower.ends_with("views")
             || lower.ends_with("plays")
-            || lower.ends_with("play")
-            || lower.ends_with("audience")
-            || lower.ends_with("monthly audience")
-            || lower.ends_with("songs")
-            || lower.ends_with("tracks");
-        if is_metric_suffix && trimmed.chars().any(|c| c.is_ascii_digit()) {
+            || lower.ends_with("subscribers")
+            || lower.ends_with("likes")
+            || lower.contains("views ")
+            || lower.contains("plays ")
+        {
             return true;
         }
         false
     }
 
-    fn strip_artist_metadata_suffixes(raw: &str) -> String {
-        let mut cleaned = raw.trim();
-        if cleaned.to_lowercase().starts_with("similar to ") {
-            cleaned = cleaned[11..].trim();
-        }
-
-        let suffixes = [
-            " views",
-            " view",
-            " subscribers",
-            " subscriber",
-            " plays",
-            " play",
-            " monthly audience",
-            " audience",
-            " songs",
-            " tracks",
-        ];
-
-        let mut changed = true;
-        while changed {
-            changed = false;
-            let lower = cleaned.to_lowercase();
-            for suffix in &suffixes {
-                if lower.ends_with(suffix) {
-                    let prefix_len = lower.len() - suffix.len();
-                    let prefix = cleaned[..prefix_len].trim_end();
-                    if let Some(last_space) = prefix.rfind(' ') {
-                        let count_part = &prefix[last_space + 1..];
-                        if count_part.chars().any(|c| c.is_ascii_digit()) {
-                            cleaned = prefix[..last_space].trim_end();
-                            changed = true;
-                            break;
-                        } else {
-                            cleaned = prefix;
-                            changed = true;
-                            break;
-                        }
-                    } else {
-                        cleaned = prefix;
-                        changed = true;
-                        break;
-                    }
-                }
+    pub fn strip_artist_metadata_suffixes(raw: &str) -> String {
+        let mut s = raw.trim().to_string();
+        for sep in [" • ", " · ", " | "] {
+            if let Some(parts) = s.split(sep).next() {
+                s = parts.trim().to_string();
             }
-            cleaned = cleaned.trim_end_matches(['•', '·', '|', '-', ',', ' ']).trim();
         }
-        cleaned.to_string()
+        s
     }
 
-    fn extract_innertube_tracks(
+    pub fn extract_innertube_tracks(
         value: &serde_json::Value,
         results: &mut Vec<YouTubeTrack>,
         limit: usize,
@@ -245,108 +531,29 @@ impl YouTubeService {
         }
 
         if let Some(map) = value.as_object() {
-            // 1. Top Hit Hero Card (musicCardShelfRenderer)
-            if let Some(card) = map.get("musicCardShelfRenderer") {
-                let card_title = card
-                    .pointer("/title/runs")
-                    .and_then(|r| r.as_array())
-                    .and_then(|a| a.first())
-                    .and_then(|o| o.get("text"))
-                    .and_then(|t| t.as_str())
-                    .unwrap_or("");
-                let mut card_vid = card
-                    .pointer("/title/runs")
-                    .and_then(|r| r.as_array())
-                    .and_then(|a| a.first())
-                    .and_then(|o| o.pointer("/navigationEndpoint/watchEndpoint/videoId"))
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("");
-                if card_vid.is_empty() {
-                    if let Some(vid) = card.pointer("/onTap/watchEndpoint/videoId").and_then(|v| v.as_str()) {
-                        card_vid = vid;
-                    }
-                }
-                if card_vid.is_empty() {
-                    if let Some(vid) = card.pointer("/buttons/0/buttonRenderer/command/watchEndpoint/videoId").and_then(|v| v.as_str()) {
-                        card_vid = vid;
-                    }
-                }
-                let mut card_artist = String::new();
-                let mut card_duration = 0.0;
-                if let Some(sub_runs) = card.pointer("/subtitle/runs").and_then(|r| r.as_array()) {
-                    let mut parts = Vec::new();
-                    for r in sub_runs {
-                        if let Some(t) = r.get("text").and_then(|s| s.as_str()) {
-                            if let Some(d) = Self::parse_duration_text(t) {
-                                card_duration = d;
-                            } else if !Self::is_metadata_noise_run(t) {
-                                parts.push(t.trim());
-                            }
-                        }
-                    }
-                    card_artist = Self::strip_artist_metadata_suffixes(&parts.join(" "));
-                }
-
-                if !card_vid.is_empty() && !card_title.is_empty() && !results.iter().any(|r| r.id == card_vid) {
-                    let thumb = card
-                        .pointer("/thumbnail/musicThumbnailRenderer/thumbnail/thumbnails")
-                        .and_then(|th| th.as_array())
-                        .and_then(|arr| arr.last())
-                        .and_then(|t| t.get("url"))
-                        .and_then(|u| u.as_str())
-                        .map(|s| s.to_string())
-                        .unwrap_or_else(|| format!("https://i.ytimg.com/vi/{}/hqdefault.jpg", card_vid));
-
-                    results.push(YouTubeTrack {
-                        id: card_vid.to_string(),
-                        title: card_title.to_string(),
-                        artist: card_artist,
-                        duration: card_duration,
-                        thumbnail: thumb,
-                        stream_url: format!("https://www.youtube.com/watch?v={}", card_vid),
-                    });
-                }
-            }
-
-            // 2. Standard Search List Item (musicResponsiveListItemRenderer)
             if let Some(item) = map.get("musicResponsiveListItemRenderer") {
-                let cols = item.get("flexColumns").and_then(|c| c.as_array());
-
-                let mut title = String::new();
-                let mut artist = String::new();
-                let mut duration = 0.0;
                 let mut video_id = item
-                    .get("playlistItemData")
-                    .and_then(|p| p.get("videoId"))
+                    .pointer("/playlistItemData/videoId")
                     .and_then(|v| v.as_str())
                     .unwrap_or("")
                     .to_string();
 
-                if let Some(col_arr) = cols {
-                    for col in col_arr {
-                        if let Some(runs) = col
-                            .pointer("/musicResponsiveListItemFlexColumnRenderer/text/runs")
-                            .and_then(|r| r.as_array())
-                        {
-                            for r in runs {
-                                if let Some(t) = r.get("text").and_then(|s| s.as_str()) {
-                                    if let Some(d) = Self::parse_duration_text(t) {
-                                        duration = d;
-                                    }
-                                }
-                            }
-                        }
-                    }
+                let mut title = String::new();
+                let mut artist = String::from("YouTube Music");
+                let mut duration = 0.0;
 
-                    if let Some(first_col) = col_arr.first() {
-                        if let Some(runs) = first_col
+                if let Some(flex_cols) = item.get("flexColumns").and_then(|c| c.as_array()) {
+                    if let Some(col0) = flex_cols.first() {
+                        if let Some(runs) = col0
                             .pointer("/musicResponsiveListItemFlexColumnRenderer/text/runs")
                             .and_then(|r| r.as_array())
                         {
                             if let Some(run0) = runs.first() {
-                                if let Some(t) = run0.get("text").and_then(|s| s.as_str()) {
-                                    title = t.to_string();
-                                }
+                                title = run0
+                                    .get("text")
+                                    .and_then(|s| s.as_str())
+                                    .unwrap_or("")
+                                    .to_string();
                                 if video_id.is_empty() {
                                     if let Some(vid) = run0
                                         .pointer("/navigationEndpoint/watchEndpoint/videoId")
@@ -359,21 +566,26 @@ impl YouTubeService {
                         }
                     }
 
-                    if col_arr.len() > 1 {
-                        if let Some(runs) = col_arr[1]
+                    if flex_cols.len() > 1 {
+                        if let Some(runs) = flex_cols[1]
                             .pointer("/musicResponsiveListItemFlexColumnRenderer/text/runs")
                             .and_then(|r| r.as_array())
                         {
                             let mut artist_parts = Vec::new();
                             for r in runs {
                                 if let Some(t) = r.get("text").and_then(|s| s.as_str()) {
-                                    if !Self::is_metadata_noise_run(t) {
+                                    if let Some(d) = Self::parse_duration_text(t) {
+                                        duration = d;
+                                    } else if !Self::is_metadata_noise_run(t) {
                                         artist_parts.push(t.trim());
                                     }
                                 }
                             }
-                            artist = Self::strip_artist_metadata_suffixes(&artist_parts.join(" "))
-                                .replace(" ,", ",");
+                            if !artist_parts.is_empty() {
+                                artist =
+                                    Self::strip_artist_metadata_suffixes(&artist_parts.join(" "))
+                                        .replace(" ,", ",");
+                            }
                         }
                     }
                 }
@@ -398,15 +610,15 @@ impl YouTubeService {
                 }
 
                 if !video_id.is_empty() && !title.is_empty() {
-                    let thumbnail = item
+                    let raw_thumb = item
                         .pointer("/thumbnail/musicThumbnailRenderer/thumbnail/thumbnails")
                         .and_then(|th| th.as_array())
                         .and_then(|arr| arr.last())
                         .and_then(|t| t.get("url"))
                         .and_then(|u| u.as_str())
-                        .map(|s| s.to_string())
-                        .unwrap_or_else(|| format!("https://i.ytimg.com/vi/{}/hqdefault.jpg", video_id));
+                        .unwrap_or("");
 
+                    let thumbnail = Self::upgrade_thumbnail_url(raw_thumb, &video_id);
                     let stream_url = format!("https://www.youtube.com/watch?v={}", video_id);
 
                     if !results.iter().any(|r| r.id == video_id) {
@@ -436,7 +648,6 @@ impl YouTubeService {
         let max_results = limit.clamp(1, 50);
         let search_query = format!("ytsearch{}:{}", max_results, query);
 
-        // Run yt-dlp to quickly extract search entries
         let mut cmd = Command::new("yt-dlp");
         cmd.arg("--flat-playlist")
             .arg("--print")
@@ -444,15 +655,11 @@ impl YouTubeService {
             .arg("--")
             .arg(&search_query);
 
-        // Sanitize environment when executed from AppImage
         crate::sanitize_host_command(&mut cmd);
 
         let output = match cmd.output() {
             Ok(o) => o,
-            Err(e) => {
-                eprintln!("[YouTubeService] yt-dlp error: {:?}", e);
-                return Vec::new();
-            }
+            Err(_) => return Vec::new(),
         };
 
         if !output.status.success() {
@@ -468,7 +675,8 @@ impl YouTubeService {
                 let id = parts[0].trim().to_string();
                 let title = parts[1].trim().to_string();
                 let artist = parts[2].trim().to_string();
-                let duration = parts.get(3)
+                let duration = parts
+                    .get(3)
                     .and_then(|d| d.trim().parse::<f64>().ok())
                     .unwrap_or(0.0);
 
@@ -490,59 +698,5 @@ impl YouTubeService {
 
         results
     }
-
-    pub fn resolve_playable_stream(uri: &str, title: &str, artist: &str) -> String {
-        // If not a YouTube watch URL, return as-is
-        if !uri.contains("youtube.com/watch?v=") && !uri.contains("youtu.be/") {
-            return uri.to_string();
-        }
-
-        // Fast probe: check if stream is directly accessible without auth
-        let mut check_cmd = Command::new("yt-dlp");
-        check_cmd.arg("--simulate")
-            .arg("--no-warnings")
-            .arg("-f")
-            .arg("bestaudio")
-            .arg("--")
-            .arg(uri);
-        crate::sanitize_host_command(&mut check_cmd);
-
-        if let Ok(output) = check_cmd.output() {
-            if output.status.success() {
-                return uri.to_string();
-            }
-        }
-
-        crate::aethon_log!("Stream URI {} is login-gated or restricted, searching playable fallback for '{} - {}'", uri, title, artist);
-
-        // Find alternate playable release using ytsearch
-        let query = format!("{} {}", title, artist).trim().to_string();
-        if query.is_empty() {
-            return uri.to_string();
-        }
-
-        let mut search_cmd = Command::new("yt-dlp");
-        search_cmd.arg("--flat-playlist")
-            .arg("--print")
-            .arg("%(id)s")
-            .arg("--")
-            .arg(format!("ytsearch4:{}", query));
-        crate::sanitize_host_command(&mut search_cmd);
-
-        if let Ok(search_output) = search_cmd.output() {
-            if search_output.status.success() {
-                let stdout = String::from_utf8_lossy(&search_output.stdout);
-                for alt_id in stdout.lines() {
-                    let alt_id = alt_id.trim();
-                    if !alt_id.is_empty() && !uri.contains(alt_id) {
-                        let alt_uri = format!("https://www.youtube.com/watch?v={}", alt_id);
-                        crate::aethon_log!("Resolved playable alternate stream: {}", alt_uri);
-                        return alt_uri;
-                    }
-                }
-            }
-        }
-
-        uri.to_string()
-    }
 }
+

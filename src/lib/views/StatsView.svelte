@@ -21,7 +21,7 @@
     let mp3Other = 0;
     for (const t of playerState.library) {
       const f = (t.format || '').toUpperCase();
-      if (/FLAC|ALAC|WAV|PCM/.test(f)) lossless++;
+      if (/FLAC|ALAC|WAV/.test(f)) lossless++;
       else if (/OPUS|OGG|AAC|M4A/.test(f)) modernLossy++;
       else mp3Other++;
     }
@@ -34,13 +34,11 @@
 </script>
 
 <div class="p-6 space-y-6 max-w-7xl mx-auto pb-28">
-  
   <div>
     <h2 class="font-heading font-bold text-2xl text-white">Listening Statistics</h2>
     <p class="text-xs text-[#9ea2b0] mt-0.5">High-fidelity metrics and playback analytics</p>
   </div>
 
-  <!-- Top Metric Cards -->
   <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
     <div class="p-5 rounded-3xl bg-[#1e2026] border border-white/[0.06] shadow-sm">
       <div class="flex items-center gap-2 text-[#9ea2b0] text-xs font-medium mb-3">
@@ -48,10 +46,10 @@
         <span>Total Audio Time</span>
       </div>
       <div class="font-heading font-bold text-3xl text-white">
-        {Math.round(playerState.library.reduce((acc, t) => acc + (t.duration * t.play_count), 0) / 3600)}
+        {(playerState.library.reduce((acc, t) => acc + (t.duration * t.play_count), 0) / 3600).toFixed(1)}
         <span class="text-base text-[#9ea2b0] font-normal">hrs</span>
       </div>
-      <p class="text-[11px] text-[#6b6e7c] mt-2">Lossless stream time logged locally</p>
+      <p class="text-[11px] text-[#6b6e7c] mt-2">Total playback time logged locally</p>
     </div>
 
     <div class="p-5 rounded-3xl bg-[#1e2026] border border-white/[0.06] shadow-sm">
@@ -62,7 +60,7 @@
       <div class="font-heading font-bold text-3xl text-white">
         {playerState.library.length}
       </div>
-      <p class="text-[11px] text-[#6b6e7c] mt-2">Zero cloud tracking, 100% private SQLite</p>
+      <p class="text-[11px] text-[#6b6e7c] mt-2">Local & favorited tracks in SQLite</p>
     </div>
 
     <div class="p-5 rounded-3xl bg-[#1e2026] border border-white/[0.06] shadow-sm">
@@ -77,11 +75,9 @@
     </div>
   </div>
 
-  <!-- Audio Format Donut / Breakdown -->
   <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
     <div class="p-6 rounded-3xl bg-[#1e2026] border border-white/[0.06] shadow-sm">
-      <h3 class="font-heading font-bold text-base text-white mb-4">Codec Distribution</h3>
-      
+      <h3 class="font-heading font-bold text-base text-white mb-4">Live Library Codec Distribution</h3>
       <div class="space-y-3">
         {#each codecBreakdown as item}
           <div>
@@ -90,14 +86,13 @@
               <span>{item.pct}%</span>
             </div>
             <div class="h-2 w-full bg-white/[0.05] rounded-full overflow-hidden">
-              <div class="h-full {item.color} rounded-full transition-all duration-500" style="width: {item.pct}%;"></div>
+              <div class="h-full {item.color} rounded-full transition-all duration-300" style="width: {item.pct}%;"></div>
             </div>
           </div>
         {/each}
       </div>
     </div>
 
-    <!-- Most Played Tracks -->
     <div class="p-6 rounded-3xl bg-[#1e2026] border border-white/[0.06] shadow-sm">
       <h3 class="font-heading font-bold text-base text-white mb-4">Most Played</h3>
       {#if mostPlayed.length > 0}
@@ -120,5 +115,6 @@
       {/if}
     </div>
   </div>
-
 </div>
+
+

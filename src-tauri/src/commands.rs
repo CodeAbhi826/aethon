@@ -26,23 +26,35 @@ pub async fn play_track(
     } else {
         (String::new(), String::new())
     };
-    let uri_clone = uri.clone();
-    let playable_uri = tokio::task::spawn_blocking(move || {
-        crate::youtube::YouTubeService::resolve_playable_stream(&uri_clone, &t_title, &t_artist)
-    })
-    .await
-    .unwrap_or_else(|_| uri.clone());
 
-    state.mpv.load_file(&playable_uri).await.map_err(|e| e.to_string())?;
-    if let Some(mut t) = track {
-        if playable_uri != uri {
-            t.file_path = playable_uri;
-        }
+    // Fast async resolution (~300ms via InnerTube ANDROID_VR/IOS or <1ms on cache hit)
+    let playable_uri =
+        YouTubeService::resolve_playable_stream_async(&uri, &t_title, &t_artist).await;
+
+    state
+        .mpv
+        .load_file(&playable_uri)
+        .await
+        .map_err(|e| e.to_string())?;
+
+    if let Some(t) = track {
         let _ = state.db.upsert_track(&t);
         let _ = state.db.record_play(&t.id);
     } else if let Some(id) = track_id {
         let _ = state.db.record_play(&id);
     }
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn prefetch_stream(
+    uri: String,
+    title: Option<String>,
+    artist: Option<String>,
+) -> Result<(), String> {
+    let t = title.unwrap_or_default();
+    let a = artist.unwrap_or_default();
+    let _ = YouTubeService::resolve_playable_stream_async(&uri, &t, &a).await;
     Ok(())
 }
 
@@ -79,7 +91,11 @@ pub async fn set_volume(volume: f64, state: State<'_, AppState>) -> Result<(), S
 #[tauri::command]
 pub async fn set_equalizer(bands: Vec<f64>, state: State<'_, AppState>) -> Result<(), String> {
     crate::aethon_log!("set_equalizer: bands={:?}", bands);
-    state.mpv.set_equalizer(&bands).await.map_err(|e| e.to_string())
+    state
+        .mpv
+        .set_equalizer(&bands)
+        .await
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -95,9 +111,9 @@ pub async fn scan_library(
     crate::aethon_log!("scan_library: path={:?}", path);
     let p = path.map(std::path::PathBuf::from);
     let db = Arc::clone(&state.db);
-    let tracks = tokio::task::spawn_blocking(move || {
-        Scanner::scan_directory(p, &db)
-    }).await.map_err(|e| e.to_string())?;
+    let tracks = tokio::task::spawn_blocking(move || Scanner::scan_directory(p, &db))
+        .await
+        .map_err(|e| e.to_string())?;
 
     crate::aethon_log!("scan_library finished: {} tracks indexed", tracks.len());
     Ok(tracks)
@@ -111,7 +127,10 @@ pub fn get_library_tracks(state: State<'_, AppState>) -> Result<Vec<Track>, Stri
 #[tauri::command]
 pub fn toggle_favorite(track_id: String, state: State<'_, AppState>) -> Result<bool, String> {
     crate::aethon_log!("toggle_favorite: track_id={}", track_id);
-    state.db.toggle_favorite(&track_id).map_err(|e| e.to_string())
+    state
+        .db
+        .toggle_favorite(&track_id)
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -119,20 +138,35 @@ pub async fn get_lyrics(
     title: String,
     artist: String,
     duration: Option<f64>,
+    file_path: Option<String>,
+    video_id: Option<String>,
 ) -> Result<LyricsResult, String> {
     crate::aethon_log!("get_lyrics: title='{}', artist='{}'", title, artist);
-    LyricsService::fetch_lyrics(&title, &artist, duration)
-        .await
-        .map_err(|e| e.to_string())
+    LyricsService::fetch_lyrics(
+        &title,
+        &artist,
+        duration,
+        file_path.as_deref(),
+        video_id.as_deref(),
+    )
+    .await
+    .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
 pub async fn search_youtube(
     query: String,
     limit: Option<usize>,
+    state: State<'_, AppState>,
 ) -> Result<Vec<YouTubeTrack>, String> {
     crate::aethon_log!("search_youtube: query='{}'", query);
-    Ok(YouTubeService::search(&query, limit.unwrap_or(10)).await)
+    let gl = state
+        .db
+        .get_setting("ytmRegion")
+        .ok()
+        .flatten()
+        .unwrap_or_else(|| "US".to_string());
+    Ok(YouTubeService::search(&query, limit.unwrap_or(12), &gl).await)
 }
 
 #[tauri::command]
@@ -148,7 +182,10 @@ pub fn get_setting(key: String, state: State<'_, AppState>) -> Result<Option<Str
 #[tauri::command]
 pub fn set_setting(key: String, value: String, state: State<'_, AppState>) -> Result<(), String> {
     crate::aethon_log!("set_setting: {}={}", key, value);
-    state.db.set_setting(&key, &value).map_err(|e| e.to_string())
+    state
+        .db
+        .set_setting(&key, &value)
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -157,7 +194,10 @@ pub fn set_settings_batch(
     state: State<'_, AppState>,
 ) -> Result<(), String> {
     crate::aethon_log!("set_settings_batch: {} settings keys", settings.len());
-    state.db.set_settings_batch(&settings).map_err(|e| e.to_string())
+    state
+        .db
+        .set_settings_batch(&settings)
+        .map_err(|e| e.to_string())
 }
 
 fn calculate_dir_size(path: &std::path::Path) -> u64 {
@@ -256,16 +296,19 @@ pub fn create_playlist(
     state: State<'_, AppState>,
 ) -> Result<Playlist, String> {
     crate::aethon_log!("create_playlist: name='{}'", name);
-    state.db.create_playlist(&name, description.as_deref()).map_err(|e| e.to_string())
+    state
+        .db
+        .create_playlist(&name, description.as_deref())
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
-pub fn delete_playlist(
-    playlist_id: String,
-    state: State<'_, AppState>,
-) -> Result<(), String> {
+pub fn delete_playlist(playlist_id: String, state: State<'_, AppState>) -> Result<(), String> {
     crate::aethon_log!("delete_playlist: id='{}'", playlist_id);
-    state.db.delete_playlist(&playlist_id).map_err(|e| e.to_string())
+    state
+        .db
+        .delete_playlist(&playlist_id)
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -280,7 +323,10 @@ pub fn add_to_playlist(
     state: State<'_, AppState>,
 ) -> Result<(), String> {
     crate::aethon_log!("add_to_playlist: pl='{}', track='{}'", playlist_id, track_id);
-    state.db.add_to_playlist(&playlist_id, &track_id).map_err(|e| e.to_string())
+    state
+        .db
+        .add_to_playlist(&playlist_id, &track_id)
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -289,8 +335,15 @@ pub fn remove_from_playlist(
     track_id: String,
     state: State<'_, AppState>,
 ) -> Result<(), String> {
-    crate::aethon_log!("remove_from_playlist: pl='{}', track='{}'", playlist_id, track_id);
-    state.db.remove_from_playlist(&playlist_id, &track_id).map_err(|e| e.to_string())
+    crate::aethon_log!(
+        "remove_from_playlist: pl='{}', track='{}'",
+        playlist_id,
+        track_id
+    );
+    state
+        .db
+        .remove_from_playlist(&playlist_id, &track_id)
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -298,19 +351,30 @@ pub fn get_playlist_tracks(
     playlist_id: String,
     state: State<'_, AppState>,
 ) -> Result<Vec<Track>, String> {
-    state.db.get_playlist_tracks(&playlist_id).map_err(|e| e.to_string())
+    state
+        .db
+        .get_playlist_tracks(&playlist_id)
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
 pub async fn set_crossfade(seconds: f64, state: State<'_, AppState>) -> Result<(), String> {
     crate::aethon_log!("set_crossfade: {:.1}s", seconds);
-    state.mpv.set_crossfade(seconds).await.map_err(|e| e.to_string())
+    state
+        .mpv
+        .set_crossfade(seconds)
+        .await
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
 pub async fn set_replaygain(mode: String, state: State<'_, AppState>) -> Result<(), String> {
     crate::aethon_log!("set_replaygain: {}", mode);
-    state.mpv.set_replaygain(&mode).await.map_err(|e| e.to_string())
+    state
+        .mpv
+        .set_replaygain(&mode)
+        .await
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -327,10 +391,7 @@ pub fn reveal_in_file_manager(path: String) -> Result<(), String> {
     };
     let mut cmd = std::process::Command::new("xdg-open");
     crate::sanitize_host_command(&mut cmd);
-    let _ = cmd
-        .arg(target)
-        .spawn()
-        .map_err(|e| e.to_string())?;
+    let _ = cmd.arg(target).spawn().map_err(|e| e.to_string())?;
     Ok(())
 }
 
@@ -343,66 +404,69 @@ pub async fn download_track(
     thumbnail: Option<String>,
     state: State<'_, AppState>,
 ) -> Result<Track, String> {
-    crate::aethon_log!("download_track: id='{}', title='{}', artist='{}'", id, title, artist);
+    crate::aethon_log!(
+        "download_track: id='{}', title='{}', artist='{}'",
+        id,
+        title,
+        artist
+    );
     let db = Arc::clone(&state.db);
 
     tokio::task::spawn_blocking(move || {
         let music_dir = dirs::audio_dir()
-            .unwrap_or_else(|| dirs::home_dir().unwrap_or_else(|| PathBuf::from(".")).join("Music"))
+            .unwrap_or_else(|| {
+                dirs::home_dir()
+                    .unwrap_or_else(|| PathBuf::from("."))
+                    .join("Music")
+            })
             .join("Aethon Downloads");
         let _ = std::fs::create_dir_all(&music_dir);
 
         let sanitized_title = title.replace('/', "-").replace('\\', "-");
         let out_path = music_dir.join(format!("{}.mp3", sanitized_title));
-        let out_template = music_dir.join("%(title)s.%(ext)s");
+        let out_template = music_dir.join("%(title)s [%(id)s].%(ext)s");
 
         let mut cmd = std::process::Command::new("yt-dlp");
         cmd.arg("-x")
-            .arg("--audio-format").arg("mp3")
-            .arg("--audio-quality").arg("0")
+            .arg("--audio-format")
+            .arg("mp3")
+            .arg("--audio-quality")
+            .arg("0")
             .arg("--embed-thumbnail")
             .arg("--add-metadata")
             .arg("--no-playlist")
-            .arg("-o").arg(out_template.to_string_lossy().to_string())
+            .arg("--print")
+            .arg("after_move:filepath")
+            .arg("-o")
+            .arg(out_template.to_string_lossy().to_string())
             .arg("--")
             .arg(&url);
 
         crate::sanitize_host_command(&mut cmd);
 
-        let output = cmd.output().map_err(|e| format!("Failed to spawn yt-dlp: {}", e))?;
+        let output = cmd
+            .output()
+            .map_err(|e| format!("Failed to spawn yt-dlp: {}", e))?;
         if !output.status.success() {
             let err = String::from_utf8_lossy(&output.stderr);
             return Err(format!("yt-dlp download failed: {}", err));
         }
 
-        let actual_path = if out_path.exists() {
-            out_path
-        } else {
-            let mut newest = None;
-            let mut newest_time = std::time::UNIX_EPOCH;
-            if let Ok(entries) = std::fs::read_dir(&music_dir) {
-                for entry in entries.flatten() {
-                    if let Ok(meta) = entry.metadata() {
-                        if meta.is_file() {
-                            if let Ok(mod_time) = meta.modified() {
-                                if mod_time > newest_time {
-                                    newest_time = mod_time;
-                                    newest = Some(entry.path());
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-            newest.unwrap_or(out_path)
-        };
+        let printed = String::from_utf8_lossy(&output.stdout);
+        let actual_path = printed
+            .lines()
+            .rev()
+            .find(|l| !l.trim().is_empty())
+            .map(|l| PathBuf::from(l.trim()))
+            .filter(|p| p.exists())
+            .unwrap_or(out_path);
 
         let now = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .map(|d| d.as_secs() as i64)
             .unwrap_or(0);
 
-        let track = Track {
+        let mut track = Track {
             id: format!("dl_{}", id),
             title: title.clone(),
             artist: artist.clone(),
@@ -418,9 +482,19 @@ pub async fn download_track(
             date_added: now,
         };
 
+        if let Ok(tagged) = lofty::probe::Probe::open(&actual_path).and_then(|p| p.read()) {
+            use lofty::file::AudioFile;
+            let props = tagged.properties();
+            track.duration = props.duration().as_secs_f64();
+            track.bitrate = props.audio_bitrate().map(|b| b as i64);
+            track.sample_rate = props.sample_rate().map(|s| s as i64);
+        }
+
         let _ = db.upsert_track(&track);
         Ok(track)
-    }).await.map_err(|e| e.to_string())?
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 #[tauri::command]
@@ -428,7 +502,10 @@ pub fn get_play_history(
     limit: Option<usize>,
     state: State<'_, AppState>,
 ) -> Result<Vec<Track>, String> {
-    state.db.get_play_history(limit.unwrap_or(20)).map_err(|e| e.to_string())
+    state
+        .db
+        .get_play_history(limit.unwrap_or(20))
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -437,11 +514,16 @@ pub async fn send_desktop_notification(
     artist: String,
     cover_art: Option<String>,
 ) -> Result<(), String> {
-    crate::aethon_log!("send_desktop_notification: title={}, artist={}", title, artist);
+    crate::aethon_log!(
+        "send_desktop_notification: title={}, artist={}",
+        title,
+        artist
+    );
     let mut icon_arg = "multimedia-audio-player".to_string();
     if let Some(ref icon) = cover_art {
         if icon.starts_with("http://") || icon.starts_with("https://") {
-            let cache_path = std::env::temp_dir().join("aethon_notif_art.jpg");
+            let cache_path = crate::runtime_socket_dir()
+                .join(format!("aethon_notif_art_{}.jpg", std::process::id()));
             if let Ok(resp) = reqwest::get(icon).await {
                 if let Ok(bytes) = resp.bytes().await {
                     if std::fs::write(&cache_path, bytes).is_ok() {
@@ -473,8 +555,10 @@ pub async fn update_mpris_metadata(
     is_playing: bool,
     state: State<'_, AppState>,
 ) -> Result<(), String> {
-    crate::aethon_log!("update_mpris_metadata: title={}, artist={}, playing={}", title, artist, is_playing);
-    state.mpris.update_metadata(&title, &artist, &album, &cover, duration_us, is_playing).await
+    state
+        .mpris
+        .update_metadata(&title, &artist, &album, &cover, duration_us, is_playing)
+        .await
 }
 
 #[tauri::command]
@@ -571,6 +655,4 @@ pub async fn ping_recap_watchtime(
     )
     .await
 }
-
-
 

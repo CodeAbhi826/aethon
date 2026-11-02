@@ -1,94 +1,86 @@
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import { generateThemeFromHex, applyThemeTokens, THEME_PRESETS } from './theme';
+import type { YtmSyncSummary } from './types';
 
 export type ThemeListener = () => void;
 const themeListeners: Set<ThemeListener> = new Set();
-export function registerThemeListener(fn: ThemeListener): () => void {
+
+export function registerThemeListener(fn: ThemeListener) {
   themeListeners.add(fn);
-  return () => themeListeners.delete(fn);
 }
 
-export interface YtmAccountProfile {
+export function notifyThemeListeners() {
+  for (const fn of themeListeners) {
+    fn();
+  }
+}
+
+export interface SavedYtmAccount {
   name: string;
-  email_or_handle: string;
-  avatar_url: string;
+  email: string;
+  avatar: string;
   cookie: string;
-  visitor_data?: string | null;
 }
 
 class SettingsState {
-  // 1. Appearance
+  // 1. Appearance & Material You
   dynamicTheme = $state(true);
-  dynamicBackground = $state(true);
-  themePreset = $state('dynamic');
-  showFloatingOrbs = $state(true);
-  accentIntensity = $state<'subtle' | 'balanced' | 'expressive'>('expressive');
+  themePreset = $state<'dynamic' | 'violet' | 'crimson' | 'emerald' | 'amber' | 'ocean' | 'rose'>('dynamic');
+  dynamicBackground = $state<'ambient' | 'glass' | 'solid' | 'oled'>('ambient');
+  accentIntensity = $state<'subtle' | 'standard' | 'vibrant'>('standard');
+  blurStrength = $state(48);
+  uiScale = $state(100);
+  compactMode = $state(false);
+  fontStyle = $state<'outfit' | 'inter' | 'system'>('outfit');
 
-  // 2. Standby / Ambient
-  standbyEnabled = $state(true);
-  idleTimeoutMinutes = $state(5);
-  fullscreenVisualizer = $state(true);
-  ambientGlowStrength = $state(45);
-  dimDisplayOnStandby = $state(false);
-
-  // 3. Audio & Playback
-  gaplessAudio = $state(true);
-  crossfadeDuration = $state(0);
-  replayGain = $state(false);
-  replayGainMode = $state<'track' | 'album' | 'off'>('track');
-  exclusiveDeviceMode = $state(false);
-  resamplingRate = $state('auto');
-  equalizerPreset = $state('flat');
+  // 2. Now Playing & Lyrics
+  defaultNowPlayingView = $state<'auto' | 'turntable' | 'lyrics'>('auto');
+  vinylSpinSpeed = $state<'slow' | 'normal' | 'fast'>('normal');
+  showVisualizer = $state(true);
+  visualizerStyle = $state<'bars' | 'wave' | ' orbs'>('bars');
+  visualizerSensitivity = $state(75);
   showAudioQualityBadge = $state(true);
-
-  // 4. Lyrics
-  lyricsSource = $state<'lrclib' | 'local_lrc' | 'musixmatch'>('lrclib');
-  karaokeAnimation = $state(true);
+  lyricsFontSize = $state<'small' | 'medium' | 'large' | 'xlarge'>('large');
+  lyricsAlignment = $state<'left' | 'center'>('left');
+  blurInactiveLines = $state(true);
   wordByWordTracking = $state(true);
   lyricOffsetSeconds = $state(0.0);
   autoScrollLyrics = $state(true);
-  lyricsFontSize = $state<'compact' | 'standard' | 'large' | 'immersive'>('standard');
-  blurInactiveLines = $state(true);
+  romanizeLyricsByDefault = $state(true);
 
-  // 5. Canvas & Visuals
-  canvasLoopsEnabled = $state(true);
-  canvasQuality = $state<'1080p' | '720p' | 'low'>('1080p');
-  reduceMotion = $state(false);
-  spectrumVisualizer = $state(true);
+  // 3. Audio & Playback Engine
+  audioBackend = $state<'pipewire' | 'pulse' | 'alsa'>('pipewire');
+  exclusiveAudio = $state(false);
+  gaplessPlayback = $state(true);
+  crossfadeDuration = $state(0);
+  replayGainMode = $state<'off' | 'track' | 'album'>('off');
+  replayGainPreamp = $state(0);
+  audioNormalization = $state(false);
+  streamQuality = $state<'low' | 'normal' | 'high' | 'lossless'>('lossless');
+  downloadQuality = $state<'128k' | '256k' | '320k' | 'flac'>('320k');
+  rememberPlaybackPosition = $state(true);
+  autoplaySimilar = $state(true);
 
-  // 6. Content & Sources
-  youtubeStreamingQuality = $state<'256k' | '160k' | '96k'>('256k');
-  preferExplicit = $state(true);
-  filterDuplicates = $state(true);
-  communityPlaylists = $state(true);
-  sponsorBlockSkip = $state(false);
-
-  // 7. Behavior & Privacy
-  closeToTray = $state(true);
-  minimizeToTray = $state(false);
-  launchOnStartup = $state(false);
-  resumePlaybackOnLaunch = $state(true);
-  trackChangeNotifications = $state(true);
-  mprisIntegration = $state(true);
-  lockscreenControls = $state(true);
-  telemetryEnabled = $state(false);
-
-  // 8. Network & DNS
-  dohProvider = $state<'cloudflare' | 'quad9' | 'google' | 'system'>('cloudflare');
-  bufferReadaheadSecs = $state(180);
-  offlineModeOnly = $state(false);
-  proxyEnabled = $state(false);
-  proxyAddress = $state('');
-
-  // 9. Storage & Cache
-  streamCachingEnabled = $state(true);
-  maxCacheSizeGb = $state(5);
+  // 4. Library & Storage
   libraryPath = $state('~/Music');
+  downloadPath = $state('~/Music/Aethon Downloads');
   autoScanOnStartup = $state(true);
-  streamCacheSizeBytes = $state<number>(0);
+  watchFolderChanges = $state(true);
+  skipShortTracks = $state(true);
+  minTrackDurationSec = $state(15);
+  maxStreamCacheMB = $state(1024);
 
-  // 10. Account & Sync (Online Streaming Account)
+  // 5. Desktop & System Integration
+  closeToTray = $state(true);
+  startMinimized = $state(false);
+  mprisIntegration = $state(true);
+  trackChangeNotifications = $state(true);
+  discordRichPresence = $state(false);
+  hardwareAcceleration = $state(true);
+  DiscordClientId = $state('1240000000000000000');
+
+  // 6. YouTube Music & Cloud Sync
   ytmConnected = $state(false);
   ytmAccountName = $state('Guest Listener');
   ytmAccountEmail = $state('');
@@ -100,189 +92,189 @@ class SettingsState {
   ytmAutoSync = $state(true);
   ytmRecapTracking = $state(true);
   isSyncingYtm = $state(false);
-  savedAccounts = $state<Array<{ name: string; email: string; avatar: string; cookie: string }>>([]);
+  lastSyncSummary = $state<YtmSyncSummary | null>(null);
+  savedAccounts = $state<SavedYtmAccount[]>([]);
 
-  // Internal state
-  isLoaded = $state(false);
-  private saveTimeout: ReturnType<typeof setTimeout> | null = null;
+  private saveTimer: ReturnType<typeof setTimeout> | null = null;
+  private initialized = false;
 
   constructor() {
-    this.init();
+    this.loadFromBackend();
+    this.initYtmAuthListener();
   }
 
-  async init() {
-    await this.loadFromDb();
-    this.updateActiveTheme();
-    this.refreshCacheSize();
+  async initYtmAuthListener() {
     try {
-      await listen<YtmAccountProfile>('ytm-login-success', async (event) => {
-        const p = event.payload;
-        this.connectYtmAccount(p.cookie, p.name, p.email_or_handle, p.avatar_url);
-        await this.syncYtmLibrary();
+      await listen<{
+        cookie: string;
+        name: string;
+        email: string;
+        avatar: string;
+      }>('ytm-auth-success', async (event) => {
+        const { cookie, name, email, avatar } = event.payload;
+        this.connectYtmAccount(cookie, name, email, avatar);
+        if (this.ytmAutoSync) {
+          await this.syncYtmLibrary();
+        }
       });
-    } catch (e) {
-      console.warn('Failed to register ytm-login-success listener:', e);
+    } catch {
+      // Browser preview fallback
     }
   }
 
-  async loadFromDb() {
+  async loadFromBackend() {
     try {
-      const records = await invoke<Record<string, string>>('get_all_settings');
-      if (records) {
-        if ('dynamicTheme' in records) this.dynamicTheme = records['dynamicTheme'] === 'true';
-        if ('dynamicBackground' in records) this.dynamicBackground = records['dynamicBackground'] === 'true';
-        if ('themePreset' in records) this.themePreset = records['themePreset'];
-        if ('showFloatingOrbs' in records) this.showFloatingOrbs = records['showFloatingOrbs'] === 'true';
-        if ('accentIntensity' in records) this.accentIntensity = records['accentIntensity'] as any;
+      const map = await invoke<Record<string, string>>('get_all_settings');
+      if (map) {
+        if (map.dynamicTheme !== undefined) this.dynamicTheme = map.dynamicTheme === 'true';
+        if (map.themePreset) this.themePreset = map.themePreset as any;
+        if (map.dynamicBackground) this.dynamicBackground = map.dynamicBackground as any;
+        if (map.accentIntensity) this.accentIntensity = map.accentIntensity as any;
+        if (map.blurStrength) this.blurStrength = parseInt(map.blurStrength, 10) || 48;
+        if (map.uiScale) this.uiScale = parseInt(map.uiScale, 10) || 100;
+        if (map.compactMode !== undefined) this.compactMode = map.compactMode === 'true';
+        if (map.fontStyle) this.fontStyle = map.fontStyle as any;
 
-        if ('standbyEnabled' in records) this.standbyEnabled = records['standbyEnabled'] === 'true';
-        if ('idleTimeoutMinutes' in records) this.idleTimeoutMinutes = Number(records['idleTimeoutMinutes']) || 5;
-        if ('fullscreenVisualizer' in records) this.fullscreenVisualizer = records['fullscreenVisualizer'] === 'true';
-        if ('ambientGlowStrength' in records) this.ambientGlowStrength = Number(records['ambientGlowStrength']) || 45;
-        if ('dimDisplayOnStandby' in records) this.dimDisplayOnStandby = records['dimDisplayOnStandby'] === 'true';
+        if (map.defaultNowPlayingView) this.defaultNowPlayingView = map.defaultNowPlayingView as any;
+        if (map.vinylSpinSpeed) this.vinylSpinSpeed = map.vinylSpinSpeed as any;
+        if (map.showVisualizer !== undefined) this.showVisualizer = map.showVisualizer === 'true';
+        if (map.visualizerStyle) this.visualizerStyle = map.visualizerStyle as any;
+        if (map.visualizerSensitivity) this.visualizerSensitivity = parseInt(map.visualizerSensitivity, 10) || 75;
+        if (map.showAudioQualityBadge !== undefined) this.showAudioQualityBadge = map.showAudioQualityBadge === 'true';
+        if (map.lyricsFontSize) this.lyricsFontSize = map.lyricsFontSize as any;
+        if (map.lyricsAlignment) this.lyricsAlignment = map.lyricsAlignment as any;
+        if (map.blurInactiveLines !== undefined) this.blurInactiveLines = map.blurInactiveLines === 'true';
+        if (map.wordByWordTracking !== undefined) this.wordByWordTracking = map.wordByWordTracking === 'true';
+        if (map.lyricOffsetSeconds) this.lyricOffsetSeconds = parseFloat(map.lyricOffsetSeconds) || 0.0;
+        if (map.autoScrollLyrics !== undefined) this.autoScrollLyrics = map.autoScrollLyrics === 'true';
 
-        if ('gaplessAudio' in records) this.gaplessAudio = records['gaplessAudio'] === 'true';
-        if ('crossfadeDuration' in records) this.crossfadeDuration = Number(records['crossfadeDuration']) || 0;
-        if ('replayGain' in records) this.replayGain = records['replayGain'] === 'true';
-        if ('replayGainMode' in records) this.replayGainMode = records['replayGainMode'] as any;
-        if ('exclusiveDeviceMode' in records) this.exclusiveDeviceMode = records['exclusiveDeviceMode'] === 'true';
-        if ('resamplingRate' in records) this.resamplingRate = records['resamplingRate'];
-        if ('equalizerPreset' in records) this.equalizerPreset = records['equalizerPreset'];
-        if ('showAudioQualityBadge' in records) this.showAudioQualityBadge = records['showAudioQualityBadge'] === 'true';
+        if (map.audioBackend) this.audioBackend = map.audioBackend as any;
+        if (map.exclusiveAudio !== undefined) this.exclusiveAudio = map.exclusiveAudio === 'true';
+        if (map.gaplessPlayback !== undefined) this.gaplessPlayback = map.gaplessPlayback === 'true';
+        if (map.crossfadeDuration) this.crossfadeDuration = parseFloat(map.crossfadeDuration) || 0;
+        if (map.replayGainMode) this.replayGainMode = map.replayGainMode as any;
+        if (map.replayGainPreamp) this.replayGainPreamp = parseFloat(map.replayGainPreamp) || 0;
+        if (map.audioNormalization !== undefined) this.audioNormalization = map.audioNormalization === 'true';
+        if (map.streamQuality) this.streamQuality = map.streamQuality as any;
+        if (map.downloadQuality) this.downloadQuality = map.downloadQuality as any;
+        if (map.rememberPlaybackPosition !== undefined) this.rememberPlaybackPosition = map.rememberPlaybackPosition === 'true';
+        if (map.autoplaySimilar !== undefined) this.autoplaySimilar = map.autoplaySimilar === 'true';
 
-        if ('lyricsSource' in records) this.lyricsSource = records['lyricsSource'] as any;
-        if ('karaokeAnimation' in records) this.karaokeAnimation = records['karaokeAnimation'] === 'true';
-        if ('wordByWordTracking' in records) this.wordByWordTracking = records['wordByWordTracking'] === 'true';
-        if ('lyricOffsetSeconds' in records) this.lyricOffsetSeconds = Number(records['lyricOffsetSeconds']) || 0.0;
-        if ('autoScrollLyrics' in records) this.autoScrollLyrics = records['autoScrollLyrics'] === 'true';
-        if ('lyricsFontSize' in records) this.lyricsFontSize = records['lyricsFontSize'] as any;
-        if ('blurInactiveLines' in records) this.blurInactiveLines = records['blurInactiveLines'] === 'true';
+        if (map.libraryPath) this.libraryPath = map.libraryPath;
+        if (map.downloadPath) this.downloadPath = map.downloadPath;
+        if (map.autoScanOnStartup !== undefined) this.autoScanOnStartup = map.autoScanOnStartup === 'true';
+        if (map.watchFolderChanges !== undefined) this.watchFolderChanges = map.watchFolderChanges === 'true';
+        if (map.skipShortTracks !== undefined) this.skipShortTracks = map.skipShortTracks === 'true';
+        if (map.minTrackDurationSec) this.minTrackDurationSec = parseInt(map.minTrackDurationSec, 10) || 15;
+        if (map.maxStreamCacheMB) this.maxStreamCacheMB = parseInt(map.maxStreamCacheMB, 10) || 1024;
 
-        if ('canvasLoopsEnabled' in records) this.canvasLoopsEnabled = records['canvasLoopsEnabled'] === 'true';
-        if ('canvasQuality' in records) this.canvasQuality = records['canvasQuality'] as any;
-        if ('reduceMotion' in records) this.reduceMotion = records['reduceMotion'] === 'true';
-        if ('spectrumVisualizer' in records) this.spectrumVisualizer = records['spectrumVisualizer'] === 'true';
+        if (map.closeToTray !== undefined) this.closeToTray = map.closeToTray === 'true';
+        if (map.startMinimized !== undefined) this.startMinimized = map.startMinimized === 'true';
+        if (map.mprisIntegration !== undefined) this.mprisIntegration = map.mprisIntegration === 'true';
+        if (map.trackChangeNotifications !== undefined) this.trackChangeNotifications = map.trackChangeNotifications === 'true';
+        if (map.discordRichPresence !== undefined) this.discordRichPresence = map.discordRichPresence === 'true';
+        if (map.hardwareAcceleration !== undefined) this.hardwareAcceleration = map.hardwareAcceleration === 'true';
 
-        if ('youtubeStreamingQuality' in records) this.youtubeStreamingQuality = records['youtubeStreamingQuality'] as any;
-        if ('preferExplicit' in records) this.preferExplicit = records['preferExplicit'] === 'true';
-        if ('filterDuplicates' in records) this.filterDuplicates = records['filterDuplicates'] === 'true';
-        if ('communityPlaylists' in records) this.communityPlaylists = records['communityPlaylists'] === 'true';
-        if ('sponsorBlockSkip' in records) this.sponsorBlockSkip = records['sponsorBlockSkip'] === 'true';
+        if (map.ytmConnected !== undefined) this.ytmConnected = map.ytmConnected === 'true';
+        if (map.ytmAccountName) this.ytmAccountName = map.ytmAccountName;
+        if (map.ytmAccountEmail) this.ytmAccountEmail = map.ytmAccountEmail;
+        if (map.ytmAccountAvatar) this.ytmAccountAvatar = map.ytmAccountAvatar;
+        if (map.ytmCookie) this.ytmCookie = map.ytmCookie;
+        if (map.ytmSyncPlaylists !== undefined) this.ytmSyncPlaylists = map.ytmSyncPlaylists === 'true';
+        if (map.ytmSyncFavorites !== undefined) this.ytmSyncFavorites = map.ytmSyncFavorites === 'true';
+        if (map.ytmSyncHistory !== undefined) this.ytmSyncHistory = map.ytmSyncHistory === 'true';
+        if (map.ytmAutoSync !== undefined) this.ytmAutoSync = map.ytmAutoSync === 'true';
+        if (map.ytmRecapTracking !== undefined) this.ytmRecapTracking = map.ytmRecapTracking === 'true';
 
-        if ('closeToTray' in records) this.closeToTray = records['closeToTray'] === 'true';
-        if ('minimizeToTray' in records) this.minimizeToTray = records['minimizeToTray'] === 'true';
-        if ('launchOnStartup' in records) this.launchOnStartup = records['launchOnStartup'] === 'true';
-        if ('resumePlaybackOnLaunch' in records) this.resumePlaybackOnLaunch = records['resumePlaybackOnLaunch'] === 'true';
-        if ('trackChangeNotifications' in records) this.trackChangeNotifications = records['trackChangeNotifications'] === 'true';
-        if ('mprisIntegration' in records) this.mprisIntegration = records['mprisIntegration'] === 'true';
-        if ('lockscreenControls' in records) this.lockscreenControls = records['lockscreenControls'] === 'true';
-        if ('telemetryEnabled' in records) this.telemetryEnabled = records['telemetryEnabled'] === 'true';
-
-        if ('dohProvider' in records) this.dohProvider = records['dohProvider'] as any;
-        if ('bufferReadaheadSecs' in records) this.bufferReadaheadSecs = Number(records['bufferReadaheadSecs']) || 180;
-        if ('offlineModeOnly' in records) this.offlineModeOnly = records['offlineModeOnly'] === 'true';
-        if ('proxyEnabled' in records) this.proxyEnabled = records['proxyEnabled'] === 'true';
-        if ('proxyAddress' in records) this.proxyAddress = records['proxyAddress'];
-
-        if ('streamCachingEnabled' in records) this.streamCachingEnabled = records['streamCachingEnabled'] === 'true';
-        if ('maxCacheSizeGb' in records) this.maxCacheSizeGb = Number(records['maxCacheSizeGb']) || 5;
-        if ('libraryPath' in records) this.libraryPath = records['libraryPath'];
-        if ('autoScanOnStartup' in records) this.autoScanOnStartup = records['autoScanOnStartup'] === 'true';
-
-        if ('ytmConnected' in records) this.ytmConnected = records['ytmConnected'] === 'true';
-        if ('ytmAccountName' in records) this.ytmAccountName = records['ytmAccountName'];
-        if ('ytmAccountEmail' in records) this.ytmAccountEmail = records['ytmAccountEmail'];
-        if ('ytmAccountAvatar' in records) this.ytmAccountAvatar = records['ytmAccountAvatar'];
-        if ('ytmCookie' in records) this.ytmCookie = records['ytmCookie'];
-        if ('ytmSyncPlaylists' in records) this.ytmSyncPlaylists = records['ytmSyncPlaylists'] === 'true';
-        if ('ytmSyncFavorites' in records) this.ytmSyncFavorites = records['ytmSyncFavorites'] === 'true';
-        if ('ytmSyncHistory' in records) this.ytmSyncHistory = records['ytmSyncHistory'] === 'true';
-        if ('ytmAutoSync' in records) this.ytmAutoSync = records['ytmAutoSync'] === 'true';
-        if ('ytmRecapTracking' in records) this.ytmRecapTracking = records['ytmRecapTracking'] === 'true';
-        if ('savedAccounts' in records) {
+        if (map.savedAccounts) {
           try {
-            this.savedAccounts = JSON.parse(records['savedAccounts']);
+            this.savedAccounts = JSON.parse(map.savedAccounts);
           } catch {
-            // Keep defaults
+            this.savedAccounts = [];
           }
         }
       }
     } catch {
-      // In mock/preview environment
+      // Fallback to defaults
     } finally {
-      this.isLoaded = true;
+      this.initialized = true;
+      this.applyVisualSettings();
     }
   }
 
-  /**
-   * Persist current state to SQLite with 300ms debounce
-   */
-  scheduleSave() {
-    if (this.saveTimeout) {
-      clearTimeout(this.saveTimeout);
+  applyVisualSettings() {
+    if (typeof document === 'undefined') return;
+    document.documentElement.style.fontSize = `${(this.uiScale / 100) * 16}px`;
+
+    if (!this.dynamicTheme || this.themePreset !== 'dynamic') {
+      const hex = THEME_PRESETS[this.themePreset] || '#d0bcff';
+      const tokens = generateThemeFromHex(hex, {
+        dynamicBg: this.dynamicBackground,
+        accentIntensity: this.accentIntensity,
+        pureOled: this.dynamicBackground === 'oled',
+      });
+      applyThemeTokens(tokens);
+    } else {
+      notifyThemeListeners();
     }
-    this.saveTimeout = setTimeout(async () => {
+  }
+
+  scheduleSave() {
+    this.applyVisualSettings();
+    if (!this.initialized) return;
+    if (this.saveTimer) clearTimeout(this.saveTimer);
+
+    this.saveTimer = setTimeout(async () => {
       try {
         const payload: Record<string, string> = {
           dynamicTheme: String(this.dynamicTheme),
-          dynamicBackground: String(this.dynamicBackground),
           themePreset: this.themePreset,
-          showFloatingOrbs: String(this.showFloatingOrbs),
+          dynamicBackground: this.dynamicBackground,
           accentIntensity: this.accentIntensity,
+          blurStrength: String(this.blurStrength),
+          uiScale: String(this.uiScale),
+          compactMode: String(this.compactMode),
+          fontStyle: this.fontStyle,
 
-          standbyEnabled: String(this.standbyEnabled),
-          idleTimeoutMinutes: String(this.idleTimeoutMinutes),
-          fullscreenVisualizer: String(this.fullscreenVisualizer),
-          ambientGlowStrength: String(this.ambientGlowStrength),
-          dimDisplayOnStandby: String(this.dimDisplayOnStandby),
-
-          gaplessAudio: String(this.gaplessAudio),
-          crossfadeDuration: String(this.crossfadeDuration),
-          replayGain: String(this.replayGain),
-          replayGainMode: this.replayGainMode,
-          exclusiveDeviceMode: String(this.exclusiveDeviceMode),
-          resamplingRate: this.resamplingRate,
-          equalizerPreset: this.equalizerPreset,
+          defaultNowPlayingView: this.defaultNowPlayingView,
+          vinylSpinSpeed: this.vinylSpinSpeed,
+          showVisualizer: String(this.showVisualizer),
+          visualizerStyle: this.visualizerStyle,
+          visualizerSensitivity: String(this.visualizerSensitivity),
           showAudioQualityBadge: String(this.showAudioQualityBadge),
-
-          lyricsSource: this.lyricsSource,
-          karaokeAnimation: String(this.karaokeAnimation),
+          lyricsFontSize: this.lyricsFontSize,
+          lyricsAlignment: this.lyricsAlignment,
+          blurInactiveLines: String(this.blurInactiveLines),
           wordByWordTracking: String(this.wordByWordTracking),
           lyricOffsetSeconds: String(this.lyricOffsetSeconds),
           autoScrollLyrics: String(this.autoScrollLyrics),
-          lyricsFontSize: this.lyricsFontSize,
-          blurInactiveLines: String(this.blurInactiveLines),
 
-          canvasLoopsEnabled: String(this.canvasLoopsEnabled),
-          canvasQuality: this.canvasQuality,
-          reduceMotion: String(this.reduceMotion),
-          spectrumVisualizer: String(this.spectrumVisualizer),
+          audioBackend: this.audioBackend,
+          exclusiveAudio: String(this.exclusiveAudio),
+          gaplessPlayback: String(this.gaplessPlayback),
+          crossfadeDuration: String(this.crossfadeDuration),
+          replayGainMode: this.replayGainMode,
+          replayGainPreamp: String(this.replayGainPreamp),
+          audioNormalization: String(this.audioNormalization),
+          streamQuality: this.streamQuality,
+          downloadQuality: this.downloadQuality,
+          rememberPlaybackPosition: String(this.rememberPlaybackPosition),
+          autoplaySimilar: String(this.autoplaySimilar),
 
-          youtubeStreamingQuality: this.youtubeStreamingQuality,
-          preferExplicit: String(this.preferExplicit),
-          filterDuplicates: String(this.filterDuplicates),
-          communityPlaylists: String(this.communityPlaylists),
-          sponsorBlockSkip: String(this.sponsorBlockSkip),
+          libraryPath: this.libraryPath,
+          downloadPath: this.downloadPath,
+          autoScanOnStartup: String(this.autoScanOnStartup),
+          watchFolderChanges: String(this.watchFolderChanges),
+          skipShortTracks: String(this.skipShortTracks),
+          minTrackDurationSec: String(this.minTrackDurationSec),
+          maxStreamCacheMB: String(this.maxStreamCacheMB),
 
           closeToTray: String(this.closeToTray),
-          minimizeToTray: String(this.minimizeToTray),
-          launchOnStartup: String(this.launchOnStartup),
-          resumePlaybackOnLaunch: String(this.resumePlaybackOnLaunch),
-          trackChangeNotifications: String(this.trackChangeNotifications),
+          startMinimized: String(this.startMinimized),
           mprisIntegration: String(this.mprisIntegration),
-          lockscreenControls: String(this.lockscreenControls),
-          telemetryEnabled: String(this.telemetryEnabled),
-
-          dohProvider: this.dohProvider,
-          bufferReadaheadSecs: String(this.bufferReadaheadSecs),
-          offlineModeOnly: String(this.offlineModeOnly),
-          proxyEnabled: String(this.proxyEnabled),
-          proxyAddress: this.proxyAddress,
-
-          streamCachingEnabled: String(this.streamCachingEnabled),
-          maxCacheSizeGb: String(this.maxCacheSizeGb),
-          libraryPath: this.libraryPath,
-          autoScanOnStartup: String(this.autoScanOnStartup),
+          trackChangeNotifications: String(this.trackChangeNotifications),
+          discordRichPresence: String(this.discordRichPresence),
+          hardwareAcceleration: String(this.hardwareAcceleration),
 
           ytmConnected: String(this.ytmConnected),
           ytmAccountName: this.ytmAccountName,
@@ -316,8 +308,21 @@ class SettingsState {
     if (!this.ytmCookie || !this.ytmConnected) return 0;
     this.isSyncingYtm = true;
     try {
-      const count = await invoke<number>('sync_ytm_library', { cookie: this.ytmCookie });
-      return count;
+      const res = await invoke<YtmSyncSummary | number>('sync_ytm_library', {
+        cookie: this.ytmCookie,
+        visitorData: null,
+        pageId: null,
+        gl: 'US',
+      });
+      if (typeof res === 'number') {
+        return res;
+      }
+      this.lastSyncSummary = res;
+      return (
+        (res.liked_songs_count || 0) +
+        (res.playlists_count || 0) +
+        (res.history_count || 0)
+      );
     } catch (err) {
       console.error('Failed to sync YTM library:', err);
       return 0;
@@ -330,8 +335,10 @@ class SettingsState {
     this.ytmCookie = cookie.trim();
     this.ytmConnected = true;
     this.ytmAccountName = name || 'Google Account';
-    this.ytmAccountEmail = email || (cookie.includes('SAPISID') ? 'authenticated@google.com' : 'cookie-auth@user');
-    this.ytmAccountAvatar = avatar || 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=120&auto=format&fit=crop';
+    this.ytmAccountEmail =
+      email || (cookie.includes('SAPISID') ? 'authenticated@google.com' : 'cookie-auth@user');
+    this.ytmAccountAvatar =
+      avatar || 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=120&auto=format&fit=crop';
 
     const existingIdx = this.savedAccounts.findIndex((a) => a.cookie === this.ytmCookie);
     if (existingIdx >= 0) {
@@ -358,276 +365,46 @@ class SettingsState {
     this.ytmAccountEmail = '';
     this.ytmAccountAvatar = '';
     this.ytmCookie = '';
+    this.lastSyncSummary = null;
     this.scheduleSave();
   }
 
-  switchAccount(index: number) {
-    const acc = this.savedAccounts[index];
-    if (acc) {
-      this.ytmConnected = true;
-      this.ytmAccountName = acc.name;
-      this.ytmAccountEmail = acc.email;
-      this.ytmAccountAvatar = acc.avatar;
-      this.ytmCookie = acc.cookie;
-      this.scheduleSave();
-    }
+  switchAccount(account: SavedYtmAccount) {
+    this.ytmConnected = true;
+    this.ytmAccountName = account.name;
+    this.ytmAccountEmail = account.email;
+    this.ytmAccountAvatar = account.avatar;
+    this.ytmCookie = account.cookie;
+    this.scheduleSave();
   }
 
-  updateActiveTheme() {
-    if (!this.dynamicTheme || this.themePreset !== 'dynamic') {
-      const presetKey = this.themePreset === 'dynamic' ? 'violet' : this.themePreset;
-      const preset = THEME_PRESETS[presetKey] || THEME_PRESETS.violet;
-      const tokens = generateThemeFromHex(preset.hex, {
-        pureOled: this.themePreset === 'oled',
-        dynamicBg: this.dynamicBackground,
-        accentIntensity: this.accentIntensity,
-      });
-      applyThemeTokens(tokens);
-    } else {
-      for (const listener of themeListeners) {
-        listener();
-      }
-    }
+  removeSavedAccount(email: string) {
+    this.savedAccounts = this.savedAccounts.filter((a) => a.email !== email);
+    this.scheduleSave();
   }
 
-  async refreshCacheSize() {
-    try {
-      const bytes = await invoke<number>('get_stream_cache_size');
-      this.streamCacheSizeBytes = bytes || 0;
-    } catch {
-      this.streamCacheSizeBytes = 0;
-    }
-  }
-
-  async clearCache(): Promise<number> {
-    try {
-      const freed = await invoke<number>('clear_stream_cache');
-      await this.refreshCacheSize();
-      return freed || 0;
-    } catch {
-      return 0;
-    }
-  }
-
-  exportSettings(): string {
-    const data = {
-      version: '0.0.15',
-      exportedAt: new Date().toISOString(),
-      appearance: {
-        dynamicTheme: this.dynamicTheme,
-        dynamicBackground: this.dynamicBackground,
-        themePreset: this.themePreset,
-        showFloatingOrbs: this.showFloatingOrbs,
-        accentIntensity: this.accentIntensity,
-      },
-      ambient: {
-        standbyEnabled: this.standbyEnabled,
-        idleTimeoutMinutes: this.idleTimeoutMinutes,
-        fullscreenVisualizer: this.fullscreenVisualizer,
-        ambientGlowStrength: this.ambientGlowStrength,
-        dimDisplayOnStandby: this.dimDisplayOnStandby,
-      },
-      audio: {
-        gaplessAudio: this.gaplessAudio,
-        replayGain: this.replayGain,
-        replayGainMode: this.replayGainMode,
-        exclusiveDeviceMode: this.exclusiveDeviceMode,
-        resamplingRate: this.resamplingRate,
-        equalizerPreset: this.equalizerPreset,
-        showAudioQualityBadge: this.showAudioQualityBadge,
-      },
-      lyrics: {
-        lyricsSource: this.lyricsSource,
-        karaokeAnimation: this.karaokeAnimation,
-        wordByWordTracking: this.wordByWordTracking,
-        lyricOffsetSeconds: this.lyricOffsetSeconds,
-        autoScrollLyrics: this.autoScrollLyrics,
-        lyricsFontSize: this.lyricsFontSize,
-        blurInactiveLines: this.blurInactiveLines,
-      },
-      canvas: {
-        canvasLoopsEnabled: this.canvasLoopsEnabled,
-        canvasQuality: this.canvasQuality,
-        reduceMotion: this.reduceMotion,
-        spectrumVisualizer: this.spectrumVisualizer,
-      },
-      content: {
-        youtubeStreamingQuality: this.youtubeStreamingQuality,
-        preferExplicit: this.preferExplicit,
-        filterDuplicates: this.filterDuplicates,
-        communityPlaylists: this.communityPlaylists,
-        sponsorBlockSkip: this.sponsorBlockSkip,
-      },
-      behavior: {
-        closeToTray: this.closeToTray,
-        minimizeToTray: this.minimizeToTray,
-        launchOnStartup: this.launchOnStartup,
-        resumePlaybackOnLaunch: this.resumePlaybackOnLaunch,
-        trackChangeNotifications: this.trackChangeNotifications,
-        mprisIntegration: this.mprisIntegration,
-        lockscreenControls: this.lockscreenControls,
-        telemetryEnabled: this.telemetryEnabled,
-      },
-      network: {
-        dohProvider: this.dohProvider,
-        bufferReadaheadSecs: this.bufferReadaheadSecs,
-        offlineModeOnly: this.offlineModeOnly,
-        proxyEnabled: this.proxyEnabled,
-        proxyAddress: this.proxyAddress,
-      },
-      storage: {
-        streamCachingEnabled: this.streamCachingEnabled,
-        maxCacheSizeGb: this.maxCacheSizeGb,
-        libraryPath: this.libraryPath,
-        autoScanOnStartup: this.autoScanOnStartup,
-      },
-    };
-    return JSON.stringify(data, null, 2);
-  }
-
-  importSettings(json: string): boolean {
-    try {
-      const data = JSON.parse(json);
-      if (data.appearance) {
-        if (data.appearance.dynamicTheme !== undefined) this.dynamicTheme = Boolean(data.appearance.dynamicTheme);
-        if (data.appearance.dynamicBackground !== undefined) this.dynamicBackground = Boolean(data.appearance.dynamicBackground);
-        if (data.appearance.themePreset) this.themePreset = data.appearance.themePreset;
-        if (data.appearance.showFloatingOrbs !== undefined) this.showFloatingOrbs = Boolean(data.appearance.showFloatingOrbs);
-        if (data.appearance.accentIntensity) this.accentIntensity = data.appearance.accentIntensity;
-      }
-      if (data.ambient) {
-        if (data.ambient.standbyEnabled !== undefined) this.standbyEnabled = Boolean(data.ambient.standbyEnabled);
-        if (data.ambient.idleTimeoutMinutes !== undefined) this.idleTimeoutMinutes = Number(data.ambient.idleTimeoutMinutes) || 5;
-        if (data.ambient.fullscreenVisualizer !== undefined) this.fullscreenVisualizer = Boolean(data.ambient.fullscreenVisualizer);
-        if (data.ambient.ambientGlowStrength !== undefined) this.ambientGlowStrength = Number(data.ambient.ambientGlowStrength) || 45;
-        if (data.ambient.dimDisplayOnStandby !== undefined) this.dimDisplayOnStandby = Boolean(data.ambient.dimDisplayOnStandby);
-      }
-      if (data.audio) {
-        if (data.audio.gaplessAudio !== undefined) this.gaplessAudio = Boolean(data.audio.gaplessAudio);
-        if (data.audio.replayGain !== undefined) this.replayGain = Boolean(data.audio.replayGain);
-        if (data.audio.replayGainMode) this.replayGainMode = data.audio.replayGainMode;
-        if (data.audio.exclusiveDeviceMode !== undefined) this.exclusiveDeviceMode = Boolean(data.audio.exclusiveDeviceMode);
-        if (data.audio.resamplingRate) this.resamplingRate = data.audio.resamplingRate;
-        if (data.audio.equalizerPreset) this.equalizerPreset = data.audio.equalizerPreset;
-        if (data.audio.showAudioQualityBadge !== undefined) this.showAudioQualityBadge = Boolean(data.audio.showAudioQualityBadge);
-      }
-      if (data.lyrics) {
-        if (data.lyrics.lyricsSource) this.lyricsSource = data.lyrics.lyricsSource;
-        if (data.lyrics.karaokeAnimation !== undefined) this.karaokeAnimation = Boolean(data.lyrics.karaokeAnimation);
-        if (data.lyrics.wordByWordTracking !== undefined) this.wordByWordTracking = Boolean(data.lyrics.wordByWordTracking);
-        if (data.lyrics.lyricOffsetSeconds !== undefined) this.lyricOffsetSeconds = Number(data.lyrics.lyricOffsetSeconds) || 0.0;
-        if (data.lyrics.autoScrollLyrics !== undefined) this.autoScrollLyrics = Boolean(data.lyrics.autoScrollLyrics);
-        if (data.lyrics.lyricsFontSize) this.lyricsFontSize = data.lyrics.lyricsFontSize;
-        if (data.lyrics.blurInactiveLines !== undefined) this.blurInactiveLines = Boolean(data.lyrics.blurInactiveLines);
-      }
-      if (data.canvas) {
-        if (data.canvas.canvasLoopsEnabled !== undefined) this.canvasLoopsEnabled = Boolean(data.canvas.canvasLoopsEnabled);
-        if (data.canvas.canvasQuality) this.canvasQuality = data.canvas.canvasQuality;
-        if (data.canvas.reduceMotion !== undefined) this.reduceMotion = Boolean(data.canvas.reduceMotion);
-        if (data.canvas.spectrumVisualizer !== undefined) this.spectrumVisualizer = Boolean(data.canvas.spectrumVisualizer);
-      }
-      if (data.content) {
-        if (data.content.youtubeStreamingQuality) this.youtubeStreamingQuality = data.content.youtubeStreamingQuality;
-        if (data.content.preferExplicit !== undefined) this.preferExplicit = Boolean(data.content.preferExplicit);
-        if (data.content.filterDuplicates !== undefined) this.filterDuplicates = Boolean(data.content.filterDuplicates);
-        if (data.content.communityPlaylists !== undefined) this.communityPlaylists = Boolean(data.content.communityPlaylists);
-        if (data.content.sponsorBlockSkip !== undefined) this.sponsorBlockSkip = Boolean(data.content.sponsorBlockSkip);
-      }
-      if (data.behavior) {
-        if (data.behavior.closeToTray !== undefined) this.closeToTray = Boolean(data.behavior.closeToTray);
-        if (data.behavior.minimizeToTray !== undefined) this.minimizeToTray = Boolean(data.behavior.minimizeToTray);
-        if (data.behavior.launchOnStartup !== undefined) this.launchOnStartup = Boolean(data.behavior.launchOnStartup);
-        if (data.behavior.resumePlaybackOnLaunch !== undefined) this.resumePlaybackOnLaunch = Boolean(data.behavior.resumePlaybackOnLaunch);
-        if (data.behavior.trackChangeNotifications !== undefined) this.trackChangeNotifications = Boolean(data.behavior.trackChangeNotifications);
-        if (data.behavior.mprisIntegration !== undefined) this.mprisIntegration = Boolean(data.behavior.mprisIntegration);
-        if (data.behavior.lockscreenControls !== undefined) this.lockscreenControls = Boolean(data.behavior.lockscreenControls);
-        if (data.behavior.telemetryEnabled !== undefined) this.telemetryEnabled = Boolean(data.behavior.telemetryEnabled);
-      }
-      if (data.network) {
-        if (data.network.dohProvider) this.dohProvider = data.network.dohProvider;
-        if (data.network.bufferReadaheadSecs !== undefined) this.bufferReadaheadSecs = Number(data.network.bufferReadaheadSecs) || 180;
-        if (data.network.offlineModeOnly !== undefined) this.offlineModeOnly = Boolean(data.network.offlineModeOnly);
-        if (data.network.proxyEnabled !== undefined) this.proxyEnabled = Boolean(data.network.proxyEnabled);
-        if (data.network.proxyAddress !== undefined) this.proxyAddress = data.network.proxyAddress;
-      }
-      if (data.storage) {
-        if (data.storage.streamCachingEnabled !== undefined) this.streamCachingEnabled = Boolean(data.storage.streamCachingEnabled);
-        if (data.storage.maxCacheSizeGb !== undefined) this.maxCacheSizeGb = Number(data.storage.maxCacheSizeGb) || 5;
-        if (data.storage.libraryPath) this.libraryPath = data.storage.libraryPath;
-        if (data.storage.autoScanOnStartup !== undefined) this.autoScanOnStartup = Boolean(data.storage.autoScanOnStartup);
-      }
-
-      this.updateActiveTheme();
-      this.scheduleSave();
-      return true;
-    } catch {
-      return false;
-    }
-  }
-
-  resetDefaults() {
+  resetAllSettings() {
     this.dynamicTheme = true;
-    this.dynamicBackground = true;
     this.themePreset = 'dynamic';
-    this.showFloatingOrbs = true;
-    this.accentIntensity = 'expressive';
-
-    this.standbyEnabled = true;
-    this.idleTimeoutMinutes = 5;
-    this.fullscreenVisualizer = true;
-    this.ambientGlowStrength = 45;
-    this.dimDisplayOnStandby = false;
-
-    this.gaplessAudio = true;
-    this.replayGain = false;
-    this.replayGainMode = 'track';
-    this.exclusiveDeviceMode = false;
-    this.resamplingRate = 'auto';
-    this.equalizerPreset = 'flat';
+    this.dynamicBackground = 'ambient';
+    this.accentIntensity = 'standard';
+    this.blurStrength = 48;
+    this.uiScale = 100;
+    this.compactMode = false;
+    this.fontStyle = 'outfit';
+    this.defaultNowPlayingView = 'auto';
+    this.showVisualizer = true;
     this.showAudioQualityBadge = true;
-
-    this.lyricsSource = 'lrclib';
-    this.karaokeAnimation = true;
+    this.lyricsFontSize = 'large';
+    this.blurInactiveLines = true;
     this.wordByWordTracking = true;
     this.lyricOffsetSeconds = 0.0;
-    this.autoScrollLyrics = true;
-    this.lyricsFontSize = 'standard';
-    this.blurInactiveLines = true;
-
-    this.canvasLoopsEnabled = true;
-    this.canvasQuality = '1080p';
-    this.reduceMotion = false;
-    this.spectrumVisualizer = true;
-
-    this.youtubeStreamingQuality = '256k';
-    this.preferExplicit = true;
-    this.filterDuplicates = true;
-    this.communityPlaylists = true;
-    this.sponsorBlockSkip = false;
-
-    this.closeToTray = true;
-    this.minimizeToTray = false;
-    this.launchOnStartup = false;
-    this.resumePlaybackOnLaunch = true;
-    this.trackChangeNotifications = true;
-    this.mprisIntegration = true;
-    this.lockscreenControls = true;
-    this.telemetryEnabled = false;
-
-    this.dohProvider = 'cloudflare';
-    this.bufferReadaheadSecs = 180;
-    this.offlineModeOnly = false;
-    this.proxyEnabled = false;
-    this.proxyAddress = '';
-
-    this.streamCachingEnabled = true;
-    this.maxCacheSizeGb = 5;
-    this.libraryPath = '~/Music';
-    this.autoScanOnStartup = true;
-
-    this.updateActiveTheme();
+    this.gaplessPlayback = true;
+    this.crossfadeDuration = 0;
+    this.replayGainMode = 'off';
     this.scheduleSave();
   }
 }
 
 export const settingsState = new SettingsState();
+

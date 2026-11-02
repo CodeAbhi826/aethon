@@ -1,6 +1,15 @@
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
-import { sanitizeArtist, type Track, type PlaybackState, type LyricsResult, type YouTubeTrack, type TabType, type Playlist } from './types';
+import {
+  sanitizeArtist,
+  type Track,
+  type PlaybackState,
+  type LyricsResult,
+  type YouTubeTrack,
+  type TabType,
+  type Playlist,
+  type PlaybackTrackingSession,
+} from './types';
 import { extractAndApplyThemeFromImage, generateThemeFromHex, applyThemeTokens } from './theme';
 import { settingsState, registerThemeListener } from './settingsState.svelte';
 
@@ -20,7 +29,7 @@ class PlayerState {
   playlistTracks = $state<Track[]>([]);
   playHistoryTracks = $state<Track[]>([]);
   currentMood = $state<string>('All');
-  lyrics = $state<LyricsResult>({ synced: false, lines: [] });
+  lyrics = $state<LyricsResult>({ synced: false, lines: [], provider: '', has_romanized: false });
   youtubeResults = $state<YouTubeTrack[]>([]);
   isSearching = $state(false);
   activeTab = $state<TabType>('home');
@@ -45,10 +54,9 @@ class PlayerState {
   selectedAlbum = $state<{ title: string; artist: string; cover?: string; year?: string } | null>(null);
   lastMprisPlaying = false;
   pendingResumePosition: number | null = null;
-  currentRecapSession = $state<{ videoId: string; cpn: string } | null>(null);
+  currentRecapSession = $state<PlaybackTrackingSession | null>(null);
   lastRecapReportedPos = 0;
 
-  // Derived properties
   formattedTime = $derived.by(() => {
     const cur = this.formatSeconds(this.playback.position);
     const dur = this.formatSeconds(this.playback.duration || (this.currentTrack?.duration ?? 0));
@@ -92,9 +100,9 @@ class PlayerState {
         title: track.title,
         artist: track.artist,
         album: track.album || 'Aethon',
-        artwork: track.cover_art ? [
-          { src: track.cover_art, sizes: '512x512', type: 'image/jpeg' }
-        ] : [],
+        artwork: track.cover_art
+          ? [{ src: track.cover_art, sizes: '512x512', type: 'image/jpeg' }]
+          : [],
       });
       navigator.mediaSession.playbackState = this.playback.is_playing ? 'playing' : 'paused';
     }
@@ -167,22 +175,26 @@ class PlayerState {
     try {
       await listen<PlaybackState>('player-state', (event) => {
         if (!event.payload.current_uri) {
-          // MPV has no file loaded yet. Do not wipe out restored track position/duration, and ensure is_playing is false on idle.
           this.playback = {
             ...event.payload,
             is_playing: false,
             position: this.currentTrack ? this.playback.position : event.payload.position,
-            duration: this.currentTrack ? (this.playback.duration || (this.currentTrack.duration ?? 0)) : event.payload.duration,
+            duration: this.currentTrack
+              ? this.playback.duration || (this.currentTrack.duration ?? 0)
+              : event.payload.duration,
           };
           return;
         }
 
         this.playback = event.payload;
-        if (event.payload.is_playing || event.payload.position > 0.1) {
+        if (event.payload.is_playing || event.payload.position > 0.05) {
           this.isLoading = false;
         }
 
-        if (this.pendingResumePosition !== null && (event.payload.is_playing || event.payload.position > 0)) {
+        if (
+          this.pendingResumePosition !== null &&
+          (event.payload.is_playing || event.payload.position > 0)
+        ) {
           const target = this.pendingResumePosition;
           this.pendingResumePosition = null;
           this.seek(target);
@@ -191,7 +203,11 @@ class PlayerState {
 
         if (this.currentTrack) {
           this.updateMediaSession(this.currentTrack);
-          if (typeof localStorage !== 'undefined' && event.payload.position > 0 && this.pendingResumePosition === null) {
+          if (
+            typeof localStorage !== 'undefined' &&
+            event.payload.position > 0 &&
+            this.pendingResumePosition === null
+          ) {
             try {
               localStorage.setItem('aethon_last_position', String(event.payload.position));
               localStorage.setItem('aethon_last_track_id', this.currentTrack.id);
@@ -199,7 +215,7 @@ class PlayerState {
           }
         }
 
-        // YouTube Recap watch-time heartbeat (sent every ~30s of actual playback)
+        // Official YouTube Music Recap watch-time heartbeat (reported every ~25s of playback)
         if (
           event.payload.is_playing &&
           this.currentRecapSession &&
@@ -208,16 +224,17 @@ class PlayerState {
           settingsState.ytmCookie
         ) {
           const pos = event.payload.position;
-          if (pos - this.lastRecapReportedPos >= 30) {
-            const dur = event.payload.duration || (this.currentTrack ? this.currentTrack.duration : 0) || 0;
-            const { videoId, cpn } = this.currentRecapSession;
+          if (pos - this.lastRecapReportedPos >= 25) {
+            const startSec = this.lastRecapReportedPos;
+            const endSec = pos;
             this.lastRecapReportedPos = pos;
             invoke('ping_recap_watchtime', {
               cookie: settingsState.ytmCookie,
-              videoId,
-              cpn,
-              currentPositionSecs: pos,
-              totalDurationSecs: dur,
+              visitorData: null,
+              session: this.currentRecapSession,
+              startSec,
+              endSec,
+              isPlaying: true,
             }).catch((err) => console.warn('ping_recap_watchtime error:', err));
           }
         }
@@ -234,51 +251,48 @@ class PlayerState {
       });
 
       await listen('track-ended', () => {
+        if (
+          this.currentRecapSession &&
+          settingsState.ytmConnected &&
+          settingsState.ytmRecapTracking &&
+          settingsState.ytmCookie
+        ) {
+          const endSec =
+            this.playback.duration || (this.currentTrack ? this.currentTrack.duration : 0);
+          if (endSec > this.lastRecapReportedPos) {
+            invoke('ping_recap_watchtime', {
+              cookie: settingsState.ytmCookie,
+              visitorData: null,
+              session: this.currentRecapSession,
+              startSec: this.lastRecapReportedPos,
+              endSec,
+              isPlaying: false,
+            }).catch(() => {});
+          }
+        }
         this.currentRecapSession = null;
         this.lastRecapReportedPos = 0;
-        // Guard: only advance if the track was playing and reached close to the end, not if replaced during loading
-        if (this.playback.duration > 0 && this.playback.position >= Math.max(1, this.playback.duration - 2)) {
+        if (
+          this.playback.duration > 0 &&
+          this.playback.position >= Math.max(1, this.playback.duration - 2)
+        ) {
           this.playNext();
         }
       });
 
-      await listen('mpris-next', () => {
-        this.playNext();
-      });
-
-      await listen('mpris-prev', () => {
-        this.playPrevious();
-      });
-
-      await listen('mpris-playpause', () => {
-        this.togglePlay();
-      });
-
+      await listen('mpris-next', () => this.playNext());
+      await listen('mpris-prev', () => this.playPrevious());
+      await listen('mpris-playpause', () => this.togglePlay());
       await listen('mpris-play', () => {
-        if (!this.playback.is_playing) {
-          this.togglePlay();
-        }
+        if (!this.playback.is_playing) this.togglePlay();
       });
-
       await listen('mpris-pause', () => {
-        if (this.playback.is_playing) {
-          this.togglePlay();
-        }
+        if (this.playback.is_playing) this.togglePlay();
       });
+      await listen('tray-next', () => this.playNext());
+      await listen('tray-prev', () => this.playPrevious());
+      await listen('tray-mini-player', () => this.toggleMiniPlayer());
 
-      await listen('tray-next', () => {
-        this.playNext();
-      });
-
-      await listen('tray-prev', () => {
-        this.playPrevious();
-      });
-
-      await listen('tray-mini-player', () => {
-        this.toggleMiniPlayer();
-      });
-
-      // Initial state sync
       const state = await invoke<PlaybackState>('get_playback_state').catch(() => null);
       if (state) {
         if (!state.current_uri) {
@@ -286,14 +300,16 @@ class PlayerState {
             ...state,
             is_playing: false,
             position: this.currentTrack ? this.playback.position : state.position,
-            duration: this.currentTrack ? (this.playback.duration || (this.currentTrack.duration ?? 0)) : state.duration,
+            duration: this.currentTrack
+              ? this.playback.duration || (this.currentTrack.duration ?? 0)
+              : state.duration,
           };
         } else {
           this.playback = state;
         }
       }
     } catch {
-      // In browser preview / mock mode
+      // Browser preview mode
     }
   }
 
@@ -457,6 +473,22 @@ class PlayerState {
     }
   }
 
+  prefetchStream(uri: string, title?: string, artist?: string) {
+    if (!uri || (!uri.includes('youtube.com/') && !uri.includes('youtu.be/'))) return;
+    invoke('prefetch_stream', {
+      uri,
+      title: title || null,
+      artist: artist || null,
+    }).catch(() => {});
+  }
+
+  prefetchNextInQueue() {
+    const next = this.queue[0];
+    if (next && next.file_path) {
+      this.prefetchStream(next.file_path, next.title, next.artist);
+    }
+  }
+
   async playTrack(track: Track) {
     const sanitized: Track = { ...track, artist: sanitizeArtist(track.artist) };
     if (this.currentTrack && this.currentTrack.id !== sanitized.id) {
@@ -474,46 +506,71 @@ class PlayerState {
         localStorage.setItem('aethon_last_track_id', sanitized.id);
       } catch {}
     }
+
     this.currentTrack = sanitized;
     this.isLoading = true;
     this.updateMediaSession(sanitized);
     this.updateMpris(sanitized, true);
     this.notifyTrackChange(sanitized);
 
-    // Initialize YouTube Music Recap tracking if stream is YouTube-based
     let videoId: string | null = null;
     if (sanitized.id.startsWith('yt_')) {
       videoId = sanitized.id.replace('yt_', '');
-    } else if (sanitized.file_path.startsWith('http://') || sanitized.file_path.startsWith('https://')) {
+    } else if (
+      sanitized.file_path.startsWith('http://') ||
+      sanitized.file_path.startsWith('https://')
+    ) {
       const match = sanitized.file_path.match(/(?:v=|\/)([0-9A-Za-z_-]{11})/);
       if (match) videoId = match[1];
     }
 
-    if (videoId && settingsState.ytmConnected && settingsState.ytmRecapTracking && settingsState.ytmCookie) {
-      invoke<string>('init_recap_playback_tracking', {
+    // Fire lyrics lookup & theme extraction in parallel with stream playback so nothing blocks audio startup
+    this.fetchLyrics(
+      sanitized.title,
+      sanitized.artist,
+      sanitized.duration,
+      sanitized.file_path,
+      videoId
+    );
+    if (sanitized.cover_art) {
+      this.applyMonetColorFromImage(sanitized.cover_art);
+    } else {
+      this.reapplyTheme();
+    }
+
+    if (
+      videoId &&
+      settingsState.ytmConnected &&
+      settingsState.ytmRecapTracking &&
+      settingsState.ytmCookie
+    ) {
+      invoke<PlaybackTrackingSession>('init_recap_playback_tracking', {
         cookie: settingsState.ytmCookie,
+        visitorData: null,
+        pageId: null,
         videoId,
-      }).then((cpn) => {
-        this.currentRecapSession = { videoId: videoId!, cpn };
-        this.lastRecapReportedPos = 0;
-      }).catch((err) => {
-        console.warn('init_recap_playback_tracking error:', err);
-        this.currentRecapSession = null;
-      });
+      })
+        .then((session) => {
+          this.currentRecapSession = session;
+          this.lastRecapReportedPos = 0;
+        })
+        .catch((err) => {
+          console.warn('init_recap_playback_tracking error:', err);
+          this.currentRecapSession = null;
+        });
     } else {
       this.currentRecapSession = null;
       this.lastRecapReportedPos = 0;
     }
 
     try {
-      await invoke('play_track', { uri: sanitized.file_path, trackId: sanitized.id, track: sanitized });
-      this.fetchLyrics(sanitized.title, sanitized.artist, sanitized.duration);
+      await invoke('play_track', {
+        uri: sanitized.file_path,
+        trackId: sanitized.id,
+        track: sanitized,
+      });
       this.loadPlayHistory();
-      if (sanitized.cover_art) {
-        this.applyMonetColorFromImage(sanitized.cover_art);
-      } else {
-        this.reapplyTheme();
-      }
+      this.prefetchNextInQueue();
     } catch (e) {
       console.error('Play error:', e);
       this.isLoading = false;
@@ -525,7 +582,7 @@ class PlayerState {
       id: `yt_${yt.id}`,
       title: yt.title,
       artist: sanitizeArtist(yt.artist),
-      album: 'Lossless Online Stream',
+      album: 'YouTube Music',
       duration: yt.duration,
       file_path: yt.stream_url,
       cover_art: yt.thumbnail,
@@ -538,7 +595,8 @@ class PlayerState {
   }
 
   async togglePlay() {
-    if (!this.playback.is_playing && this.currentTrack && (!this.playback.current_uri || this.playback.current_uri !== this.currentTrack.file_path)) {
+    // Only reload if MPV has no active stream loaded (e.g. cold boot with restored track from localStorage)
+    if (!this.playback.is_playing && this.currentTrack && !this.playback.current_uri) {
       const resumePos = this.playback.position;
       if (resumePos > 0) {
         this.pendingResumePosition = resumePos;
@@ -616,6 +674,8 @@ class PlayerState {
         const videoId = trackId.replace('yt_', '');
         invoke('set_ytm_like', {
           cookie: settingsState.ytmCookie,
+          visitorData: null,
+          pageId: null,
           videoId,
           like: fav,
         }).catch((err) => console.warn('set_ytm_like error:', err));
@@ -625,12 +685,30 @@ class PlayerState {
     }
   }
 
-  async fetchLyrics(title: string, artist: string, duration?: number) {
+  async fetchLyrics(
+    title: string,
+    artist: string,
+    duration?: number,
+    filePath?: string,
+    videoId?: string | null
+  ) {
     try {
-      const res = await invoke<LyricsResult>('get_lyrics', { title, artist, duration: duration || null });
+      const res = await invoke<LyricsResult>('get_lyrics', {
+        title,
+        artist,
+        duration: duration || null,
+        filePath: filePath || null,
+        videoId: videoId || null,
+      });
       this.lyrics = res;
     } catch {
-      this.lyrics = { synced: false, lines: [], plain_text: 'Lyrics unavailable for this track.' };
+      this.lyrics = {
+        synced: false,
+        lines: [],
+        plain_text: undefined,
+        provider: '',
+        has_romanized: false,
+      };
     }
   }
 
@@ -638,8 +716,11 @@ class PlayerState {
     if (!query.trim()) return;
     this.isSearching = true;
     try {
-      const res = await invoke<YouTubeTrack[]>('search_youtube', { query, limit: 30 });
+      const res = await invoke<YouTubeTrack[]>('search_youtube', { query, limit: 25 });
       this.youtubeResults = res;
+      if (res.length > 0) {
+        this.prefetchStream(res[0].stream_url, res[0].title, res[0].artist);
+      }
     } catch (e) {
       console.error('YouTube search error:', e);
     } finally {
@@ -648,11 +729,16 @@ class PlayerState {
   }
 
   addToQueue(track: Track) {
+    const wasEmpty = this.queue.length === 0;
     this.queue = [...this.queue, track];
+    if (wasEmpty) {
+      this.prefetchNextInQueue();
+    }
   }
 
   playNextInQueue(track: Track) {
     this.queue = [track, ...this.queue];
+    this.prefetchNextInQueue();
   }
 
   removeFromQueue(idx: number) {
@@ -700,7 +786,6 @@ class PlayerState {
       }
     }
 
-    // Autoplay Radio continuation (dynamic online stream recommendations)
     if (this.autoplayRadio && this.currentTrack) {
       try {
         const query = `${this.currentTrack.artist} songs`;
@@ -711,8 +796,8 @@ class PlayerState {
             .map((yt) => ({
               id: `yt_${yt.id}`,
               title: yt.title,
-              artist: sanitizeArtist(yt.artist) || 'Radio Pick',
-              album: 'Autoplay Radio',
+              artist: sanitizeArtist(yt.artist) || 'Radio',
+              album: 'Autoplay',
               duration: yt.duration || 210,
               file_path: yt.stream_url,
               cover_art: yt.thumbnail,
@@ -810,3 +895,4 @@ class PlayerState {
 }
 
 export const playerState = new PlayerState();
+

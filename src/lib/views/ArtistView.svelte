@@ -1,18 +1,16 @@
 <script lang="ts">
-  import { onMount } from 'svelte';
   import { invoke } from '@tauri-apps/api/core';
   import { playerState } from '../state.svelte';
-  import type { Track, YouTubeTrack } from '../types';
+  import { sanitizeArtist, type Track, type YouTubeTrack } from '../types';
 
   let artistTracks = $state<Track[]>([]);
   let isLoadingTracks = $state(true);
 
   let artistName = $derived(playerState.selectedArtist || 'Artist');
 
-  // Find local tracks by this artist
   let localArtistTracks = $derived(
-    playerState.library.filter(
-      (t) => t.artist.toLowerCase().includes(artistName.toLowerCase())
+    playerState.library.filter((t) =>
+      t.artist.toLowerCase().includes(artistName.toLowerCase())
     )
   );
 
@@ -28,23 +26,23 @@
     isLoadingTracks = true;
     try {
       const res = await invoke<YouTubeTrack[]>('search_youtube', {
-        query: `${artistName} top tracks`,
-        limit: 8,
+        query: `${artistName} songs`,
+        limit: 10,
       });
 
       if (res && res.length > 0) {
         artistTracks = res.map((yt, idx) => ({
           id: `yt_${yt.id}`,
           title: yt.title,
-          artist: yt.artist || artistName,
-          album: 'Top Releases',
-          duration: yt.duration || 210,
+          artist: sanitizeArtist(yt.artist) || artistName,
+          album: 'Top Songs',
+          duration: yt.duration || 0,
           file_path: yt.stream_url,
           cover_art: yt.thumbnail,
-          format: 'Opus 256k',
+          format: 'Opus',
           play_count: 100 - idx * 5,
           favorite: false,
-          date_added: Date.now(),
+          date_added: Math.floor(Date.now() / 1000),
         }));
       } else {
         artistTracks = localArtistTracks;
@@ -65,147 +63,125 @@
   }
 
   function handlePlayRadio() {
-    playerState.searchYouTube(`${artistName} Radio Mix`);
+    playerState.searchYouTube(`${artistName} mix`);
     playerState.activeTab = 'search';
   }
 </script>
 
-<div class="px-6 py-6 space-y-8 max-w-7xl mx-auto pb-28 select-none">
-  
-  <!-- Back Button -->
+<div class="px-6 py-6 space-y-6 max-w-6xl mx-auto pb-28 select-none">
   <button
-    onclick={() => playerState.activeTab = 'home'}
-    class="flex items-center gap-2 text-xs font-semibold text-[var(--md-sys-primary)] hover:underline cursor-pointer"
+    onclick={() => (playerState.activeTab = 'home')}
+    class="flex items-center gap-1.5 text-xs font-medium text-white/60 hover:text-white cursor-pointer transition-colors"
   >
     <span class="material-symbols-rounded text-base">arrow_back</span>
-    <span>Back to Home</span>
+    <span>Back</span>
   </button>
 
-  <!-- Artist Hero Banner -->
-  <div class="p-6 md:p-8 rounded-3xl bg-gradient-to-br from-white/[0.06] to-white/[0.01] border border-white/10 flex flex-col md:flex-row items-center gap-6 shadow-2xl relative overflow-hidden">
-    
-    <!-- Ambient Backdrop Glow -->
-    <div class="absolute -top-24 -left-24 w-80 h-80 rounded-full bg-[var(--md-sys-primary)]/15 blur-3xl pointer-events-none"></div>
-
-    <div class="w-32 h-32 md:w-40 md:h-40 rounded-full overflow-hidden shadow-2xl border-2 border-white/20 shrink-0 relative bg-black/40">
+  <!-- Clean Editorial Artist Header -->
+  <div class="p-6 rounded-3xl bg-white/[0.03] border border-white/[0.07] flex flex-col sm:flex-row items-center gap-6 relative overflow-hidden">
+    <div class="w-28 h-28 sm:w-36 sm:h-36 rounded-full overflow-hidden shadow-xl ring-1 ring-white/15 shrink-0 bg-white/5">
       {#if artistTracks[0]?.cover_art}
         <img src={artistTracks[0].cover_art} alt={artistName} class="w-full h-full object-cover" />
       {:else}
         <div class="w-full h-full flex items-center justify-center">
-          <span class="material-symbols-rounded text-5xl text-white/40">person</span>
+          <span class="material-symbols-rounded text-4xl text-white/30">person</span>
         </div>
       {/if}
     </div>
 
-    <div class="flex-1 text-center md:text-left space-y-2.5 min-w-0">
-      <div class="flex items-center justify-center md:justify-start gap-2">
-        <span class="material-symbols-rounded text-[var(--md-sys-primary)] text-sm filled">verified</span>
-        <span class="text-xs uppercase tracking-wider font-bold text-[var(--md-sys-primary)] font-display">Verified Artist</span>
-      </div>
-      <h1 class="text-3xl md:text-5xl font-black text-white tracking-tight font-display truncate">
+    <div class="flex-1 text-center sm:text-left space-y-3 min-w-0">
+      <h1 class="text-2xl sm:text-4xl font-bold text-white tracking-tight font-display truncate">
         {artistName}
       </h1>
-      <p class="text-xs text-[var(--md-sys-on-surface-variant)]/75">
-        Popular on Aethon • Curated Top Hits & Regional Discography
-      </p>
 
-      <div class="flex items-center justify-center md:justify-start gap-3 pt-2">
+      <div class="flex items-center justify-center sm:justify-start gap-2.5">
         <button
           onclick={handlePlayAll}
-          class="flex items-center gap-2 px-5 py-2.5 rounded-full bg-[var(--md-sys-primary)] text-[var(--md-sys-on-primary)] text-xs font-bold hover:brightness-110 shadow-lg cursor-pointer transition"
+          class="flex items-center gap-1.5 px-5 py-2 rounded-full bg-white text-black text-xs font-semibold hover:scale-105 cursor-pointer transition-transform"
         >
-          <span class="material-symbols-rounded text-lg filled">play_arrow</span>
-          <span>Play Top Songs</span>
+          <span class="material-symbols-rounded text-base filled">play_arrow</span>
+          <span>Play</span>
         </button>
 
         <button
           onclick={handlePlayRadio}
-          class="flex items-center gap-2 px-4 py-2.5 rounded-full bg-white/10 hover:bg-white/15 text-white text-xs font-semibold border border-white/10 cursor-pointer transition"
+          class="flex items-center gap-1.5 px-4 py-2 rounded-full bg-white/[0.07] hover:bg-white/[0.14] text-white text-xs font-medium cursor-pointer transition-colors"
         >
-          <span class="material-symbols-rounded text-lg">radio</span>
-          <span>Artist Radio</span>
+          <span class="material-symbols-rounded text-base">radio</span>
+          <span>Radio</span>
         </button>
       </div>
     </div>
   </div>
 
-  <!-- Top Tracks Section -->
-  <section class="space-y-4">
-    <div class="flex items-center justify-between">
-      <h2 class="text-sm font-bold uppercase tracking-wider text-[var(--md-sys-on-surface-variant)] flex items-center gap-2 font-display">
-        <span class="material-symbols-rounded text-sm text-[var(--md-sys-primary)]">trending_up</span>
-        Top Tracks
-      </h2>
-      <span class="text-xs text-[var(--md-sys-on-surface-variant)]/60">{artistTracks.length} popular tracks</span>
-    </div>
+  <!-- Top Songs -->
+  <section class="space-y-2.5">
+    <h2 class="font-display font-bold text-base text-white px-1">Top Songs</h2>
 
     {#if isLoadingTracks}
-      <div class="flex items-center justify-center py-12 text-[#9ea2b0]">
-        <svg class="w-6 h-6 animate-spin [animation-timing-function:steps(8)] text-[var(--md-sys-primary)]" viewBox="0 0 24 24" fill="none" stroke="currentColor">
-          <line x1="12" y1="2" x2="12" y2="6" stroke-width="2.5" stroke-linecap="round" class="opacity-100" />
-          <line x1="19.07" y1="4.93" x2="16.24" y2="7.76" stroke-width="2.5" stroke-linecap="round" class="opacity-90" />
-          <line x1="22" y1="12" x2="18" y2="12" stroke-width="2.5" stroke-linecap="round" class="opacity-75" />
-          <line x1="19.07" y1="19.07" x2="16.24" y2="16.24" stroke-width="2.5" stroke-linecap="round" class="opacity-60" />
-          <line x1="12" y1="22" x2="12" y2="18" stroke-width="2.5" stroke-linecap="round" class="opacity-45" />
-          <line x1="4.93" y1="19.07" x2="7.76" y2="16.24" stroke-width="2.5" stroke-linecap="round" class="opacity-30" />
-          <line x1="2" y1="12" x2="6" y2="12" stroke-width="2.5" stroke-linecap="round" class="opacity-20" />
-          <line x1="4.93" y1="4.93" x2="7.76" y2="7.76" stroke-width="2.5" stroke-linecap="round" class="opacity-15" />
+      <div class="flex items-center justify-center py-12">
+        <svg class="w-6 h-6 animate-spin text-[var(--md-sys-primary)]" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+          <circle cx="12" cy="12" r="9" stroke-width="2.5" class="opacity-25" />
+          <path d="M21 12a9 9 0 00-9-9" stroke-width="2.5" stroke-linecap="round" />
         </svg>
       </div>
     {:else}
-      <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+      <div class="divide-y divide-white/[0.04] rounded-2xl bg-white/[0.02] border border-white/[0.05] overflow-hidden">
         {#each artistTracks as track, idx}
           {@const isCurrent = playerState.currentTrack?.id === track.id}
           <div
             role="button"
             tabindex="0"
+            onmouseenter={() => playerState.prefetchStream(track.file_path, track.title, track.artist)}
             onclick={() => playerState.playTrack(track)}
-            onkeydown={(e) => { if (e.key === 'Enter') playerState.playTrack(track); }}
-            class="flex items-center justify-between p-3 rounded-2xl {isCurrent ? 'bg-[var(--md-sys-primary-container)]/25 border-[var(--md-sys-primary)]/50 shadow-sm' : 'bg-white/[0.03] hover:bg-white/[0.07] border-white/[0.05]'} border transition-all cursor-pointer group"
+            oncontextmenu={(e) => {
+              e.preventDefault();
+              playerState.openContextMenu(track, e.clientX, e.clientY);
+            }}
+            onkeydown={(e) => {
+              if (e.key === 'Enter') playerState.playTrack(track);
+            }}
+            class="flex items-center justify-between px-3.5 py-2.5 hover:bg-white/[0.05] transition-colors cursor-pointer group"
           >
             <div class="flex items-center gap-3.5 min-w-0 flex-1 pr-2">
-              <span class="w-5 text-center text-xs font-mono font-bold {idx < 3 ? 'text-amber-400' : 'text-white/40'} shrink-0">
+              <span class="w-5 text-center text-xs font-mono text-white/35 shrink-0">
                 {idx + 1}
               </span>
-              <div class="relative w-12 h-12 rounded-xl overflow-hidden shadow shrink-0 border border-white/10">
-                <img src={track.cover_art} alt={track.title} class="w-full h-full object-cover group-hover:scale-105 transition" />
-                <div class="absolute inset-0 bg-black/40 {isCurrent ? 'opacity-100 bg-black/50' : 'opacity-0 group-hover:opacity-100'} flex items-center justify-center transition">
-                  <span class="material-symbols-rounded {isCurrent ? 'text-[var(--md-sys-primary)]' : 'text-white'} text-xl filled">
-                    {isCurrent && playerState.playback.is_playing ? 'equalizer' : 'play_arrow'}
-                  </span>
-                </div>
+              <div class="relative w-10 h-10 rounded-lg overflow-hidden bg-white/5 shrink-0">
+                <img src={track.cover_art} alt={track.title} class="w-full h-full object-cover" />
               </div>
 
               <div class="min-w-0 flex-1">
-                <div class="text-xs font-semibold {isCurrent ? 'text-[var(--md-sys-primary)]' : 'text-white'} truncate group-hover:text-[var(--md-sys-primary)] transition">
+                <div class="text-xs font-semibold {isCurrent ? 'text-[var(--md-sys-primary)]' : 'text-white'} truncate">
                   {track.title}
                 </div>
-                <div class="text-[11px] text-[var(--md-sys-on-surface-variant)]/75 truncate mt-0.5 flex items-center gap-1.5">
-                  <span class="truncate">{track.artist}</span>
-                  {#if track.duration > 0}
-                    <span class="text-white/30 shrink-0">•</span>
-                    <span class="font-mono text-[10px] text-white/50 shrink-0">
-                      {Math.floor(track.duration / 60)}:{Math.floor(track.duration % 60) < 10 ? '0' : ''}{Math.floor(track.duration % 60)}
-                    </span>
-                  {/if}
+                <div class="text-[11px] text-white/50 truncate mt-0.5">
+                  {track.artist}
                 </div>
               </div>
             </div>
 
-            <button
-              onclick={(e) => {
-                e.stopPropagation();
-                playerState.addToQueue(track);
-              }}
-              class="w-8 h-8 rounded-full flex items-center justify-center text-white/40 hover:text-white hover:bg-white/10 transition shrink-0 opacity-0 group-hover:opacity-100"
-              title="Add to Up Next Queue"
-            >
-              <span class="material-symbols-rounded text-lg">queue_music</span>
-            </button>
+            <div class="flex items-center gap-2 shrink-0">
+              {#if track.duration > 0}
+                <span class="font-mono text-[11px] text-white/40">
+                  {Math.floor(track.duration / 60)}:{Math.floor(track.duration % 60) < 10 ? '0' : ''}{Math.floor(track.duration % 60)}
+                </span>
+              {/if}
+              <button
+                onclick={(e) => {
+                  e.stopPropagation();
+                  playerState.openContextMenu(track, e.clientX, e.clientY);
+                }}
+                class="w-7 h-7 rounded-full flex items-center justify-center text-white/40 hover:text-white hover:bg-white/10 transition opacity-0 group-hover:opacity-100"
+                title="More options"
+              >
+                <span class="material-symbols-rounded text-base">more_horiz</span>
+              </button>
+            </div>
           </div>
         {/each}
       </div>
     {/if}
   </section>
-
 </div>
+
