@@ -490,7 +490,20 @@ class PlayerState {
   }
 
   async playTrack(track: Track) {
-    const sanitized: Track = { ...track, artist: sanitizeArtist(track.artist) };
+    let filePath = track.file_path;
+    if (filePath && filePath.startsWith('watch?v=')) {
+      filePath = `https://www.youtube.com/${filePath}`;
+    } else if (filePath && filePath.startsWith('/watch?v=')) {
+      filePath = `https://www.youtube.com${filePath}`;
+    } else if (track.id && track.id.startsWith('yt_') && (!filePath || !filePath.startsWith('http'))) {
+      filePath = `https://www.youtube.com/watch?v=${track.id.replace('yt_', '')}`;
+    }
+
+    const sanitized: Track = {
+      ...track,
+      file_path: filePath,
+      artist: sanitizeArtist(track.artist),
+    };
     if (this.currentTrack && this.currentTrack.id !== sanitized.id) {
       this.pendingResumePosition = null;
       this.history.unshift(this.currentTrack);

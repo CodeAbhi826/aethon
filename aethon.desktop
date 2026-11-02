@@ -1,10 +1,17 @@
 [Desktop Entry]
 Name=Aethon
+GenericName=Music Player
 Comment=Modern Lossless Music Player for Arch Linux
-Exec=aethon %U
-Icon=aethon
+Exec=/home/abhin/.local/bin/aethon %U
+Icon=/home/abhin/.local/share/icons/hicolor/512x512/apps/aethon.png
 Terminal=false
 Type=Application
 Categories=AudioVideo;Audio;Player;Music;
-MimeType=audio/flac;audio/x-flac;audio/mpeg;audio/mp4;audio/ogg;audio/x-wav;
-Keywords=music;player;lossless;flac;archivetune;
+MimeType=audio/flac;audio/x-flac;audio/mpeg;audio/mp4;audio/ogg;audio/x-wav;audio/opus;
+Keywords=music;player;lossless;flac;archivetune;youtube;stream;
+StartupWMClass=aethon
+Actions=Update;
+
+[Desktop Action Update]
+Name=Check for Updates
+Exec=/home/abhin/.local/bin/aethon-update

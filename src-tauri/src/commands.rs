@@ -27,9 +27,20 @@ pub async fn play_track(
         (String::new(), String::new())
     };
 
-    // Fast async resolution (~300ms via InnerTube ANDROID_VR/IOS or <1ms on cache hit)
+    let full_uri = if uri.starts_with("watch?v=") {
+        format!("https://www.youtube.com/{}", uri)
+    } else if uri.starts_with('/') && uri.contains("watch?v=") {
+        format!("https://www.youtube.com{}", uri)
+    } else if let Some(stripped) = uri.strip_prefix("yt_") {
+        format!("https://www.youtube.com/watch?v={}", stripped)
+    } else if uri.len() == 11 && !uri.contains('/') && !uri.contains('.') {
+        format!("https://www.youtube.com/watch?v={}", uri)
+    } else {
+        uri
+    };
+
     let playable_uri =
-        YouTubeService::resolve_playable_stream_async(&uri, &t_title, &t_artist).await;
+        YouTubeService::resolve_playable_stream_async(&full_uri, &t_title, &t_artist).await;
 
     state
         .mpv
