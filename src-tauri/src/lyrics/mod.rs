@@ -795,32 +795,49 @@ impl Romanizer {
 
             // 3. Devanagari / Hindi Phonetic Transliteration
             if (0x0900..=0x097F).contains(&u) {
-                if let Some(cons) = Self::devanagari_consonant(c) {
+                let has_nukta = chars.get(i + 1).copied() == Some('\u{093c}');
+                let cons_opt = if has_nukta {
+                    match c {
+                        'क' => Some("q"),
+                        'ख' => Some("kh"),
+                        'ग' => Some("gh"),
+                        'ज' => Some("z"),
+                        'ड' => Some("r"),
+                        'ढ' => Some("rh"),
+                        'फ' => Some("f"),
+                        _ => Self::devanagari_consonant(c),
+                    }
+                } else {
+                    Self::devanagari_consonant(c)
+                };
+
+                if let Some(cons) = cons_opt {
+                    let offset = if has_nukta { 2 } else { 1 };
                     out.push_str(cons);
-                    let next_c = chars.get(i + 1).copied();
+                    let next_c = chars.get(i + offset).copied();
                     match next_c {
                         Some('्') => {
                             // Virama / Halant suppresses inherent 'a'
-                            i += 2;
+                            i += offset + 1;
                             continue;
                         }
                         Some(nc) if Self::devanagari_matra(nc).is_some() => {
                             out.push_str(Self::devanagari_matra(nc).unwrap());
-                            i += 2;
+                            i += offset + 1;
                             continue;
                         }
                         Some(nc) if nc.is_whitespace() || nc.is_ascii_punctuation() => {
                             // Word-final schwa deletion in modern Hindi
-                            i += 1;
+                            i += offset;
                             continue;
                         }
                         None => {
-                            i += 1;
+                            i += offset;
                             continue;
                         }
                         _ => {
                             out.push('a');
-                            i += 1;
+                            i += offset;
                             continue;
                         }
                     }
@@ -883,8 +900,14 @@ impl Romanizer {
             'प' => "p", 'फ' => "ph", 'ब' => "b", 'भ' => "bh", 'म' => "m",
             'य' => "y", 'र' => "r", 'ल' => "l", 'व' => "v",
             'श' => "sh", 'ष' => "sh", 'स' => "s", 'ह' => "h",
-            'ळ' => "l", 'क़' => "q", 'ख़' => "kh", 'ग़' => "gh", 'ज़' => "z",
-            'ड़' => "r", 'ढ़' => "rh", 'फ़' => "f",
+            'ळ' => "l",
+            '\u{0958}' => "q",
+            '\u{0959}' => "kh",
+            '\u{095a}' => "gh",
+            '\u{095b}' => "z",
+            '\u{095c}' => "r",
+            '\u{095d}' => "rh",
+            '\u{095e}' => "f",
             _ => return None,
         })
     }

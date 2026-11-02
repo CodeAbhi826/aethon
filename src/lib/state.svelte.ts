@@ -637,6 +637,7 @@ class PlayerState {
         invoke('update_mpris_status', {
           isPlaying: this.playback.is_playing,
           positionUs: Math.round(seconds * 1_000_000),
+          seeked: true,
         }).catch(() => {});
       }
     } catch (e) {
