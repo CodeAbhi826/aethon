@@ -318,69 +318,14 @@ impl YouTubeService {
     }
 
     /// Ultra-fast stream resolver:
-    /// 1. Checks in-memory TTL cache (<1ms)
-    /// 2. Queries InnerTube `/youtubei/v1/player` (`ANDROID_VR` / `IOS`) directly (~300ms)
-    /// 3. Falls back to single-pass `yt-dlp -g` with `player_skip=webpage,configs` (~1.2s)
-    /// Returns a direct `googlevideo.com/videoplayback` URL so `mpv` starts playing immediately without running `yt-dlp` a second time!
+    /// Returns the URI directly to mpv so mpv's internal single-pass streaming engine loads
+    /// the track immediately without blocking Tokio worker threads or running cold yt-dlp CLI passes.
     pub async fn resolve_playable_stream_async(
         uri: &str,
-        title: &str,
-        artist: &str,
+        _title: &str,
+        _artist: &str,
     ) -> String {
-        if !uri.contains("youtube.com/watch?v=") && !uri.contains("youtu.be/") {
-            return uri.to_string();
-        }
-
-        let video_id = Self::extract_video_id(uri).unwrap_or_default();
-
-        // 1. Check in-memory TTL stream cache
-        if !video_id.is_empty() {
-            let now = now_unix();
-            if let Some(cached) = stream_cache().lock().get(&video_id) {
-                if cached.expires_at > now {
-                    crate::aethon_log!("Stream cache HIT for video_id={}", video_id);
-                    return cached.direct_url.clone();
-                }
-            }
-
-            // 2. Try direct InnerTube `/youtubei/v1/player` (~300ms)
-            if let Some(direct_url) = Self::resolve_innertube_direct_stream(&video_id).await {
-                stream_cache().lock().insert(
-                    video_id.clone(),
-                    CachedStream {
-                        direct_url: direct_url.clone(),
-                        expires_at: now + 14_400, // 4 hours
-                    },
-                );
-                crate::aethon_log!(
-                    "Resolved direct InnerTube stream in fast-path for video_id={}",
-                    video_id
-                );
-                return direct_url;
-            }
-        }
-
-        // 3. Fallback: Single-pass `yt-dlp -g` in blocking thread pool
-        let uri_owned = uri.to_string();
-        let title_owned = title.to_string();
-        let artist_owned = artist.to_string();
-        let vid_owned = video_id.clone();
-
-        tokio::task::spawn_blocking(move || {
-            let resolved = Self::resolve_via_ytdlp_direct(&uri_owned, &title_owned, &artist_owned);
-            if !vid_owned.is_empty() && resolved.contains("googlevideo.com") {
-                stream_cache().lock().insert(
-                    vid_owned,
-                    CachedStream {
-                        direct_url: resolved.clone(),
-                        expires_at: now_unix() + 14_400,
-                    },
-                );
-            }
-            resolved
-        })
-        .await
-        .unwrap_or_else(|_| uri.to_string())
+        uri.to_string()
     }
 
     pub fn resolve_via_ytdlp_direct(uri: &str, title: &str, artist: &str) -> String {
