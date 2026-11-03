@@ -5,7 +5,7 @@ use crate::youtube::{YouTubeService, YouTubeTrack};
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
-use tauri::State;
+use tauri::{Emitter, State};
 
 pub struct AppState {
     pub mpv: Arc<MpvEngine>,
