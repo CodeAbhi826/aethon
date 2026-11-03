@@ -11,6 +11,7 @@ use tokio::sync::mpsc;
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PlaybackState {
     pub current_uri: Option<String>,
+    pub media_title: Option<String>,
     pub is_playing: bool,
     pub position: f64,
     pub duration: f64,
@@ -25,6 +26,7 @@ impl Default for PlaybackState {
     fn default() -> Self {
         Self {
             current_uri: None,
+            media_title: None,
             is_playing: false,
             position: 0.0,
             duration: 0.0,
@@ -207,6 +209,16 @@ impl MpvEngine {
                                                 s.is_playing = s.current_uri.is_some() && !p;
                                             }
                                         }
+                                        "path" => {
+                                            if let Some(p) = data.and_then(|d| d.as_str()) {
+                                                s.current_uri = Some(p.to_string());
+                                            }
+                                        }
+                                        "media-title" => {
+                                            if let Some(mt) = data.and_then(|d| d.as_str()) {
+                                                s.media_title = Some(mt.to_string());
+                                            }
+                                        }
                                         "volume" => {
                                             if let Some(v) = data.and_then(|d| d.as_f64()) {
                                                 s.volume = v;
@@ -292,6 +304,12 @@ impl MpvEngine {
             .await?;
         engine
             .send_cmd(r#"{"command": ["observe_property", 7, "audio-bitrate"]}"#)
+            .await?;
+        engine
+            .send_cmd(r#"{"command": ["observe_property", 8, "path"]}"#)
+            .await?;
+        engine
+            .send_cmd(r#"{"command": ["observe_property", 9, "media-title"]}"#)
             .await?;
 
         Ok(engine)

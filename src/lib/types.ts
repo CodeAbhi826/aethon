@@ -16,6 +16,7 @@ export interface Track {
 
 export interface PlaybackState {
   current_uri: string | null;
+  media_title?: string | null;
   is_playing: boolean;
   position: number;
   duration: number;
