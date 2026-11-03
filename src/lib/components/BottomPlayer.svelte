@@ -155,9 +155,7 @@
 
         <button
           onclick={() => playerState.togglePlay()}
-          class="relative w-9 h-9 sm:w-11 sm:h-11 {playerState.playback.is_playing
-            ? 'rounded-[12px] sm:rounded-[14px]'
-            : 'rounded-[18px] sm:rounded-[22px]'} bg-[var(--md-sys-primary)] text-[var(--md-sys-on-primary)] flex items-center justify-center active:scale-90 hover:scale-105 transition-all duration-300 [transition-timing-function:cubic-bezier(0.2,0,0,1)] cursor-pointer select-none shadow-md shadow-black/30"
+          class="squircle-morph-btn relative w-9 h-9 sm:w-11 sm:h-11 {playerState.playback.is_playing ? 'is-playing' : ''} bg-[var(--md-sys-primary)] text-[var(--md-sys-on-primary)] flex items-center justify-center active:scale-90 hover:scale-105 cursor-pointer select-none shadow-md shadow-black/30"
           title={isLoading ? 'Buffering stream...' : playerState.playback.is_playing ? 'Pause' : 'Play'}
         >
           {#if isLoading}
@@ -321,5 +319,13 @@
   }
   .animate-shimmer-bar {
     animation: shimmerBar 1.25s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+  }
+  .squircle-morph-btn {
+    border-radius: 50%;
+    transition: border-radius 260ms cubic-bezier(0.2, 0, 0, 1), transform 150ms cubic-bezier(0.2, 0, 0, 1);
+    will-change: border-radius, transform;
+  }
+  .squircle-morph-btn.is-playing {
+    border-radius: 28%;
   }
 </style>

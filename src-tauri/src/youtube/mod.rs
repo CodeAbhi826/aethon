@@ -476,19 +476,30 @@ impl YouTubeService {
     }
 
     pub fn resolve_via_ytdlp_direct(uri: &str, title: &str, artist: &str) -> String {
+        let brave_cookie_path = dirs::config_dir()
+            .map(|d| d.join("BraveSoftware/Brave-Browser/Default/Cookies"))
+            .unwrap_or_default();
+        let firefox_profile = dirs::home_dir()
+            .map(|h| h.join(".mozilla/firefox"))
+            .unwrap_or_default();
+
         let mut cmd = Command::new("yt-dlp");
         cmd.arg("--get-url")
             .arg("--no-playlist")
             .arg("--no-warnings")
             .arg("--no-check-certificates")
             .arg("--socket-timeout")
-            .arg("4")
+            .arg("8")
             .arg("-f")
-            .arg("251/140/bestaudio[ext=webm]/bestaudio/best")
-            .arg("--extractor-args")
-            .arg("youtube:player_client=android_vr,ios,tv;player_skip=webpage,configs")
-            .arg("--")
-            .arg(uri);
+            .arg("251/140/bestaudio[ext=webm]/bestaudio/best");
+
+        if brave_cookie_path.exists() {
+            cmd.arg("--cookies-from-browser=brave");
+        } else if firefox_profile.exists() {
+            cmd.arg("--cookies-from-browser=firefox");
+        }
+
+        cmd.arg("--").arg(uri);
         crate::sanitize_host_command(&mut cmd);
 
         if let Ok(output) = cmd.output() {
@@ -511,11 +522,17 @@ impl YouTubeService {
                 .arg("--no-playlist")
                 .arg("--no-warnings")
                 .arg("--socket-timeout")
-                .arg("4")
+                .arg("8")
                 .arg("-f")
-                .arg("251/140/bestaudio/best")
-                .arg("--extractor-args")
-                .arg("youtube:player_client=android_vr,ios;player_skip=webpage,configs")
+                .arg("251/140/bestaudio/best");
+
+            if brave_cookie_path.exists() {
+                alt_cmd.arg("--cookies-from-browser=brave");
+            } else if firefox_profile.exists() {
+                alt_cmd.arg("--cookies-from-browser=firefox");
+            }
+
+            alt_cmd
                 .arg("--")
                 .arg(format!("ytsearch1:{}", query));
             crate::sanitize_host_command(&mut alt_cmd);

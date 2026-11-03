@@ -268,7 +268,7 @@ impl MpvEngine {
                                         }
                                         "path" => {
                                             if let Some(p) = data.and_then(|d| d.as_str()) {
-                                                if s.current_uri.is_none() {
+                                                if s.current_uri.is_none() && !p.contains("googlevideo.com") {
                                                     s.current_uri = Some(p.to_string());
                                                 }
                                             }

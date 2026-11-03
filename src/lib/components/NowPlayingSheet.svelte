@@ -499,9 +499,7 @@
 
                   <button
                     onclick={() => playerState.togglePlay()}
-                    class="w-14 h-14 {playerState.playback.is_playing
-                      ? 'rounded-[18px]'
-                      : 'rounded-[28px]'} bg-white text-black flex items-center justify-center active:scale-90 hover:scale-105 transition-all duration-300 [transition-timing-function:cubic-bezier(0.2,0,0,1)] cursor-pointer shadow-xl shadow-black/40"
+                    class="sheet-squircle-btn w-14 h-14 {playerState.playback.is_playing ? 'is-playing' : ''} bg-white text-black flex items-center justify-center active:scale-90 hover:scale-105 cursor-pointer shadow-xl shadow-black/40"
                     title={isBuffering
                       ? 'Buffering...'
                       : playerState.playback.is_playing
@@ -810,5 +808,14 @@
 
   .lyrics-scroll-container {
     scroll-behavior: smooth;
+  }
+
+  .sheet-squircle-btn {
+    border-radius: 50%;
+    transition: border-radius 260ms cubic-bezier(0.2, 0, 0, 1), transform 150ms cubic-bezier(0.2, 0, 0, 1);
+    will-change: border-radius, transform;
+  }
+  .sheet-squircle-btn.is-playing {
+    border-radius: 28%;
   }
 </style>

@@ -102,7 +102,7 @@
 
         <button
           type="button"
-          class="w-9 h-9 {isPlaying ? 'rounded-[10px]' : 'rounded-[18px]'} bg-white text-black flex items-center justify-center active:scale-90 hover:scale-105 transition-all duration-300 [transition-timing-function:cubic-bezier(0.2,0,0,1)] cursor-pointer select-none shadow-md"
+          class="mini-squircle-btn w-9 h-9 {isPlaying ? 'is-playing' : ''} bg-white text-black flex items-center justify-center active:scale-90 hover:scale-105 cursor-pointer select-none shadow-md"
           onclick={() => playerState.togglePlay()}
           title={isBuffering ? 'Buffering...' : isPlaying ? 'Pause' : 'Play'}
         >
@@ -136,3 +136,14 @@
     </div>
   </div>
 {/if}
+
+<style>
+  .mini-squircle-btn {
+    border-radius: 50%;
+    transition: border-radius 260ms cubic-bezier(0.2, 0, 0, 1), transform 150ms cubic-bezier(0.2, 0, 0, 1);
+    will-change: border-radius, transform;
+  }
+  .mini-squircle-btn.is-playing {
+    border-radius: 28%;
+  }
+</style>

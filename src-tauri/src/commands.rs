@@ -44,7 +44,10 @@ pub async fn play_track(
         YouTubeService::invalidate_cached_stream(&full_uri);
     }
 
-    // Mark engine as buffering before stream resolution so no stale player-state event clears isLoading
+    // Instantly silence and stop previous audio playback in MPV so previous tracks never linger or overlap
+    let _ = state.mpv.send_cmd(r#"{"command": ["stop"]}"#).await;
+
+    // Mark engine as buffering new track before stream resolution so no stale player-state event clears isLoading
     {
         let mut s = state.mpv.state.write();
         s.current_uri = Some(full_uri.clone());
@@ -52,10 +55,28 @@ pub async fn play_track(
         s.position = 0.0;
         s.is_buffering = true;
         s.is_playing = false;
+        if let Some(ref handle) = state.mpv.app_handle {
+            let _ = handle.emit("player-state", &*s);
+        }
     }
 
     let playable_uri =
         YouTubeService::resolve_playable_stream_async(&full_uri, &t_title, &t_artist).await;
+
+    // If another play_track request arrived while resolving, abort this older request
+    {
+        let s = state.mpv.state.read();
+        if let Some(ref cur) = s.current_uri {
+            if cur != &full_uri {
+                crate::aethon_log!(
+                    "Superseded play_track for {} by current {}, skipping load",
+                    full_uri,
+                    cur
+                );
+                return Ok(());
+            }
+        }
+    }
 
     state
         .mpv

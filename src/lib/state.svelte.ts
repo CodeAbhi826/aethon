@@ -528,6 +528,8 @@ class PlayerState {
   isSameTrack(track: Track | null | undefined, uri: string | null | undefined): boolean {
     if (!track || !uri) return false;
     if (track.file_path === uri) return true;
+    if (track.id === uri) return true;
+    if (uri.includes('googlevideo.com')) return true;
     const v1 = this.extractVideoId(track.file_path) || this.extractVideoId(track.id);
     const v2 = this.extractVideoId(uri);
     if (v1 && v2 && v1 === v2) return true;
@@ -535,7 +537,8 @@ class PlayerState {
   }
 
   reconcilePlayingTrack(uri: string, mediaTitle?: string | null) {
-    if (this.isSameTrack(this.currentTrack, uri)) {
+    if (!uri) return;
+    if (this.currentTrack && (this.isSameTrack(this.currentTrack, uri) || uri.includes('googlevideo.com'))) {
       return;
     }
 
@@ -549,6 +552,9 @@ class PlayerState {
     if (candidate) {
       this.currentTrack = candidate;
     } else {
+      if (this.currentTrack && uri.includes('googlevideo.com')) {
+        return;
+      }
       const vid = this.extractVideoId(uri);
       const title =
         mediaTitle && mediaTitle.trim()
