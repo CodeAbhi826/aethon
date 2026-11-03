@@ -286,6 +286,7 @@ class PlayerState {
       });
       await listen('tray-next', () => this.playNext());
       await listen('tray-prev', () => this.playPrevious());
+      await listen('tray-playpause', () => this.togglePlay());
       await listen('tray-mini-player', () => this.toggleMiniPlayer());
 
       const state = await invoke<PlaybackState>('get_playback_state').catch(() => null);

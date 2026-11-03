@@ -104,9 +104,7 @@ pub fn run() {
                 .text("tray_quit", "Quit Aethon")
                 .build()?;
 
-            let icon = app.default_window_icon().cloned().unwrap_or_else(|| {
-                tauri::image::Image::from_bytes(include_bytes!("../icons/32x32.png")).unwrap()
-            });
+            let icon = tauri::image::Image::from_bytes(include_bytes!("../icons/32x32.png")).unwrap();
 
             let _tray = tauri::tray::TrayIconBuilder::new()
                 .icon(icon)
@@ -115,6 +113,7 @@ pub fn run() {
                 .show_menu_on_left_click(false)
                 .on_menu_event(|app, event| match event.id().as_ref() {
                     "tray_toggle_play" => {
+                        let _ = app.emit("tray-playpause", ());
                         if let Some(state) = app.try_state::<AppState>() {
                             let mpv = Arc::clone(&state.mpv);
                             tauri::async_runtime::spawn(async move {
