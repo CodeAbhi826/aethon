@@ -18,6 +18,7 @@ export interface PlaybackState {
   current_uri: string | null;
   media_title?: string | null;
   is_playing: boolean;
+  is_buffering?: boolean;
   position: number;
   duration: number;
   volume: number;

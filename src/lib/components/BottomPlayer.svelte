@@ -3,6 +3,7 @@
   import { sanitizeArtist } from '../types';
 
   let showVolumeSlider = $state(false);
+  let isLoading = $derived(playerState.isLoading || Boolean(playerState.playback.is_buffering));
 
   function handleSeek(e: Event) {
     const val = Number((e.target as HTMLInputElement).value);
@@ -15,48 +16,82 @@
   }
 </script>
 
-<footer class="h-20 w-full m3-acrylic-dock px-3 sm:px-6 md:px-8 py-2 flex items-center justify-between z-30 shrink-0 select-none gap-2 sm:gap-4">
-  
+<footer class="h-20 w-full m3-acrylic-dock px-3 sm:px-6 md:px-8 py-2 flex items-center justify-between z-30 shrink-0 select-none gap-2 sm:gap-4 relative">
+  <!-- Top Thin Indeterminate Buffering Shimmer Line -->
+  {#if isLoading}
+    <div class="absolute top-0 left-0 right-0 h-[2px] overflow-hidden bg-white/5 pointer-events-none">
+      <div class="h-full w-1/3 bg-gradient-to-r from-transparent via-[var(--md-sys-primary)] to-transparent animate-shimmer-bar"></div>
+    </div>
+  {/if}
+
   <!-- Left: Track Details & Album Thumbnail -->
   <div class="flex items-center gap-2.5 sm:gap-3.5 min-w-0 max-w-[180px] sm:max-w-[260px] md:max-w-[320px] shrink">
     {#if playerState.currentTrack}
       <button
-        onclick={() => playerState.isNowPlayingOpen = true}
+        onclick={() => (playerState.isNowPlayingOpen = true)}
         class="cursor-pointer relative group w-11 h-11 sm:w-14 sm:h-14 rounded-xl sm:rounded-2xl overflow-hidden shadow-lg shrink-0 border border-white/10"
-        title="Click to Expand Now Playing"
+        title="Expand Now Playing"
       >
         {#if playerState.currentTrack.cover_art}
-          <img src={playerState.currentTrack.cover_art} class="w-full h-full object-cover group-hover:scale-105 transition" alt="Artwork">
+          <img
+            src={playerState.currentTrack.cover_art}
+            class="w-full h-full object-cover group-hover:scale-105 transition duration-300"
+            alt="Artwork"
+          />
         {:else}
           <div class="w-full h-full bg-[var(--md-sys-surface-container)] flex items-center justify-center">
             <span class="material-symbols-rounded text-[var(--md-sys-on-surface-variant)] text-xl">music_note</span>
           </div>
         {/if}
-        <div class="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 flex items-center justify-center transition">
-          <span class="material-symbols-rounded text-white text-lg sm:text-xl">open_in_full</span>
-        </div>
+
+        {#if isLoading}
+          <div class="absolute inset-0 bg-black/55 backdrop-blur-[1px] flex items-center justify-center">
+            <svg class="w-6 h-6 animate-spin text-[var(--md-sys-primary)]" viewBox="0 0 36 36" fill="none">
+              <circle cx="18" cy="18" r="14" stroke="currentColor" stroke-opacity="0.2" stroke-width="3" />
+              <circle
+                cx="18"
+                cy="18"
+                r="14"
+                stroke="currentColor"
+                stroke-width="3"
+                stroke-dasharray="56 100"
+                stroke-linecap="round"
+              />
+            </svg>
+          </div>
+        {:else}
+          <div class="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 flex items-center justify-center transition">
+            <span class="material-symbols-rounded text-white text-lg sm:text-xl">keyboard_arrow_up</span>
+          </div>
+        {/if}
       </button>
 
       <div class="min-w-0 flex-1">
         <button
-          onclick={() => playerState.isNowPlayingOpen = true}
-          class="text-xs sm:text-sm font-bold text-white truncate hover:underline font-display text-left block w-full"
+          onclick={() => (playerState.isNowPlayingOpen = true)}
+          class="text-xs sm:text-sm font-bold text-white truncate hover:underline font-display text-left block w-full cursor-pointer"
         >
           {playerState.currentTrack.title}
         </button>
-        <div class="text-[11px] sm:text-xs text-[var(--md-sys-on-surface-variant)]/75 truncate mt-0.5">
-          <button
-            onclick={() => playerState.openArtist(sanitizeArtist(playerState.currentTrack?.artist || ''))}
-            class="hover:underline hover:text-white transition text-left"
-          >
-            {sanitizeArtist(playerState.currentTrack.artist)}
-          </button>
+        <div class="text-[11px] sm:text-xs text-[var(--md-sys-on-surface-variant)]/75 truncate mt-0.5 flex items-center gap-1.5">
+          {#if isLoading}
+            <span class="text-[10px] font-medium text-[var(--md-sys-primary)] animate-pulse">Loading stream...</span>
+          {:else}
+            <button
+              onclick={() =>
+                playerState.openArtist(sanitizeArtist(playerState.currentTrack?.artist || ''))}
+              class="hover:underline hover:text-white transition text-left truncate cursor-pointer"
+            >
+              {sanitizeArtist(playerState.currentTrack.artist)}
+            </button>
+          {/if}
         </div>
       </div>
 
       <button
-        onclick={() => playerState.currentTrack && playerState.toggleFavorite(playerState.currentTrack.id)}
-        class="p-1.5 sm:p-2 rounded-full hover:bg-white/10 text-[var(--md-sys-on-surface-variant)] transition shrink-0 inline-flex"
+        onclick={() =>
+          playerState.currentTrack && playerState.toggleFavorite(playerState.currentTrack.id)}
+        class="p-1.5 sm:p-2 rounded-full hover:bg-white/10 text-[var(--md-sys-on-surface-variant)] transition shrink-0 inline-flex cursor-pointer"
         title="Favorite"
       >
         <span class="material-symbols-rounded text-lg sm:text-xl {playerState.currentTrack.favorite ? 'text-rose-400 filled' : ''}">
@@ -69,8 +104,8 @@
           <span class="material-symbols-rounded text-lg sm:text-xl opacity-40">music_note</span>
         </div>
         <div class="text-xs min-w-0">
-          <div class="font-bold text-white/70 truncate">No track playing</div>
-          <div class="text-[10px] text-white/40 truncate hidden sm:block">Select a song to start listening</div>
+          <div class="font-bold text-white/70 truncate">Not Playing</div>
+          <div class="text-[10px] text-white/40 truncate hidden sm:block">Select a song</div>
         </div>
       </div>
     {/if}
@@ -78,10 +113,12 @@
 
   <!-- Center: Playback Transport & Precision Scrubber -->
   <div class="flex flex-col items-center max-w-xl flex-1 px-2 min-w-0">
-    <div class="flex items-center gap-2.5 sm:gap-4 mb-1">
+    <div class="flex items-center gap-2.5 sm:gap-4 mb-1.5">
       <button
         onclick={() => playerState.toggleShuffle()}
-        class="p-1 rounded-full {playerState.shuffleMode ? 'text-[var(--md-sys-primary)]' : 'text-[var(--md-sys-on-surface-variant)]/60 hover:text-white'} transition cursor-pointer"
+        class="p-1 rounded-full {playerState.shuffleMode
+          ? 'text-[var(--md-sys-primary)]'
+          : 'text-[var(--md-sys-on-surface-variant)]/60 hover:text-white'} transition cursor-pointer"
         title={playerState.shuffleMode ? 'Shuffle On' : 'Shuffle Off'}
       >
         <span class="material-symbols-rounded text-base sm:text-lg">shuffle</span>
@@ -89,54 +126,78 @@
 
       <button
         onclick={() => playerState.playPrevious()}
-        class="p-1 rounded-full text-[var(--md-sys-on-surface-variant)] hover:text-white transition cursor-pointer"
+        class="p-1 rounded-full text-[var(--md-sys-on-surface-variant)] hover:text-white active:scale-90 transition cursor-pointer"
         title="Previous Track"
       >
-        <span class="material-symbols-rounded text-xl sm:text-2xl">skip_previous</span>
+        <span class="material-symbols-rounded text-xl sm:text-2xl filled">skip_previous</span>
       </button>
 
-      <button
-        onclick={() => playerState.togglePlay()}
-        class="w-9 h-9 sm:w-11 sm:h-11 {playerState.playback.is_playing ? 'rounded-[12px] sm:rounded-[14px]' : 'rounded-[18px] sm:rounded-[22px]'} bg-[var(--md-sys-primary)] text-[var(--md-sys-on-primary)] flex items-center justify-center active:scale-90 hover:scale-105 transition-[transform,border-radius,background-color] duration-300 [transition-timing-function:cubic-bezier(0.2,0,0,1)] cursor-pointer select-none shadow-md shadow-black/30 hover:shadow-black/40"
-        title={playerState.isLoading ? 'Buffering stream...' : playerState.playback.is_playing ? 'Pause' : 'Play'}
-      >
-        {#if playerState.isLoading}
-          <svg class="w-4 h-4 sm:w-5 sm:h-5 animate-spin [animation-timing-function:steps(8)] text-current" viewBox="0 0 24 24" fill="none" stroke="currentColor">
-            <line x1="12" y1="2" x2="12" y2="6" stroke-width="2.5" stroke-linecap="round" class="opacity-100" />
-            <line x1="19.07" y1="4.93" x2="16.24" y2="7.76" stroke-width="2.5" stroke-linecap="round" class="opacity-90" />
-            <line x1="22" y1="12" x2="18" y2="12" stroke-width="2.5" stroke-linecap="round" class="opacity-75" />
-            <line x1="19.07" y1="19.07" x2="16.24" y2="16.24" stroke-width="2.5" stroke-linecap="round" class="opacity-60" />
-            <line x1="12" y1="22" x2="12" y2="18" stroke-width="2.5" stroke-linecap="round" class="opacity-45" />
-            <line x1="4.93" y1="19.07" x2="7.76" y2="16.24" stroke-width="2.5" stroke-linecap="round" class="opacity-30" />
-            <line x1="2" y1="12" x2="6" y2="12" stroke-width="2.5" stroke-linecap="round" class="opacity-20" />
-            <line x1="4.93" y1="4.93" x2="7.76" y2="7.76" stroke-width="2.5" stroke-linecap="round" class="opacity-15" />
+      <!-- Play / Pause Button with ArchiveTune SVG Circular Progress Ring -->
+      <div class="relative flex items-center justify-center">
+        {#if isLoading}
+          <svg
+            class="absolute -inset-1.5 w-[calc(100%+12px)] h-[calc(100%+12px)] animate-spin text-[var(--md-sys-primary)] pointer-events-none"
+            viewBox="0 0 48 48"
+            fill="none"
+          >
+            <circle cx="24" cy="24" r="21" stroke="currentColor" stroke-opacity="0.18" stroke-width="2.5" />
+            <circle
+              cx="24"
+              cy="24"
+              r="21"
+              stroke="currentColor"
+              stroke-width="2.5"
+              stroke-dasharray="48 100"
+              stroke-linecap="round"
+            />
           </svg>
-        {:else}
-          {#if playerState.playback.is_playing}
-            <!-- ArchiveTune pause.xml (960x960) -->
-            <svg viewBox="0 0 960 960" class="w-5 h-5 sm:w-6 sm:h-6 fill-current transition-transform duration-200" xmlns="http://www.w3.org/2000/svg">
-              <path d="M640,760Q607,760 583.5,736.5Q560,713 560,680L560,280Q560,247 583.5,223.5Q607,200 640,200L640,200Q673,200 696.5,223.5Q720,247 720,280L720,680Q720,713 696.5,736.5Q673,760 640,760ZM320,760Q287,760 263.5,736.5Q240,713 240,680L240,280Q240,247 263.5,223.5Q287,200 320,200L320,200Q353,200 376.5,223.5Q400,247 400,280L400,680Q400,713 376.5,736.5Q353,760 320,760Z"/>
+        {/if}
+
+        <button
+          onclick={() => playerState.togglePlay()}
+          class="relative w-9 h-9 sm:w-11 sm:h-11 {playerState.playback.is_playing
+            ? 'rounded-[12px] sm:rounded-[14px]'
+            : 'rounded-[18px] sm:rounded-[22px]'} bg-[var(--md-sys-primary)] text-[var(--md-sys-on-primary)] flex items-center justify-center active:scale-90 hover:scale-105 transition-all duration-300 [transition-timing-function:cubic-bezier(0.2,0,0,1)] cursor-pointer select-none shadow-md shadow-black/30"
+          title={isLoading ? 'Buffering stream...' : playerState.playback.is_playing ? 'Pause' : 'Play'}
+        >
+          {#if isLoading}
+            <svg class="w-5 h-5 animate-spin text-current" viewBox="0 0 36 36" fill="none">
+              <circle cx="18" cy="18" r="13" stroke="currentColor" stroke-opacity="0.25" stroke-width="3.2" />
+              <circle
+                cx="18"
+                cy="18"
+                r="13"
+                stroke="currentColor"
+                stroke-width="3.2"
+                stroke-dasharray="52 100"
+                stroke-linecap="round"
+              />
+            </svg>
+          {:else if playerState.playback.is_playing}
+            <svg viewBox="0 0 960 960" class="w-5 h-5 sm:w-6 sm:h-6 fill-current" xmlns="http://www.w3.org/2000/svg">
+              <path d="M640,760Q607,760 583.5,736.5Q560,713 560,680L560,280Q560,247 583.5,223.5Q607,200 640,200L640,200Q673,200 696.5,223.5Q720,247 720,280L720,680Q720,713 696.5,736.5Q673,760 640,760ZM320,760Q287,760 263.5,736.5Q240,713 240,680L240,280Q240,247 263.5,223.5Q287,200 320,200L320,200Q353,200 376.5,223.5Q400,247 400,280L400,680Q400,713 376.5,736.5Q353,760 320,760Z" />
             </svg>
           {:else}
-            <!-- ArchiveTune play.xml (960x960) perfectly centered -->
-            <svg viewBox="42.5 0 960 960" class="w-5 h-5 sm:w-6 sm:h-6 fill-current transition-transform duration-200" xmlns="http://www.w3.org/2000/svg">
-              <path d="M320,687L320,273Q320,256 332,244.5Q344,233 360,233Q365,233 370.5,234.5Q376,236 381,239L707,446Q716,452 720.5,461Q725,470 725,480Q725,490 720.5,499Q716,508 707,514L381,721Q376,724 370.5,725.5Q365,727 360,727Q344,727 332,715.5Q320,704 320,687Z"/>
+            <svg viewBox="42.5 0 960 960" class="w-5 h-5 sm:w-6 sm:h-6 fill-current" xmlns="http://www.w3.org/2000/svg">
+              <path d="M320,687L320,273Q320,256 332,244.5Q344,233 360,233Q365,233 370.5,234.5Q376,236 381,239L707,446Q716,452 720.5,461Q725,470 725,480Q725,490 720.5,499Q716,508 707,514L381,721Q376,724 370.5,725.5Q365,727 360,727Q344,727 332,715.5Q320,704 320,687Z" />
             </svg>
           {/if}
-        {/if}
-      </button>
+        </button>
+      </div>
 
       <button
         onclick={() => playerState.playNext()}
-        class="p-1 rounded-full text-[var(--md-sys-on-surface-variant)] hover:text-white transition cursor-pointer"
+        class="p-1 rounded-full text-[var(--md-sys-on-surface-variant)] hover:text-white active:scale-90 transition cursor-pointer"
         title="Next Track"
       >
-        <span class="material-symbols-rounded text-xl sm:text-2xl">skip_next</span>
+        <span class="material-symbols-rounded text-xl sm:text-2xl filled">skip_next</span>
       </button>
 
       <button
         onclick={() => playerState.toggleRepeat()}
-        class="p-1 rounded-full {playerState.repeatMode !== 'off' ? 'text-[var(--md-sys-primary)]' : 'text-[var(--md-sys-on-surface-variant)]/60 hover:text-white'} transition cursor-pointer"
+        class="p-1 rounded-full {playerState.repeatMode !== 'off'
+          ? 'text-[var(--md-sys-primary)]'
+          : 'text-[var(--md-sys-on-surface-variant)]/60 hover:text-white'} transition cursor-pointer"
         title={`Repeat: ${playerState.repeatMode}`}
       >
         <span class="material-symbols-rounded text-base sm:text-lg">
@@ -145,30 +206,42 @@
       </button>
     </div>
 
-    <!-- Scrubber -->
-    <div class="flex items-center gap-2 w-full text-[10px] sm:text-[11px] text-[var(--md-sys-on-surface-variant)] font-mono">
-      <span class="w-7 sm:w-8 text-right shrink-0">{playerState.formattedTime.current}</span>
-      <input
-        type="range"
-        min="0"
-        max={playerState.playback.duration || playerState.currentTrack?.duration || Math.max(playerState.playback.position, 100)}
-        step="0.5"
-        value={playerState.playback.position}
-        oninput={handleSeek}
-        class="w-full h-1 bg-white/10 rounded-lg appearance-none cursor-pointer"
-      />
-      <span class="w-7 sm:w-8 shrink-0">{playerState.formattedTime.total}</span>
+    <!-- Scrubber with Active Progress Fill & Buffering Shimmer -->
+    <div class="flex items-center gap-2.5 w-full text-[10px] sm:text-[11px] text-[var(--md-sys-on-surface-variant)] font-mono">
+      <span class="w-8 text-right shrink-0">{playerState.formattedTime.current}</span>
+      <div class="relative flex-1 h-1.5 bg-white/10 hover:h-2 rounded-full overflow-hidden group transition-all">
+        {#if isLoading}
+          <div class="absolute inset-0 bg-gradient-to-r from-transparent via-[var(--md-sys-primary)]/60 to-transparent animate-shimmer-bar"></div>
+        {:else}
+          <div
+            class="absolute left-0 top-0 bottom-0 bg-[var(--md-sys-primary)] rounded-full transition-[width] duration-100"
+            style="width: {playerState.progressPercent}%;"
+          ></div>
+        {/if}
+        <input
+          type="range"
+          min="0"
+          max={playerState.playback.duration || playerState.currentTrack?.duration || Math.max(playerState.playback.position, 100)}
+          step="0.5"
+          value={playerState.playback.position}
+          oninput={handleSeek}
+          class="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+        />
+      </div>
+      <span class="w-8 shrink-0">{playerState.formattedTime.total}</span>
     </div>
   </div>
 
   <!-- Right: Queue, Equalizer, Volume, Expand -->
-  <div class="flex items-center justify-end gap-1 sm:gap-2.5 shrink-0">
+  <div class="flex items-center justify-end gap-1 sm:gap-2 shrink-0">
     <button
-      onclick={() => playerState.isQueueOpen = !playerState.isQueueOpen}
+      onclick={() => (playerState.isQueueOpen = !playerState.isQueueOpen)}
       class="p-2 rounded-full hover:bg-white/10 text-[var(--md-sys-on-surface-variant)] hover:text-white transition relative cursor-pointer"
-      title="Playing Next Queue"
+      title="Playing Next"
     >
-      <span class="material-symbols-rounded text-xl {playerState.isQueueOpen ? 'text-[var(--md-sys-primary)]' : ''}">queue_music</span>
+      <span class="material-symbols-rounded text-xl {playerState.isQueueOpen ? 'text-[var(--md-sys-primary)]' : ''}">
+        queue_music
+      </span>
       {#if playerState.queue.length > 0}
         <span class="absolute top-1 right-1 w-3.5 h-3.5 rounded-full bg-[var(--md-sys-primary)] text-[var(--md-sys-on-primary)] text-[8px] font-bold flex items-center justify-center">
           {playerState.queue.length > 9 ? '9+' : playerState.queue.length}
@@ -177,9 +250,9 @@
     </button>
 
     <button
-      onclick={() => playerState.isEqualizerOpen = true}
-      class="p-2 rounded-full hover:bg-white/10 text-[var(--md-sys-on-surface-variant)] hover:text-white transition"
-      title="10-Band Equalizer"
+      onclick={() => (playerState.isEqualizerOpen = true)}
+      class="p-2 rounded-full hover:bg-white/10 text-[var(--md-sys-on-surface-variant)] hover:text-white transition cursor-pointer"
+      title="Equalizer"
     >
       <span class="material-symbols-rounded text-xl">tune</span>
     </button>
@@ -187,12 +260,16 @@
     <!-- Volume -->
     <div class="relative flex items-center">
       <button
-        onclick={() => showVolumeSlider = !showVolumeSlider}
-        class="p-2 rounded-full hover:bg-white/10 text-[var(--md-sys-on-surface-variant)] hover:text-white transition"
+        onclick={() => (showVolumeSlider = !showVolumeSlider)}
+        class="p-2 rounded-full hover:bg-white/10 text-[var(--md-sys-on-surface-variant)] hover:text-white transition cursor-pointer"
         title="Volume"
       >
         <span class="material-symbols-rounded text-xl">
-          {playerState.playback.volume === 0 ? 'volume_off' : playerState.playback.volume < 50 ? 'volume_down' : 'volume_up'}
+          {playerState.playback.volume === 0
+            ? 'volume_off'
+            : playerState.playback.volume < 50
+              ? 'volume_down'
+              : 'volume_up'}
         </span>
       </button>
 
@@ -204,7 +281,7 @@
             max="100"
             value={playerState.playback.volume}
             oninput={handleVolume}
-            class="w-full h-1 bg-white/20 rounded-lg appearance-none cursor-pointer"
+            class="w-full h-1 bg-white/20 rounded-lg appearance-none cursor-pointer accent-[var(--md-sys-primary)]"
           />
           <span class="text-[10px] font-mono text-[var(--md-sys-primary)] w-7 text-right">
             {Math.round(playerState.playback.volume)}%
@@ -215,21 +292,34 @@
 
     <button
       onclick={() => playerState.toggleMiniPlayer()}
-      class="p-2 rounded-full hover:bg-white/10 {playerState.isMiniPlayerOpen ? 'text-[var(--md-sys-primary)]' : 'text-[var(--md-sys-on-surface-variant)] hover:text-white'} transition"
+      class="p-2 rounded-full hover:bg-white/10 {playerState.isMiniPlayerOpen
+        ? 'text-[var(--md-sys-primary)]'
+        : 'text-[var(--md-sys-on-surface-variant)] hover:text-white'} transition cursor-pointer"
       title="Mini Player"
     >
       <span class="material-symbols-rounded text-xl">picture_in_picture_alt</span>
     </button>
 
     <button
-      onclick={() => playerState.isNowPlayingOpen = !playerState.isNowPlayingOpen}
-      class="p-2 rounded-full hover:bg-white/10 text-[var(--md-sys-on-surface-variant)] hover:text-white transition"
+      onclick={() => (playerState.isNowPlayingOpen = !playerState.isNowPlayingOpen)}
+      class="p-2 rounded-full hover:bg-white/10 text-[var(--md-sys-on-surface-variant)] hover:text-white transition cursor-pointer"
       title="Expand Player"
     >
       <span class="material-symbols-rounded text-xl">open_in_full</span>
     </button>
   </div>
-
 </footer>
 
-
+<style>
+  @keyframes shimmerBar {
+    0% {
+      transform: translateX(-100%);
+    }
+    100% {
+      transform: translateX(300%);
+    }
+  }
+  .animate-shimmer-bar {
+    animation: shimmerBar 1.25s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+  }
+</style>

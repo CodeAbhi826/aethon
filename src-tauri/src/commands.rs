@@ -18,6 +18,7 @@ pub async fn play_track(
     uri: String,
     track_id: Option<String>,
     track: Option<Track>,
+    force_refresh: Option<bool>,
     state: State<'_, AppState>,
 ) -> Result<(), String> {
     crate::aethon_log!("play_track: uri={}, track_id={:?}", uri, track_id);
@@ -39,13 +40,28 @@ pub async fn play_track(
         uri
     };
 
+    if force_refresh.unwrap_or(false) {
+        YouTubeService::invalidate_cached_stream(&full_uri);
+    }
+
+    // Mark engine as buffering before stream resolution so no stale player-state event clears isLoading
+    {
+        let mut s = state.mpv.state.write();
+        s.current_uri = Some(full_uri.clone());
+        s.media_title = if t_title.is_empty() { None } else { Some(t_title.clone()) };
+        s.position = 0.0;
+        s.is_buffering = true;
+        s.is_playing = false;
+    }
+
     let playable_uri =
         YouTubeService::resolve_playable_stream_async(&full_uri, &t_title, &t_artist).await;
 
     state
         .mpv
-        .load_file(
+        .load_file_with_canonical(
             &playable_uri,
+            Some(&full_uri),
             if t_title.is_empty() { None } else { Some(&t_title) },
         )
         .await
@@ -187,8 +203,8 @@ pub async fn search_youtube(
         .get_setting("ytmRegion")
         .ok()
         .flatten()
-        .unwrap_or_else(|| "US".to_string());
-    Ok(YouTubeService::search(&query, limit.unwrap_or(12), &gl).await)
+        .unwrap_or_else(|| "IN".to_string());
+    Ok(YouTubeService::search(&query, limit.unwrap_or(15), &gl).await)
 }
 
 #[tauri::command]
@@ -508,8 +524,8 @@ pub async fn download_track(
             use lofty::file::AudioFile;
             let props = tagged.properties();
             track.duration = props.duration().as_secs_f64();
-            track.bitrate = props.audio_bitrate();
-            track.sample_rate = props.sample_rate();
+            track.bitrate = props.audio_bitrate().map(|b| b as i64);
+            track.sample_rate = props.sample_rate().map(|s| s as i64);
         }
 
         let _ = db.upsert_track(&track);
@@ -536,11 +552,6 @@ pub async fn send_desktop_notification(
     artist: String,
     cover_art: Option<String>,
 ) -> Result<(), String> {
-    crate::aethon_log!(
-        "send_desktop_notification: title={}, artist={}",
-        title,
-        artist
-    );
     let mut icon_arg = "multimedia-audio-player".to_string();
     if let Some(ref icon) = cover_art {
         if icon.starts_with("http://") || icon.starts_with("https://") {
@@ -617,7 +628,7 @@ pub async fn sync_ytm_library(
     gl: Option<String>,
     state: State<'_, AppState>,
 ) -> Result<crate::youtube::auth_sync::YtmSyncSummary, String> {
-    let gl_str = gl.unwrap_or_else(|| "US".to_string());
+    let gl_str = gl.unwrap_or_else(|| "IN".to_string());
     crate::youtube::auth_sync::sync_ytm_library_internal(
         &cookie,
         visitor_data.as_deref(),
@@ -681,4 +692,3 @@ pub async fn ping_recap_watchtime(
     )
     .await
 }
-

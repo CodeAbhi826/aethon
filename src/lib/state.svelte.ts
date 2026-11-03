@@ -18,10 +18,12 @@ class PlayerState {
   playback = $state<PlaybackState>({
     current_uri: null,
     is_playing: false,
+    is_buffering: false,
     position: 0,
     duration: 0,
     volume: 85,
   });
+  private retriedStreamUri: string | null = null;
   queue = $state<Track[]>([]);
   library = $state<Track[]>([]);
   playlists = $state<Playlist[]>([]);
@@ -178,6 +180,7 @@ class PlayerState {
           this.playback = {
             ...event.payload,
             is_playing: false,
+            is_buffering: false,
             position: this.currentTrack ? this.playback.position : event.payload.position,
             duration: this.currentTrack
               ? this.playback.duration || (this.currentTrack.duration ?? 0)
@@ -187,7 +190,11 @@ class PlayerState {
         }
 
         this.playback = event.payload;
-        if (event.payload.is_playing || event.payload.position > 0.05) {
+
+        // Keep isLoading true while MPV is resolving/buffering the stream; only clear when real audio frames play
+        if (event.payload.is_buffering) {
+          this.isLoading = true;
+        } else if (event.payload.is_playing || event.payload.position > 0.03) {
           this.isLoading = false;
         }
 
@@ -198,8 +205,8 @@ class PlayerState {
 
         if (
           this.pendingResumePosition !== null &&
-          event.payload.position > 0.05 &&
-          event.payload.duration > 0
+          !event.payload.is_buffering &&
+          (event.payload.is_playing || event.payload.position > 0.05)
         ) {
           const target = this.pendingResumePosition;
           this.pendingResumePosition = null;
@@ -253,6 +260,25 @@ class PlayerState {
               positionUs: Math.round(this.playback.position * 1_000_000),
             }).catch(() => {});
           }
+        }
+      });
+
+      // Automatic recovery if a cached direct stream URL expires or returns 403
+      await listen<string>('stream-error', (event) => {
+        const failedUri = event.payload;
+        if (this.currentTrack && this.retriedStreamUri !== failedUri) {
+          this.retriedStreamUri = failedUri;
+          this.isLoading = true;
+          invoke('play_track', {
+            uri: this.currentTrack.file_path,
+            trackId: this.currentTrack.id,
+            track: this.currentTrack,
+            forceRefresh: true,
+          }).catch(() => {
+            this.isLoading = false;
+          });
+        } else {
+          this.isLoading = false;
         }
       });
 
@@ -598,7 +624,12 @@ class PlayerState {
     }
 
     this.currentTrack = sanitized;
+    this.retriedStreamUri = null;
     this.isLoading = true;
+    this.playback.is_buffering = true;
+    this.playback.is_playing = false;
+    this.playback.position = 0;
+    this.playback.duration = sanitized.duration || 0;
     this.updateMediaSession(sanitized);
     this.updateMpris(sanitized, true);
     this.notifyTrackChange(sanitized);
@@ -658,12 +689,14 @@ class PlayerState {
         uri: sanitized.file_path,
         trackId: sanitized.id,
         track: sanitized,
+        forceRefresh: false,
       });
       this.loadPlayHistory();
       this.prefetchNextInQueue();
     } catch (e) {
       console.error('Play error:', e);
       this.isLoading = false;
+      this.playback.is_buffering = false;
     }
   }
 

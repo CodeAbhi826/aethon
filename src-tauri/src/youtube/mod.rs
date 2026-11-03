@@ -24,15 +24,29 @@ struct CachedStream {
 }
 
 static HTTP_CLIENT: OnceLock<reqwest::Client> = OnceLock::new();
+static PLAYER_CLIENT: OnceLock<reqwest::Client> = OnceLock::new();
 static STREAM_CACHE: OnceLock<Mutex<HashMap<String, CachedStream>>> = OnceLock::new();
+static VISITOR_DATA: OnceLock<Mutex<Option<String>>> = OnceLock::new();
 
 fn http_client() -> &'static reqwest::Client {
     HTTP_CLIENT.get_or_init(|| {
         reqwest::Client::builder()
             .tcp_nodelay(true)
-            .pool_max_idle_per_host(8)
+            .pool_max_idle_per_host(10)
             .pool_idle_timeout(std::time::Duration::from_secs(90))
-            .timeout(std::time::Duration::from_secs(5))
+            .timeout(std::time::Duration::from_secs(4))
+            .build()
+            .unwrap_or_else(|_| reqwest::Client::new())
+    })
+}
+
+fn player_client() -> &'static reqwest::Client {
+    PLAYER_CLIENT.get_or_init(|| {
+        reqwest::Client::builder()
+            .tcp_nodelay(true)
+            .pool_max_idle_per_host(10)
+            .pool_idle_timeout(std::time::Duration::from_secs(90))
+            .timeout(std::time::Duration::from_millis(2400))
             .build()
             .unwrap_or_else(|_| reqwest::Client::new())
     })
@@ -40,6 +54,10 @@ fn http_client() -> &'static reqwest::Client {
 
 fn stream_cache() -> &'static Mutex<HashMap<String, CachedStream>> {
     STREAM_CACHE.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+fn visitor_store() -> &'static Mutex<Option<String>> {
+    VISITOR_DATA.get_or_init(|| Mutex::new(None))
 }
 
 fn now_unix() -> u64 {
@@ -83,6 +101,12 @@ impl YouTubeService {
         None
     }
 
+    pub fn invalidate_cached_stream(uri: &str) {
+        if let Some(vid) = Self::extract_video_id(uri) {
+            stream_cache().lock().remove(&vid);
+        }
+    }
+
     pub fn upgrade_thumbnail_url(url: &str, video_id: &str) -> String {
         if url.contains("lh3.googleusercontent.com") || url.contains("yt3.ggpht.com") {
             if let Some(eq_idx) = url.rfind('=') {
@@ -99,9 +123,49 @@ impl YouTubeService {
         url.to_string()
     }
 
+    fn capture_visitor_data(json: &serde_json::Value) {
+        if let Some(vd) = json
+            .pointer("/responseContext/visitorData")
+            .and_then(|v| v.as_str())
+        {
+            if !vd.is_empty() {
+                *visitor_store().lock() = Some(vd.to_string());
+            }
+        }
+    }
+
+    async fn get_or_fetch_visitor_data() -> Option<String> {
+        if let Some(existing) = visitor_store().lock().clone() {
+            return Some(existing);
+        }
+        let client = player_client();
+        let body = serde_json::json!({
+            "context": {
+                "client": {
+                    "clientName": "WEB_REMIX",
+                    "clientVersion": "1.20260408.01.00",
+                    "hl": "en",
+                    "gl": "IN"
+                }
+            }
+        });
+        if let Ok(resp) = client
+            .post("https://music.youtube.com/youtubei/v1/visitor_id?prettyPrint=false")
+            .header("Content-Type", "application/json")
+            .json(&body)
+            .send()
+            .await
+        {
+            if let Ok(json) = resp.json::<serde_json::Value>().await {
+                Self::capture_visitor_data(&json);
+            }
+        }
+        visitor_store().lock().clone()
+    }
+
     pub async fn search(query: &str, limit: usize, gl: &str) -> Vec<YouTubeTrack> {
         let max_results = limit.clamp(1, 50);
-        let region = if gl.trim().is_empty() { "US" } else { gl.trim() };
+        let region = if gl.trim().is_empty() { "IN" } else { gl.trim() };
 
         if let Some(tracks) = Self::search_innertube(query, max_results, region).await {
             if !tracks.is_empty() {
@@ -122,7 +186,6 @@ impl YouTubeService {
     ) -> Option<Vec<YouTubeTrack>> {
         let client = http_client();
 
-        // Run filtered Songs search + general search concurrently over shared HTTP/2 pool
         let songs_body = serde_json::json!({
             "context": {
                 "client": {
@@ -175,6 +238,7 @@ impl YouTubeService {
         if let Ok(resp) = songs_res {
             if resp.status().is_success() {
                 if let Ok(json_data) = resp.json::<serde_json::Value>().await {
+                    Self::capture_visitor_data(&json_data);
                     Self::extract_innertube_tracks(&json_data, &mut results, limit);
                 }
             }
@@ -184,6 +248,7 @@ impl YouTubeService {
             if let Ok(resp) = general_res {
                 if resp.status().is_success() {
                     if let Ok(json_data) = resp.json::<serde_json::Value>().await {
+                        Self::capture_visitor_data(&json_data);
                         Self::extract_innertube_tracks(&json_data, &mut results, limit);
                     }
                 }
@@ -193,41 +258,63 @@ impl YouTubeService {
         Some(results)
     }
 
-    /// Fast ~300ms InnerTube `/youtubei/v1/player` direct stream extraction (ArchiveTune architecture)
+    /// ArchiveTune-style multi-client InnerTube `/youtubei/v1/player` direct stream extraction (~250ms)
+    /// Queries ANDROID_VR, ANDROID_TESTSUITE, and IOS concurrently with visitorData so direct `googlevideo.com` URLs resolve without PoToken or JS cipher delays.
     pub async fn resolve_innertube_direct_stream(video_id: &str) -> Option<String> {
-        let client = http_client();
+        let client = player_client();
+        let visitor_data = Self::get_or_fetch_visitor_data().await;
 
-        // Try ANDROID_VR and IOS clients in parallel (both return direct un-ciphered adaptiveFormats URLs)
+        let mut vr_client = serde_json::json!({
+            "clientName": "ANDROID_VR",
+            "clientVersion": "1.60.19",
+            "androidSdkVersion": 34,
+            "osName": "Android",
+            "osVersion": "14",
+            "deviceMake": "Oculus",
+            "deviceModel": "Quest 3",
+            "hl": "en",
+            "gl": "IN"
+        });
+        let mut ts_client = serde_json::json!({
+            "clientName": "ANDROID_TESTSUITE",
+            "clientVersion": "1.9",
+            "androidSdkVersion": 34,
+            "osName": "Android",
+            "osVersion": "14",
+            "hl": "en",
+            "gl": "IN"
+        });
+        let mut ios_client = serde_json::json!({
+            "clientName": "IOS",
+            "clientVersion": "20.03.02",
+            "deviceMake": "Apple",
+            "deviceModel": "iPhone16,2",
+            "osName": "iPhone",
+            "osVersion": "18.2.1.22C161",
+            "hl": "en",
+            "gl": "IN"
+        });
+
+        if let Some(ref vd) = visitor_data {
+            vr_client["visitorData"] = serde_json::Value::String(vd.clone());
+            ts_client["visitorData"] = serde_json::Value::String(vd.clone());
+            ios_client["visitorData"] = serde_json::Value::String(vd.clone());
+        }
+
         let vr_body = serde_json::json!({
-            "context": {
-                "client": {
-                    "clientName": "ANDROID_VR",
-                    "clientVersion": "1.60.19",
-                    "androidSdkVersion": 34,
-                    "osName": "Android",
-                    "osVersion": "14",
-                    "hl": "en",
-                    "gl": "US"
-                }
-            },
+            "context": { "client": vr_client },
             "videoId": video_id,
             "contentCheckOk": true,
             "racyCheckOk": true
         });
-
+        let ts_body = serde_json::json!({
+            "context": { "client": ts_client },
+            "videoId": video_id,
+            "contentCheckOk": true,
+            "racyCheckOk": true
+        });
         let ios_body = serde_json::json!({
-            "context": {
-                "client": {
-                    "clientName": "IOS",
-                    "clientVersion": "20.03.02",
-                    "deviceMake": "Apple",
-                    "deviceModel": "iPhone16,2",
-                    "osName": "iPhone",
-                    "osVersion": "18.2.1.22C161",
-                    "hl": "en",
-                    "gl": "US"
-                }
-            },
+            "context": { "client": ios_client },
             "videoId": video_id,
             "contentCheckOk": true,
             "racyCheckOk": true
@@ -236,6 +323,7 @@ impl YouTubeService {
         let vr_fut = client
             .post("https://www.youtube.com/youtubei/v1/player?prettyPrint=false")
             .header("Content-Type", "application/json")
+            .header("X-Goog-Api-Format-Version", "2")
             .header(
                 "User-Agent",
                 "com.google.android.apps.youtube.vr.oculus/1.60.19 (Linux; U; Android 14; en_US; Quest 3; Build/UP1A.231005.007.A1; Cronet/132.0.6808.3)",
@@ -243,9 +331,21 @@ impl YouTubeService {
             .json(&vr_body)
             .send();
 
+        let ts_fut = client
+            .post("https://www.youtube.com/youtubei/v1/player?prettyPrint=false")
+            .header("Content-Type", "application/json")
+            .header("X-Goog-Api-Format-Version", "2")
+            .header(
+                "User-Agent",
+                "com.google.android.youtube/1.9 (Linux; U; Android 14; en_US)",
+            )
+            .json(&ts_body)
+            .send();
+
         let ios_fut = client
             .post("https://www.youtube.com/youtubei/v1/player?prettyPrint=false")
             .header("Content-Type", "application/json")
+            .header("X-Goog-Api-Format-Version", "2")
             .header(
                 "User-Agent",
                 "com.google.ios.youtube/20.03.02 (iPhone16,2; U; CPU iOS 18_2_1 like Mac OS X;)",
@@ -253,12 +353,13 @@ impl YouTubeService {
             .json(&ios_body)
             .send();
 
-        let (vr_res, ios_res) = tokio::join!(vr_fut, ios_fut);
+        let (vr_res, ts_res, ios_res) = tokio::join!(vr_fut, ts_fut, ios_fut);
 
-        for resp_res in [vr_res, ios_res] {
+        for resp_res in [vr_res, ts_res, ios_res] {
             if let Ok(resp) = resp_res {
                 if resp.status().is_success() {
                     if let Ok(json) = resp.json::<serde_json::Value>().await {
+                        Self::capture_visitor_data(&json);
                         if let Some(url) = Self::pick_best_audio_format(&json) {
                             return Some(url);
                         }
@@ -300,7 +401,6 @@ impl YouTubeService {
             let itag = fmt.get("itag").and_then(|i| i.as_i64()).unwrap_or(0);
             let bitrate = fmt.get("bitrate").and_then(|b| b.as_i64()).unwrap_or(0);
 
-            // Prefer itag 251 (Opus ~160kbps WebM) then 140 (AAC M4A ~128kbps) then highest bitrate
             let bonus = match itag {
                 251 => 500_000,
                 140 => 350_000,
@@ -317,15 +417,62 @@ impl YouTubeService {
         best_url
     }
 
-    /// Ultra-fast stream resolver:
-    /// Returns the URI directly to mpv so mpv's internal single-pass streaming engine loads
-    /// the track immediately without blocking Tokio worker threads or running cold yt-dlp CLI passes.
     pub async fn resolve_playable_stream_async(
         uri: &str,
-        _title: &str,
-        _artist: &str,
+        title: &str,
+        artist: &str,
     ) -> String {
-        uri.to_string()
+        if !uri.contains("youtube.com/watch?v=") && !uri.contains("youtu.be/") {
+            return uri.to_string();
+        }
+
+        let video_id = Self::extract_video_id(uri).unwrap_or_default();
+
+        if !video_id.is_empty() {
+            let now = now_unix();
+            if let Some(cached) = stream_cache().lock().get(&video_id) {
+                if cached.expires_at > now {
+                    crate::aethon_log!("Stream cache HIT for video_id={}", video_id);
+                    return cached.direct_url.clone();
+                }
+            }
+
+            if let Some(direct_url) = Self::resolve_innertube_direct_stream(&video_id).await {
+                stream_cache().lock().insert(
+                    video_id.clone(),
+                    CachedStream {
+                        direct_url: direct_url.clone(),
+                        expires_at: now + 14_400,
+                    },
+                );
+                crate::aethon_log!(
+                    "Resolved direct InnerTube stream in ~250ms for video_id={}",
+                    video_id
+                );
+                return direct_url;
+            }
+        }
+
+        let uri_owned = uri.to_string();
+        let title_owned = title.to_string();
+        let artist_owned = artist.to_string();
+        let vid_owned = video_id.clone();
+
+        tokio::task::spawn_blocking(move || {
+            let resolved = Self::resolve_via_ytdlp_direct(&uri_owned, &title_owned, &artist_owned);
+            if !vid_owned.is_empty() && resolved.contains("googlevideo.com") {
+                stream_cache().lock().insert(
+                    vid_owned,
+                    CachedStream {
+                        direct_url: resolved.clone(),
+                        expires_at: now_unix() + 14_400,
+                    },
+                );
+            }
+            resolved
+        })
+        .await
+        .unwrap_or_else(|_| uri.to_string())
     }
 
     pub fn resolve_via_ytdlp_direct(uri: &str, title: &str, artist: &str) -> String {
@@ -334,10 +481,12 @@ impl YouTubeService {
             .arg("--no-playlist")
             .arg("--no-warnings")
             .arg("--no-check-certificates")
+            .arg("--socket-timeout")
+            .arg("4")
             .arg("-f")
             .arg("251/140/bestaudio[ext=webm]/bestaudio/best")
             .arg("--extractor-args")
-            .arg("youtube:player_client=android_vr,ios,web_music;player_skip=webpage,configs")
+            .arg("youtube:player_client=android_vr,ios,tv;player_skip=webpage,configs")
             .arg("--")
             .arg(uri);
         crate::sanitize_host_command(&mut cmd);
@@ -354,14 +503,15 @@ impl YouTubeService {
             }
         }
 
-        // Fallback for region/age-gated tracks: search alternate playable release and extract its direct URL in one step
-        let query = format!("{} {}", title, artist).trim().to_string();
+        let query = format!("{} {} audio", title, artist).trim().to_string();
         if !query.is_empty() {
             let mut alt_cmd = Command::new("yt-dlp");
             alt_cmd
                 .arg("--get-url")
                 .arg("--no-playlist")
                 .arg("--no-warnings")
+                .arg("--socket-timeout")
+                .arg("4")
                 .arg("-f")
                 .arg("251/140/bestaudio/best")
                 .arg("--extractor-args")
@@ -466,7 +616,7 @@ impl YouTubeService {
         s
     }
 
-    pub fn extract_innertube_tracks(
+    fn extract_innertube_tracks(
         value: &serde_json::Value,
         results: &mut Vec<YouTubeTrack>,
         limit: usize,
@@ -644,4 +794,3 @@ impl YouTubeService {
         results
     }
 }
-

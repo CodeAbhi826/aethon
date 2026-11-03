@@ -13,6 +13,7 @@ pub struct PlaybackState {
     pub current_uri: Option<String>,
     pub media_title: Option<String>,
     pub is_playing: bool,
+    pub is_buffering: bool,
     pub position: f64,
     pub duration: f64,
     pub volume: f64,
@@ -28,6 +29,7 @@ impl Default for PlaybackState {
             current_uri: None,
             media_title: None,
             is_playing: false,
+            is_buffering: false,
             position: 0.0,
             duration: 0.0,
             volume: 100.0,
@@ -44,6 +46,7 @@ pub struct MpvEngine {
     cmd_tx: mpsc::Sender<String>,
     pub socket_path: String,
     pub state: Arc<RwLock<PlaybackState>>,
+    pub app_handle: Option<AppHandle>,
 }
 
 impl Drop for MpvEngine {
@@ -70,6 +73,7 @@ impl MpvEngine {
             cmd_tx,
             socket_path: String::new(),
             state: Arc::new(RwLock::new(PlaybackState::default())),
+            app_handle: None,
         }
     }
 
@@ -180,6 +184,9 @@ impl MpvEngine {
         tokio::spawn(async move {
             let mut buf_reader = BufReader::new(reader);
             let mut line = String::new();
+            let mut mpv_paused = false;
+            let mut mpv_core_idle = true;
+            let mut mpv_paused_for_cache = false;
 
             while let Ok(n) = buf_reader.read_line(&mut line).await {
                 if n == 0 {
@@ -189,6 +196,25 @@ impl MpvEngine {
                 if let Ok(val) = serde_json::from_str::<serde_json::Value>(trimmed) {
                     if let Some(event) = val.get("event").and_then(|e| e.as_str()) {
                         match event {
+                            "start-file" => {
+                                let mut s = state_clone.write();
+                                s.is_buffering = true;
+                                s.is_playing = false;
+                                s.position = 0.0;
+                                if let Some(ref handle) = app_handle {
+                                    let _ = handle.emit("player-state", &*s);
+                                }
+                            }
+                            "file-loaded" | "playback-restart" => {
+                                mpv_core_idle = false;
+                                mpv_paused_for_cache = false;
+                                let mut s = state_clone.write();
+                                s.is_buffering = false;
+                                s.is_playing = s.current_uri.is_some() && !mpv_paused;
+                                if let Some(ref handle) = app_handle {
+                                    let _ = handle.emit("player-state", &*s);
+                                }
+                            }
                             "property-change" => {
                                 if let Some(name) = val.get("name").and_then(|n| n.as_str()) {
                                     let mut s = state_clone.write();
@@ -197,20 +223,55 @@ impl MpvEngine {
                                         "time-pos" => {
                                             if let Some(t) = data.and_then(|d| d.as_f64()) {
                                                 s.position = t;
+                                                if t > 0.03 && !mpv_paused {
+                                                    s.is_buffering = false;
+                                                    s.is_playing = true;
+                                                }
                                             }
                                         }
                                         "duration" => {
                                             if let Some(d) = data.and_then(|d| d.as_f64()) {
-                                                s.duration = d;
+                                                if d > 0.0 {
+                                                    s.duration = d;
+                                                }
                                             }
                                         }
                                         "pause" => {
                                             if let Some(p) = data.and_then(|d| d.as_bool()) {
-                                                s.is_playing = s.current_uri.is_some() && !p;
+                                                mpv_paused = p;
+                                                if p {
+                                                    s.is_playing = false;
+                                                } else if !s.is_buffering && !mpv_core_idle {
+                                                    s.is_playing = s.current_uri.is_some();
+                                                }
+                                            }
+                                        }
+                                        "core-idle" => {
+                                            if let Some(idle) = data.and_then(|d| d.as_bool()) {
+                                                mpv_core_idle = idle;
+                                                if !idle && !mpv_paused {
+                                                    s.is_buffering = false;
+                                                    s.is_playing = s.current_uri.is_some();
+                                                }
+                                            }
+                                        }
+                                        "paused-for-cache" => {
+                                            if let Some(caching) = data.and_then(|d| d.as_bool()) {
+                                                mpv_paused_for_cache = caching;
+                                                if caching && s.current_uri.is_some() {
+                                                    s.is_buffering = true;
+                                                } else if !caching && !mpv_core_idle && !mpv_paused {
+                                                    s.is_buffering = false;
+                                                    s.is_playing = s.current_uri.is_some();
+                                                }
                                             }
                                         }
                                         "path" => {
-                                            s.current_uri = data.and_then(|d| d.as_str()).map(String::from);
+                                            if let Some(p) = data.and_then(|d| d.as_str()) {
+                                                if s.current_uri.is_none() {
+                                                    s.current_uri = Some(p.to_string());
+                                                }
+                                            }
                                         }
                                         "media-title" => {
                                             if let Some(mt) = data.and_then(|d| d.as_str()) {
@@ -244,6 +305,7 @@ impl MpvEngine {
                                         _ => {}
                                     }
 
+                                    let _ = mpv_paused_for_cache;
                                     if let Some(ref handle) = app_handle {
                                         let _ = handle.emit("player-state", &*s);
                                     }
@@ -256,16 +318,24 @@ impl MpvEngine {
                                 if reason == "eof" {
                                     let mut s = state_clone.write();
                                     s.is_playing = false;
+                                    s.is_buffering = false;
                                     s.position = 0.0;
                                     if let Some(ref handle) = app_handle {
                                         let _ = handle.emit("player-state", &*s);
                                         let _ = handle.emit("track-ended", ());
                                     }
                                 } else if reason == "error" {
-                                    let mut s = state_clone.write();
-                                    s.is_playing = false;
+                                    let failed_uri = {
+                                        let mut s = state_clone.write();
+                                        s.is_playing = false;
+                                        s.is_buffering = false;
+                                        s.current_uri.clone()
+                                    };
                                     if let Some(ref handle) = app_handle {
-                                        let _ = handle.emit("player-state", &*s);
+                                        let _ = handle.emit("player-state", &*state_clone.read());
+                                        if let Some(uri) = failed_uri {
+                                            let _ = handle.emit("stream-error", uri);
+                                        }
                                     }
                                 }
                             }
@@ -282,6 +352,7 @@ impl MpvEngine {
             cmd_tx,
             socket_path,
             state,
+            app_handle: app,
         };
 
         engine
@@ -306,10 +377,16 @@ impl MpvEngine {
             .send_cmd(r#"{"command": ["observe_property", 7, "audio-bitrate"]}"#)
             .await?;
         engine
-            .send_cmd(r#"{"command": ["observe_property", 8, "path"]}"#)
+            .send_cmd(r#"{"command": ["observe_property", 8, "core-idle"]}"#)
             .await?;
         engine
-            .send_cmd(r#"{"command": ["observe_property", 9, "media-title"]}"#)
+            .send_cmd(r#"{"command": ["observe_property", 9, "paused-for-cache"]}"#)
+            .await?;
+        engine
+            .send_cmd(r#"{"command": ["observe_property", 10, "path"]}"#)
+            .await?;
+        engine
+            .send_cmd(r#"{"command": ["observe_property", 11, "media-title"]}"#)
             .await?;
 
         Ok(engine)
@@ -324,22 +401,29 @@ impl MpvEngine {
         Ok(())
     }
 
-    pub async fn load_file(
+    pub async fn load_file_with_canonical(
         &self,
-        uri: &str,
+        playable_uri: &str,
+        canonical_uri: Option<&str>,
         title: Option<&str>,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         {
             let mut s = self.state.write();
-            s.current_uri = Some(uri.to_string());
-            s.media_title = title.map(String::from);
+            s.current_uri = Some(canonical_uri.unwrap_or(playable_uri).to_string());
+            if let Some(t) = title {
+                s.media_title = Some(t.to_string());
+            }
             s.position = 0.0;
-            s.is_playing = true;
+            s.is_buffering = true;
+            s.is_playing = false;
+            if let Some(ref handle) = self.app_handle {
+                let _ = handle.emit("player-state", &*s);
+            }
         }
         // Silence previous audio stream immediately so old tracks don't continue or overlap
         let _ = self.send_cmd(r#"{"command": ["stop"]}"#).await;
         let msg = serde_json::json!({
-            "command": ["loadfile", uri, "replace"]
+            "command": ["loadfile", playable_uri, "replace"]
         });
         self.send_cmd(&msg.to_string()).await?;
         let play_msg = serde_json::json!({
@@ -347,6 +431,14 @@ impl MpvEngine {
         });
         self.send_cmd(&play_msg.to_string()).await?;
         Ok(())
+    }
+
+    pub async fn load_file(
+        &self,
+        uri: &str,
+        title: Option<&str>,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        self.load_file_with_canonical(uri, None, title).await
     }
 
     pub async fn play(&self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
@@ -364,16 +456,15 @@ impl MpvEngine {
     }
 
     pub async fn toggle_pause(&self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        let (is_eof, uri_opt) = {
+        let (is_eof, uri_opt, title_opt) = {
             let s = self.state.read();
             let at_end = s.duration > 0.0 && s.position >= (s.duration - 0.5);
-            (at_end, s.current_uri.clone())
+            (at_end, s.current_uri.clone(), s.media_title.clone())
         };
 
         if is_eof {
             if let Some(uri) = uri_opt {
-                let cur_title = self.state.read().media_title.clone();
-                return self.load_file(&uri, cur_title.as_deref()).await;
+                return self.load_file_with_canonical(&uri, None, title_opt.as_deref()).await;
             } else {
                 let _ = self.seek(0.0).await;
             }
@@ -464,4 +555,3 @@ impl MpvEngine {
         self.state.read().clone()
     }
 }
-

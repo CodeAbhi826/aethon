@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onMount } from 'svelte';
+  import { fly } from 'svelte/transition';
   import { playerState } from '$lib/state.svelte';
   import { settingsState } from '$lib/settingsState.svelte';
   import TitleBar from '$lib/components/TitleBar.svelte';
@@ -22,10 +23,6 @@
   import MiniPlayer from '$lib/components/MiniPlayer.svelte';
 
   onMount(() => {
-    // Load local SQLite tracks on mount
-    playerState.loadLibrary();
-
-    // Auto-collapse sidebar in compact / floating window modes (< 840px)
     if (window.innerWidth < 840) {
       playerState.sidebarCollapsed = true;
     }
@@ -37,10 +34,16 @@
     };
     window.addEventListener('resize', handleResize);
 
-    // Global keyboard shortcuts
     const handleKeyDown = (e: KeyboardEvent) => {
       const activeTag = (document.activeElement?.tagName || '').toLowerCase();
-      if (activeTag === 'input' || activeTag === 'textarea') return;
+      if (
+        activeTag === 'input' ||
+        activeTag === 'textarea' ||
+        activeTag === 'button' ||
+        activeTag === 'select'
+      ) {
+        return;
+      }
 
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'b') {
         e.preventDefault();
@@ -51,13 +54,24 @@
       } else if (e.code === 'ArrowLeft') {
         playerState.seek(Math.max(0, playerState.playback.position - 5));
       } else if (e.code === 'ArrowRight') {
-        playerState.seek(playerState.playback.position + 5);
+        const maxDur = playerState.playback.duration || (playerState.currentTrack?.duration ?? 0);
+        playerState.seek(
+          maxDur > 0
+            ? Math.min(maxDur, playerState.playback.position + 5)
+            : playerState.playback.position + 5
+        );
       } else if (e.code === 'ArrowUp') {
         playerState.setVolume(Math.min(100, playerState.playback.volume + 5));
       } else if (e.code === 'ArrowDown') {
         playerState.setVolume(Math.max(0, playerState.playback.volume - 5));
       } else if (e.key === 'Escape') {
-        if (playerState.isQueueOpen) {
+        if (playerState.activeContextMenu) {
+          playerState.closeContextMenu();
+        } else if (playerState.isAddToPlaylistModalOpen) {
+          playerState.isAddToPlaylistModalOpen = false;
+        } else if (playerState.isNewPlaylistModalOpen) {
+          playerState.isNewPlaylistModalOpen = false;
+        } else if (playerState.isQueueOpen) {
           playerState.isQueueOpen = false;
         } else if (playerState.isEqualizerOpen) {
           playerState.isEqualizerOpen = false;
@@ -76,58 +90,44 @@
 </script>
 
 <div class="h-screen w-screen flex flex-col bg-[var(--md-sys-surface)] text-[var(--md-sys-on-surface)] overflow-hidden relative font-sans">
-  
-  <!-- Ambient Static Gradient Mesh Background -->
   {#if settingsState.showFloatingOrbs}
     <div class="ambient-mesh fixed inset-0 pointer-events-none overflow-hidden z-0"></div>
   {/if}
 
-  <!-- Custom TitleBar with drag region and controls -->
   <TitleBar />
 
-  <!-- Middle: Sidebar + Content Area -->
   <div class="flex-1 flex overflow-hidden relative">
     <NavigationRail />
 
     <main class="flex-1 overflow-y-auto relative scroll-smooth">
-      {#if playerState.activeTab === 'home'}
-        <HomeView />
-      {:else if playerState.activeTab === 'search'}
-        <SearchView />
-      {:else if playerState.activeTab === 'library'}
-        <LibraryView />
-      {:else if playerState.activeTab === 'stats'}
-        <StatsView />
-      {:else if playerState.activeTab === 'settings'}
-        <SettingsView />
-      {:else if playerState.activeTab === 'artist'}
-        <ArtistView />
-      {:else if playerState.activeTab === 'album'}
-        <AlbumView />
-      {/if}
+      {#key playerState.activeTab}
+        <div in:fly={{ y: 8, duration: 220, opacity: 0 }} class="min-h-full">
+          {#if playerState.activeTab === 'home'}
+            <HomeView />
+          {:else if playerState.activeTab === 'search'}
+            <SearchView />
+          {:else if playerState.activeTab === 'library'}
+            <LibraryView />
+          {:else if playerState.activeTab === 'stats'}
+            <StatsView />
+          {:else if playerState.activeTab === 'settings'}
+            <SettingsView />
+          {:else if playerState.activeTab === 'artist'}
+            <ArtistView />
+          {:else if playerState.activeTab === 'album'}
+            <AlbumView />
+          {/if}
+        </div>
+      {/key}
     </main>
   </div>
 
-  <!-- Bottom Mini-Player Bar -->
   <BottomPlayer />
-
-  <!-- Fullscreen Now Playing Overlay Sheet -->
   <NowPlayingSheet />
-
-  <!-- 10-Band Equalizer Modal -->
   <EqualizerModal />
-
-  <!-- Up Next Queue Drawer -->
   <QueueDrawer />
-
-  <!-- Track Context Menu -->
   <TrackContextMenu />
-
-  <!-- Playlist Modals -->
   <NewPlaylistModal />
   <AddToPlaylistModal />
-
-  <!-- Desktop Mini Player -->
   <MiniPlayer />
-
 </div>

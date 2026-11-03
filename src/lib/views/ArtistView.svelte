@@ -5,6 +5,7 @@
 
   let artistTracks = $state<Track[]>([]);
   let isLoadingTracks = $state(true);
+  let isBuffering = $derived(playerState.isLoading || Boolean(playerState.playback.is_buffering));
 
   let artistName = $derived(playerState.selectedArtist || 'Artist');
 
@@ -39,7 +40,7 @@
           duration: yt.duration || 0,
           file_path: yt.stream_url,
           cover_art: yt.thumbnail,
-          format: 'Opus',
+          format: 'Opus 256k',
           play_count: 100 - idx * 5,
           favorite: false,
           date_added: Math.floor(Date.now() / 1000),
@@ -77,7 +78,6 @@
     <span>Back</span>
   </button>
 
-  <!-- Clean Editorial Artist Header -->
   <div class="p-6 rounded-3xl bg-white/[0.03] border border-white/[0.07] flex flex-col sm:flex-row items-center gap-6 relative overflow-hidden">
     <div class="w-28 h-28 sm:w-36 sm:h-36 rounded-full overflow-hidden shadow-xl ring-1 ring-white/15 shrink-0 bg-white/5">
       {#if artistTracks[0]?.cover_art}
@@ -114,16 +114,14 @@
     </div>
   </div>
 
-  <!-- Top Songs -->
   <section class="space-y-2.5">
     <h2 class="font-display font-bold text-base text-white px-1">Top Songs</h2>
 
     {#if isLoadingTracks}
-      <div class="flex items-center justify-center py-12">
-        <svg class="w-6 h-6 animate-spin text-[var(--md-sys-primary)]" viewBox="0 0 24 24" fill="none" stroke="currentColor">
-          <circle cx="12" cy="12" r="9" stroke-width="2.5" class="opacity-25" />
-          <path d="M21 12a9 9 0 00-9-9" stroke-width="2.5" stroke-linecap="round" />
-        </svg>
+      <div class="space-y-2">
+        {#each Array(6) as _}
+          <div class="h-14 rounded-2xl bg-white/[0.04] animate-pulse"></div>
+        {/each}
       </div>
     {:else}
       <div class="divide-y divide-white/[0.04] rounded-2xl bg-white/[0.02] border border-white/[0.05] overflow-hidden">
@@ -141,7 +139,7 @@
             onkeydown={(e) => {
               if (e.key === 'Enter') playerState.playTrack(track);
             }}
-            class="flex items-center justify-between px-3.5 py-2.5 hover:bg-white/[0.05] transition-colors cursor-pointer group"
+            class="flex items-center justify-between px-3.5 py-2.5 {isCurrent ? 'bg-white/[0.08]' : 'hover:bg-white/[0.05]'} transition-colors cursor-pointer group"
           >
             <div class="flex items-center gap-3.5 min-w-0 flex-1 pr-2">
               <span class="w-5 text-center text-xs font-mono text-white/35 shrink-0">
@@ -149,6 +147,18 @@
               </span>
               <div class="relative w-10 h-10 rounded-lg overflow-hidden bg-white/5 shrink-0">
                 <img src={track.cover_art} alt={track.title} class="w-full h-full object-cover" />
+                <div class="absolute inset-0 bg-black/50 {isCurrent ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'} flex items-center justify-center transition-opacity">
+                  {#if isCurrent && isBuffering}
+                    <svg class="w-4 h-4 animate-spin text-[var(--md-sys-primary)]" viewBox="0 0 36 36" fill="none">
+                      <circle cx="18" cy="18" r="13" stroke="currentColor" stroke-opacity="0.2" stroke-width="3.2" />
+                      <circle cx="18" cy="18" r="13" stroke="currentColor" stroke-width="3.2" stroke-dasharray="52 100" stroke-linecap="round" />
+                    </svg>
+                  {:else}
+                    <span class="material-symbols-rounded text-white text-lg filled">
+                      {isCurrent && playerState.playback.is_playing ? 'equalizer' : 'play_arrow'}
+                    </span>
+                  {/if}
+                </div>
               </div>
 
               <div class="min-w-0 flex-1">
@@ -184,4 +194,3 @@
     {/if}
   </section>
 </div>
-

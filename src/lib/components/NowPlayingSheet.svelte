@@ -1,9 +1,15 @@
 <script lang="ts">
   import { onDestroy } from 'svelte';
+  import { fly, fade } from 'svelte/transition';
   import { invoke } from '@tauri-apps/api/core';
   import { playerState } from '../state.svelte';
   import { settingsState } from '../settingsState.svelte';
   import { sanitizeArtist } from '../types';
+
+  // Apple iOS / macOS sheet spring curve approximation
+  function appleSheetEasing(t: number): number {
+    return 1 - Math.pow(1 - t, 3.6);
+  }
 
   function handleMinimize() {
     invoke('window_minimize').catch(() => {});
@@ -19,12 +25,13 @@
   let lyricsContainerEl = $state<HTMLDivElement>();
   let animId: number | null = null;
 
-  let activeView = $state<'auto' | 'turntable' | 'lyrics'>(settingsState.defaultNowPlayingView);
+  let activeView = $state<'auto' | 'turntable' | 'lyrics'>('auto');
   let userIsScrolling = $state(false);
   let scrollResumeTimeout: ReturnType<typeof setTimeout> | null = null;
   let isRomanizedMode = $state(true);
   let isOffsetOpen = $state(false);
   let lastTrackId = $state<string | null>(null);
+  let isBuffering = $derived(playerState.isLoading || Boolean(playerState.playback.is_buffering));
 
   let audioQualityLabel = $derived.by(() => {
     const codec = (playerState.playback.codec || playerState.currentTrack?.format || '').toLowerCase();
@@ -41,7 +48,6 @@
     return label.replace(' 256K', '').replace(' 320K', '');
   });
 
-  // High-resolution artwork URL upgrade for crisp editorial display
   let hiResArtwork = $derived.by(() => {
     const raw = playerState.currentTrack?.cover_art;
     if (!raw) return '';
@@ -144,11 +150,10 @@
     }
   });
 
-  // Reactive 60FPS canvas visualizer lifecycle (starts whenever sheet opens and canvas binds)
   $effect(() => {
     const canvas = canvasEl;
     const open = playerState.isNowPlayingOpen;
-    if (!open || !canvas || !settingsState.showVisualizer) {
+    if (!open || !canvas || !settingsState.spectrumVisualizer) {
       if (animId !== null) {
         cancelAnimationFrame(animId);
         animId = null;
@@ -169,7 +174,6 @@
 
       const barWidth = w / bars - 3;
       const isPlaying = playerState.playback.is_playing;
-      const sens = (settingsState.visualizerSensitivity || 75) / 100;
 
       for (let i = 0; i < bars; i++) {
         if (isPlaying) {
@@ -177,7 +181,7 @@
         }
         const centerFactor = 1 - Math.abs(i - bars / 2) / (bars / 2);
         const amp = isPlaying
-          ? (Math.sin(phases[i]) * 0.4 + 0.5) * centerFactor * h * 0.85 * sens + 3
+          ? (Math.sin(phases[i]) * 0.4 + 0.5) * centerFactor * h * 0.72 + 3
           : 3;
 
         const x = i * (barWidth + 3);
@@ -213,12 +217,14 @@
     role="dialog"
     aria-modal="true"
     aria-label="Now Playing"
-    class="fixed inset-0 z-50 bg-[#08080b]/95 backdrop-blur-3xl flex flex-col justify-between px-4 sm:px-8 py-3 sm:py-5 animate-fade-in overflow-hidden select-none"
+    in:fly={{ y: 560, duration: 420, opacity: 0.2, easing: appleSheetEasing }}
+    out:fly={{ y: 560, duration: 340, opacity: 0, easing: appleSheetEasing }}
+    class="fixed inset-0 z-50 bg-[#08080b]/96 backdrop-blur-3xl flex flex-col justify-between px-4 sm:px-8 py-3 sm:py-5 overflow-hidden select-none will-change-transform"
     style="--artwork-glow: {playerState.accentColor || '#d0bcff'};"
   >
     <!-- Dynamic Multi-Point Ambient Mesh Backdrop -->
     {#if hiResArtwork}
-      <div class="absolute inset-0 pointer-events-none overflow-hidden opacity-35">
+      <div class="absolute inset-0 pointer-events-none overflow-hidden opacity-35" transition:fade={{ duration: 350 }}>
         <img
           src={hiResArtwork}
           alt=""
@@ -238,7 +244,7 @@
       <div class="flex items-center gap-2.5 flex-1 min-w-0">
         <button
           onclick={() => (playerState.isNowPlayingOpen = false)}
-          class="w-8 h-8 rounded-full bg-white/[0.07] hover:bg-white/[0.14] flex items-center justify-center text-white/70 hover:text-white transition-colors cursor-pointer shrink-0"
+          class="w-8 h-8 rounded-full bg-white/[0.07] hover:bg-white/[0.14] active:scale-90 flex items-center justify-center text-white/70 hover:text-white transition-all cursor-pointer shrink-0"
           title="Collapse Now Playing"
         >
           <span class="material-symbols-rounded text-[20px]">keyboard_arrow_down</span>
@@ -289,7 +295,7 @@
         <button
           onclick={() => (playerState.isQueueOpen = !playerState.isQueueOpen)}
           class="w-8 h-8 rounded-full bg-white/[0.06] hover:bg-white/[0.12] flex items-center justify-center text-white/70 hover:text-white transition-colors cursor-pointer"
-          title="Up Next Queue"
+          title="Playing Next"
         >
           <span class="material-symbols-rounded text-[18px]">queue_music</span>
         </button>
@@ -366,7 +372,7 @@
 
           <!-- Track Metadata, Visualizer & Scrubber -->
           <div class="w-full max-w-sm flex flex-col shrink-0 space-y-3 pt-2">
-            <!-- Title, Artist & Favorite Button (Apple Music Left-Aligned Header Row) -->
+            <!-- Title, Artist & Favorite Button -->
             <div class="flex items-center justify-between gap-3 w-full">
               <div class="min-w-0 flex-1">
                 <h2 class="font-display font-bold text-lg sm:text-xl text-white truncate">
@@ -418,19 +424,23 @@
               {/if}
             </div>
 
-            {#if settingsState.showVisualizer}
+            {#if settingsState.spectrumVisualizer}
               <div class="w-full h-5 flex items-center justify-center">
                 <canvas bind:this={canvasEl} width="320" height="20" class="w-full h-full opacity-75"></canvas>
               </div>
             {/if}
 
-            <!-- Fluid Scrubber -->
+            <!-- Fluid Scrubber with Buffering Shimmer -->
             <div class="w-full space-y-1.5">
               <div class="relative w-full h-1.5 bg-white/[0.12] hover:h-2 rounded-full overflow-hidden cursor-pointer transition-all">
-                <div
-                  class="absolute left-0 top-0 bottom-0 bg-white rounded-full transition-[width] duration-100"
-                  style="width: {playerState.progressPercent}%;"
-                ></div>
+                {#if isBuffering}
+                  <div class="absolute inset-0 bg-gradient-to-r from-transparent via-white/80 to-transparent animate-shimmer-bar"></div>
+                {:else}
+                  <div
+                    class="absolute left-0 top-0 bottom-0 bg-white rounded-full transition-[width] duration-100"
+                    style="width: {playerState.progressPercent}%;"
+                  ></div>
+                {/if}
                 <input
                   type="range"
                   min="0"
@@ -442,11 +452,11 @@
               </div>
               <div class="flex justify-between text-[11px] font-mono text-white/50">
                 <span>{playerState.formattedTime.current}</span>
-                <span>{playerState.formattedTime.total}</span>
+                <span>{isBuffering ? 'Loading...' : playerState.formattedTime.total}</span>
               </div>
             </div>
 
-            <!-- Transport Controls -->
+            <!-- Transport Controls with Outer + Inner SVG Circular Progress Ring -->
             <div class="flex items-center justify-between px-2 pt-1">
               <button
                 onclick={() => playerState.toggleShuffle()}
@@ -467,32 +477,61 @@
                   <span class="material-symbols-rounded text-[30px] filled">skip_previous</span>
                 </button>
 
-                <button
-                  onclick={() => playerState.togglePlay()}
-                  class="w-14 h-14 {playerState.playback.is_playing
-                    ? 'rounded-[18px]'
-                    : 'rounded-[28px]'} bg-white text-black flex items-center justify-center active:scale-90 hover:scale-105 transition-[transform,border-radius,background-color] duration-300 [transition-timing-function:cubic-bezier(0.2,0,0,1)] cursor-pointer shadow-xl shadow-black/40"
-                  title={playerState.isLoading
-                    ? 'Buffering...'
-                    : playerState.playback.is_playing
-                      ? 'Pause'
-                      : 'Play'}
-                >
-                  {#if playerState.isLoading}
-                    <svg class="w-6 h-6 animate-spin text-black" viewBox="0 0 24 24" fill="none" stroke="currentColor">
-                      <circle cx="12" cy="12" r="9" stroke-width="2.5" class="opacity-25" />
-                      <path d="M21 12a9 9 0 00-9-9" stroke-width="2.5" stroke-linecap="round" />
-                    </svg>
-                  {:else if playerState.playback.is_playing}
-                    <svg viewBox="0 0 960 960" class="w-7 h-7 fill-current" xmlns="http://www.w3.org/2000/svg">
-                      <path d="M640,760Q607,760 583.5,736.5Q560,713 560,680L560,280Q560,247 583.5,223.5Q607,200 640,200L640,200Q673,200 696.5,223.5Q720,247 720,280L720,680Q720,713 696.5,736.5Q673,760 640,760ZM320,760Q287,760 263.5,736.5Q240,713 240,680L240,280Q240,247 263.5,223.5Q287,200 320,200L320,200Q353,200 376.5,223.5Q400,247 400,280L400,680Q400,713 376.5,736.5Q353,760 320,760Z" />
-                    </svg>
-                  {:else}
-                    <svg viewBox="42.5 0 960 960" class="w-7 h-7 fill-current" xmlns="http://www.w3.org/2000/svg">
-                      <path d="M320,687L320,273Q320,256 332,244.5Q344,233 360,233Q365,233 370.5,234.5Q376,236 381,239L707,446Q716,452 720.5,461Q725,470 725,480Q725,490 720.5,499Q716,508 707,514L381,721Q376,724 370.5,725.5Q365,727 360,727Q344,727 332,715.5Q320,704 320,687Z" />
+                <div class="relative flex items-center justify-center">
+                  {#if isBuffering}
+                    <svg
+                      class="absolute -inset-2 w-[calc(100%+16px)] h-[calc(100%+16px)] animate-spin text-white pointer-events-none"
+                      viewBox="0 0 64 64"
+                      fill="none"
+                    >
+                      <circle cx="32" cy="32" r="29" stroke="currentColor" stroke-opacity="0.18" stroke-width="2.5" />
+                      <circle
+                        cx="32"
+                        cy="32"
+                        r="29"
+                        stroke="currentColor"
+                        stroke-width="2.5"
+                        stroke-dasharray="60 130"
+                        stroke-linecap="round"
+                      />
                     </svg>
                   {/if}
-                </button>
+
+                  <button
+                    onclick={() => playerState.togglePlay()}
+                    class="w-14 h-14 {playerState.playback.is_playing
+                      ? 'rounded-[18px]'
+                      : 'rounded-[28px]'} bg-white text-black flex items-center justify-center active:scale-90 hover:scale-105 transition-all duration-300 [transition-timing-function:cubic-bezier(0.2,0,0,1)] cursor-pointer shadow-xl shadow-black/40"
+                    title={isBuffering
+                      ? 'Buffering...'
+                      : playerState.playback.is_playing
+                        ? 'Pause'
+                        : 'Play'}
+                  >
+                    {#if isBuffering}
+                      <svg class="w-7 h-7 animate-spin text-black" viewBox="0 0 36 36" fill="none">
+                        <circle cx="18" cy="18" r="13" stroke="currentColor" stroke-opacity="0.22" stroke-width="3.2" />
+                        <circle
+                          cx="18"
+                          cy="18"
+                          r="13"
+                          stroke="currentColor"
+                          stroke-width="3.2"
+                          stroke-dasharray="52 100"
+                          stroke-linecap="round"
+                        />
+                      </svg>
+                    {:else if playerState.playback.is_playing}
+                      <svg viewBox="0 0 960 960" class="w-7 h-7 fill-current" xmlns="http://www.w3.org/2000/svg">
+                        <path d="M640,760Q607,760 583.5,736.5Q560,713 560,680L560,280Q560,247 583.5,223.5Q607,200 640,200L640,200Q673,200 696.5,223.5Q720,247 720,280L720,680Q720,713 696.5,736.5Q673,760 640,760ZM320,760Q287,760 263.5,736.5Q240,713 240,680L240,280Q240,247 263.5,223.5Q287,200 320,200L320,200Q353,200 376.5,223.5Q400,247 400,280L400,680Q400,713 376.5,736.5Q353,760 320,760Z" />
+                      </svg>
+                    {:else}
+                      <svg viewBox="42.5 0 960 960" class="w-7 h-7 fill-current" xmlns="http://www.w3.org/2000/svg">
+                        <path d="M320,687L320,273Q320,256 332,244.5Q344,233 360,233Q365,233 370.5,234.5Q376,236 381,239L707,446Q716,452 720.5,461Q725,470 725,480Q725,490 720.5,499Q716,508 707,514L381,721Q376,724 370.5,725.5Q365,727 360,727Q344,727 332,715.5Q320,704 320,687Z" />
+                      </svg>
+                    {/if}
+                  </button>
+                </div>
 
                 <button
                   onclick={() => playerState.playNext()}
@@ -526,7 +565,6 @@
             ? 'w-full md:flex-1'
             : 'w-full max-w-3xl mx-auto'} gpu-layer"
         >
-          <!-- Minimalist Lyrics Action Header -->
           <div class="flex items-center justify-between pb-2 mb-1 shrink-0 px-3">
             <div class="flex items-center gap-2">
               {#if playerState.lyrics.provider}
@@ -548,7 +586,6 @@
                 </button>
               {/if}
 
-              <!-- Romanized Phonetic Toggle (Aあ) -->
               <button
                 type="button"
                 onclick={() => (isRomanizedMode = !isRomanizedMode)}
@@ -561,7 +598,6 @@
                 <span>Romanized</span>
               </button>
 
-              <!-- Sync Offset Button -->
               <button
                 type="button"
                 onclick={() => (isOffsetOpen = !isOffsetOpen)}
@@ -576,7 +612,7 @@
           </div>
 
           {#if isOffsetOpen}
-            <div class="flex items-center justify-between bg-black/50 border border-white/10 rounded-2xl px-3.5 py-2 mx-3 mb-2 animate-fade-in text-xs text-white/80">
+            <div class="flex items-center justify-between bg-black/50 border border-white/10 rounded-2xl px-3.5 py-2 mx-3 mb-2 text-xs text-white/80">
               <span class="text-[11px] text-white/60 font-medium">Timing Offset</span>
               <div class="flex items-center gap-2">
                 <button onclick={() => adjustOffset(-0.5)} class="px-2 py-0.5 rounded bg-white/10 hover:bg-white/20 text-[10px] font-mono cursor-pointer">-0.5s</button>
@@ -591,7 +627,6 @@
             </div>
           {/if}
 
-          <!-- Synced Lyrics Scroll Container -->
           <div
             bind:this={lyricsContainerEl}
             onwheel={handleUserScroll}
@@ -641,7 +676,6 @@
                     <span class="block">{line.text}</span>
                   {/if}
 
-                  <!-- Phonetic Romanized Line (Apple Music / ArchiveTune style) -->
                   {#if isRomanizedMode && line.romanized && line.romanized !== line.text}
                     <span
                       class="block text-sm sm:text-base font-sans font-medium tracking-normal mt-1 {isCur
@@ -681,7 +715,6 @@
 {/if}
 
 <style>
-  /* Apple Music / ArchiveTune V10 Editorial Floating Artwork Frame */
   .editorial-artwork-frame {
     width: min(340px, 40vh);
     height: min(340px, 40vh);
@@ -699,18 +732,16 @@
     box-shadow: 0 16px 36px -12px rgba(0, 0, 0, 0.75);
   }
 
-  .animate-fade-in {
-    animation: fadeIn 0.22s cubic-bezier(0.16, 1, 0.3, 1);
+  @keyframes shimmerBar {
+    0% {
+      transform: translateX(-100%);
+    }
+    100% {
+      transform: translateX(300%);
+    }
   }
-  @keyframes fadeIn {
-    from {
-      opacity: 0;
-      transform: scale(0.985);
-    }
-    to {
-      opacity: 1;
-      transform: scale(1);
-    }
+  .animate-shimmer-bar {
+    animation: shimmerBar 1.25s cubic-bezier(0.4, 0, 0.2, 1) infinite;
   }
 
   .contain-gpu {
@@ -781,4 +812,3 @@
     scroll-behavior: smooth;
   }
 </style>
-

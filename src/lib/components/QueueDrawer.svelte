@@ -1,6 +1,13 @@
 <script lang="ts">
+  import { fly, fade } from 'svelte/transition';
   import { playerState } from '../state.svelte';
   import { sanitizeArtist } from '../types';
+
+  let isBuffering = $derived(playerState.isLoading || Boolean(playerState.playback.is_buffering));
+
+  function appleDrawerEasing(t: number): number {
+    return 1 - Math.pow(1 - t, 3.5);
+  }
 
   function handlePlayNow(index: number) {
     const track = playerState.queue[index];
@@ -30,17 +37,24 @@
 </script>
 
 {#if playerState.isQueueOpen}
+  <!-- Backdrop with smooth enter + exit fade -->
   <div
     role="button"
     tabindex="0"
+    transition:fade={{ duration: 240 }}
     onclick={() => (playerState.isQueueOpen = false)}
     onkeydown={(e) => {
       if (e.key === 'Escape') playerState.isQueueOpen = false;
     }}
-    class="fixed inset-0 bg-black/55 backdrop-blur-sm z-50 transition-opacity duration-300"
+    class="fixed inset-0 bg-black/55 backdrop-blur-sm z-50"
   ></div>
 
-  <div class="fixed top-0 right-0 h-full w-full sm:w-[390px] m3-acrylic border-l border-white/10 z-50 shadow-2xl flex flex-col justify-between overflow-hidden animate-slide-in select-none">
+  <!-- Sliding Queue Panel with Apple spring enter + exit -->
+  <div
+    in:fly={{ x: 400, duration: 340, opacity: 1, easing: appleDrawerEasing }}
+    out:fly={{ x: 400, duration: 280, opacity: 1, easing: appleDrawerEasing }}
+    class="fixed top-0 right-0 h-full w-full sm:w-[390px] m3-acrylic border-l border-white/10 z-50 shadow-2xl flex flex-col justify-between overflow-hidden select-none will-change-transform"
+  >
     <!-- Header -->
     <div class="px-5 py-4 border-b border-white/[0.06] flex items-center justify-between">
       <div>
@@ -82,6 +96,18 @@
                   <span class="material-symbols-rounded text-white/40">music_note</span>
                 </div>
               {/if}
+              <div class="absolute inset-0 bg-black/45 flex items-center justify-center">
+                {#if isBuffering}
+                  <svg class="w-5 h-5 animate-spin text-[var(--md-sys-primary)]" viewBox="0 0 36 36" fill="none">
+                    <circle cx="18" cy="18" r="13" stroke="currentColor" stroke-opacity="0.2" stroke-width="3.2" />
+                    <circle cx="18" cy="18" r="13" stroke="currentColor" stroke-width="3.2" stroke-dasharray="52 100" stroke-linecap="round" />
+                  </svg>
+                {:else}
+                  <span class="material-symbols-rounded text-[var(--md-sys-primary)] text-lg filled">
+                    {playerState.playback.is_playing ? 'equalizer' : 'pause'}
+                  </span>
+                {/if}
+              </div>
             </div>
 
             <div class="min-w-0 flex-1">
@@ -122,6 +148,7 @@
         {#if playerState.queue.length > 0}
           {#each playerState.queue as track, idx}
             <div
+              role="listitem"
               oncontextmenu={(e) => {
                 e.preventDefault();
                 playerState.openContextMenu(track, e.clientX, e.clientY);
@@ -188,18 +215,3 @@
     </div>
   </div>
 {/if}
-
-<style>
-  @keyframes slideIn {
-    from {
-      transform: translateX(100%);
-    }
-    to {
-      transform: translateX(0);
-    }
-  }
-  .animate-slide-in {
-    animation: slideIn 0.25s cubic-bezier(0.16, 1, 0.3, 1) forwards;
-  }
-</style>
-
