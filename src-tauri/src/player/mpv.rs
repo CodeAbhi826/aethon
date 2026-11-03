@@ -100,13 +100,24 @@ impl MpvEngine {
 
         // Low-latency RAM-buffered MPV configuration for <1s stream startup
         let mut cmd = Command::new(mpv_bin);
+        let mut ytdl_raw = "no-playlist=,no-check-certificates=".to_string();
+        if let Some(cfg) = dirs::config_dir() {
+            if cfg.join("BraveSoftware/Brave-Browser").exists() {
+                ytdl_raw.push_str(",cookies-from-browser=brave");
+            } else if let Some(home) = dirs::home_dir() {
+                if home.join(".mozilla/firefox").exists() {
+                    ytdl_raw.push_str(",cookies-from-browser=firefox");
+                }
+            }
+        }
+
         cmd.arg("--idle=yes")
             .arg("--no-video")
             .arg("--no-terminal")
             .arg(format!("--input-ipc-server={}", socket_path))
             .arg("--ytdl=yes")
             .arg("--ytdl-format=251/140/bestaudio[ext=webm]/bestaudio/best")
-            .arg("--ytdl-raw-options=no-playlist=,no-check-certificates=")
+            .arg(format!("--ytdl-raw-options={}", ytdl_raw))
             .arg("--keep-open=yes")
             .arg("--gapless-audio=yes")
             .arg("--cache=yes")
@@ -305,6 +316,8 @@ impl MpvEngine {
             s.position = 0.0;
             s.is_playing = true;
         }
+        // Silence previous audio stream immediately so old tracks don't continue or overlap
+        let _ = self.send_cmd(r#"{"command": ["stop"]}"#).await;
         let msg = serde_json::json!({
             "command": ["loadfile", uri, "replace"]
         });
@@ -331,6 +344,20 @@ impl MpvEngine {
     }
 
     pub async fn toggle_pause(&self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        let (is_eof, uri_opt) = {
+            let s = self.state.read();
+            let at_end = s.duration > 0.0 && s.position >= (s.duration - 0.5);
+            (at_end, s.current_uri.clone())
+        };
+
+        if is_eof {
+            if let Some(uri) = uri_opt {
+                return self.load_file(&uri).await;
+            } else {
+                let _ = self.seek(0.0).await;
+            }
+        }
+
         let msg = serde_json::json!({
             "command": ["cycle", "pause"]
         });

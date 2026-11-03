@@ -272,12 +272,7 @@ class PlayerState {
         }
         this.currentRecapSession = null;
         this.lastRecapReportedPos = 0;
-        if (
-          this.playback.duration > 0 &&
-          this.playback.position >= Math.max(1, this.playback.duration - 2)
-        ) {
-          this.playNext();
-        }
+        this.playNext();
       });
 
       await listen('mpris-next', () => this.playNext());
@@ -608,6 +603,19 @@ class PlayerState {
   }
 
   async togglePlay() {
+    // If track is at the very end or cold boot, replay from beginning
+    const isAtEnd =
+      this.playback.duration > 0 &&
+      this.playback.position >= Math.max(1, this.playback.duration - 0.5);
+
+    if (isAtEnd && this.currentTrack) {
+      await this.seek(0);
+      try {
+        await invoke('toggle_play');
+      } catch {}
+      return;
+    }
+
     // Only reload if MPV has no active stream loaded (e.g. cold boot with restored track from localStorage)
     if (!this.playback.is_playing && this.currentTrack && !this.playback.current_uri) {
       const resumePos = this.playback.position;

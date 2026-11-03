@@ -97,7 +97,7 @@
 
       <button
         onclick={() => playerState.togglePlay()}
-        class="w-9 h-9 sm:w-11 sm:h-11 {playerState.playback.is_playing ? 'rounded-full' : 'rounded-[12px] sm:rounded-[14px]'} bg-[var(--md-sys-primary)] text-[var(--md-sys-on-primary)] flex items-center justify-center active:scale-90 hover:scale-105 transition-all duration-300 [transition-timing-function:cubic-bezier(0.34,1.56,0.64,1)] cursor-pointer select-none shadow-md shadow-black/30 hover:shadow-black/40"
+        class="w-9 h-9 sm:w-11 sm:h-11 {playerState.playback.is_playing ? 'rounded-[18px] sm:rounded-[22px]' : 'rounded-[12px] sm:rounded-[14px]'} bg-[var(--md-sys-primary)] text-[var(--md-sys-on-primary)] flex items-center justify-center active:scale-90 hover:scale-105 transition-[transform,border-radius,background-color] duration-300 [transition-timing-function:cubic-bezier(0.2,0,0,1)] cursor-pointer select-none shadow-md shadow-black/30 hover:shadow-black/40"
         title={playerState.isLoading ? 'Buffering stream...' : playerState.playback.is_playing ? 'Pause' : 'Play'}
       >
         {#if playerState.isLoading}

@@ -470,8 +470,8 @@
                 <button
                   onclick={() => playerState.togglePlay()}
                   class="w-14 h-14 {playerState.playback.is_playing
-                    ? 'rounded-full'
-                    : 'rounded-[20px]'} bg-white text-black flex items-center justify-center active:scale-90 hover:scale-105 transition-all duration-300 [transition-timing-function:cubic-bezier(0.34,1.56,0.64,1)] cursor-pointer shadow-xl shadow-black/40"
+                    ? 'rounded-[28px]'
+                    : 'rounded-[18px]'} bg-white text-black flex items-center justify-center active:scale-90 hover:scale-105 transition-[transform,border-radius,background-color] duration-300 [transition-timing-function:cubic-bezier(0.2,0,0,1)] cursor-pointer shadow-xl shadow-black/40"
                   title={playerState.isLoading
                     ? 'Buffering...'
                     : playerState.playback.is_playing
