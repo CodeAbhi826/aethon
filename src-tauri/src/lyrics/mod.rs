@@ -1,4 +1,4 @@
-use lofty::prelude::{Accessor, ItemKey, TaggedFileExt};
+use lofty::prelude::{ItemKey, TaggedFileExt};
 use lofty::probe::Probe;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;

@@ -51,14 +51,14 @@ pub async fn play_track(
     if let Some(t) = track {
         let _ = state.db.upsert_track(&t);
         let _ = state.db.record_play(&t.id);
-        state.mpris.update_metadata(
+        let _ = state.mpris.update_metadata(
             &t.title,
             &t.artist,
             &t.album,
             t.cover_art.as_deref().unwrap_or(""),
-            (t.duration * 1_000_000.0) as u64,
+            (t.duration * 1_000_000.0) as i64,
             true,
-        );
+        ).await;
     } else if let Some(id) = track_id {
         let _ = state.db.record_play(&id);
     }
