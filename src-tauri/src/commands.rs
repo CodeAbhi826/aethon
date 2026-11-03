@@ -524,8 +524,8 @@ pub async fn download_track(
             use lofty::file::AudioFile;
             let props = tagged.properties();
             track.duration = props.duration().as_secs_f64();
-            track.bitrate = props.audio_bitrate().map(|b| b as i64);
-            track.sample_rate = props.sample_rate().map(|s| s as i64);
+            track.bitrate = props.audio_bitrate();
+            track.sample_rate = props.sample_rate();
         }
 
         let _ = db.upsert_track(&track);
