@@ -114,12 +114,6 @@ pub fn run() {
                 .on_menu_event(|app, event| match event.id().as_ref() {
                     "tray_toggle_play" => {
                         let _ = app.emit("tray-playpause", ());
-                        if let Some(state) = app.try_state::<AppState>() {
-                            let mpv = Arc::clone(&state.mpv);
-                            tauri::async_runtime::spawn(async move {
-                                let _ = mpv.toggle_pause().await;
-                            });
-                        }
                     }
                     "tray_next" => {
                         let _ = app.emit("tray-next", ());

@@ -201,7 +201,6 @@
               <div class="relative w-11 h-11 rounded-xl overflow-hidden bg-white/5 shrink-0">
                 {#if track.cover_art}
                   <img
-                    loading="lazy"
                     decoding="async"
                     src={track.cover_art}
                     alt={track.title}

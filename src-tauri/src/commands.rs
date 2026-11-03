@@ -44,7 +44,10 @@ pub async fn play_track(
 
     state
         .mpv
-        .load_file(&playable_uri)
+        .load_file(
+            &playable_uri,
+            if t_title.is_empty() { None } else { Some(&t_title) },
+        )
         .await
         .map_err(|e| e.to_string())?;
 

@@ -191,9 +191,15 @@ class PlayerState {
           this.isLoading = false;
         }
 
+        // Automatic Track Reconciliation between MPV backend and Svelte UI
+        if (event.payload.current_uri && event.payload.is_playing) {
+          this.reconcilePlayingTrack(event.payload.current_uri, event.payload.media_title);
+        }
+
         if (
           this.pendingResumePosition !== null &&
-          (event.payload.is_playing || event.payload.position > 0)
+          event.payload.position > 0.05 &&
+          event.payload.duration > 0
         ) {
           const target = this.pendingResumePosition;
           this.pendingResumePosition = null;
@@ -485,6 +491,81 @@ class PlayerState {
     }
   }
 
+  extractVideoId(uri: string | null | undefined): string | null {
+    if (!uri) return null;
+    const m = uri.match(/(?:v=|youtu\.be\/|\/embed\/|\/watch\?v=)([0-9A-Za-z_-]{11})/);
+    if (m) return m[1];
+    if (uri.startsWith('yt_')) return uri.replace('yt_', '');
+    return null;
+  }
+
+  isSameTrack(track: Track | null | undefined, uri: string | null | undefined): boolean {
+    if (!track || !uri) return false;
+    if (track.file_path === uri) return true;
+    const v1 = this.extractVideoId(track.file_path) || this.extractVideoId(track.id);
+    const v2 = this.extractVideoId(uri);
+    if (v1 && v2 && v1 === v2) return true;
+    return false;
+  }
+
+  reconcilePlayingTrack(uri: string, mediaTitle?: string | null) {
+    if (this.isSameTrack(this.currentTrack, uri)) {
+      return;
+    }
+
+    const candidate = [
+      ...this.queue,
+      ...this.playHistoryTracks,
+      ...this.history,
+      ...this.library,
+    ].find((t) => this.isSameTrack(t, uri));
+
+    if (candidate) {
+      this.currentTrack = candidate;
+    } else {
+      const vid = this.extractVideoId(uri);
+      const title =
+        mediaTitle && mediaTitle.trim()
+          ? mediaTitle.trim()
+          : vid
+            ? `YouTube Track (${vid})`
+            : 'Audio Stream';
+      const synthetic: Track = {
+        id: vid ? `yt_${vid}` : uri,
+        title,
+        artist: 'Unknown Artist',
+        album: 'Aethon Stream',
+        duration: this.playback.duration || 0,
+        file_path: uri,
+        cover_art: vid ? `https://i.ytimg.com/vi/${vid}/hqdefault.jpg` : '',
+        format: 'Opus',
+        play_count: 1,
+        favorite: false,
+        date_added: Math.floor(Date.now() / 1000),
+      };
+      this.currentTrack = synthetic;
+    }
+
+    if (this.currentTrack) {
+      const vid =
+        this.extractVideoId(this.currentTrack.file_path) ||
+        this.extractVideoId(this.currentTrack.id);
+      this.fetchLyrics(
+        this.currentTrack.title,
+        this.currentTrack.artist,
+        this.currentTrack.duration,
+        this.currentTrack.file_path,
+        vid
+      );
+      if (this.currentTrack.cover_art) {
+        this.applyMonetColorFromImage(this.currentTrack.cover_art);
+      }
+      this.updateMediaSession(this.currentTrack);
+      this.updateMpris(this.currentTrack, true);
+      this.notifyTrackChange(this.currentTrack);
+    }
+  }
+
   async playTrack(track: Track) {
     let filePath = track.file_path;
     if (filePath && filePath.startsWith('watch?v=')) {
@@ -624,15 +705,6 @@ class PlayerState {
         this.pendingResumePosition = resumePos;
       }
       await this.playTrack(this.currentTrack);
-      if (resumePos > 0) {
-        setTimeout(() => {
-          if (this.pendingResumePosition !== null) {
-            const target = this.pendingResumePosition;
-            this.pendingResumePosition = null;
-            this.seek(target);
-          }
-        }, 500);
-      }
       return;
     }
     try {

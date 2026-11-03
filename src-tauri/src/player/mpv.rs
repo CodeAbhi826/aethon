@@ -210,13 +210,13 @@ impl MpvEngine {
                                             }
                                         }
                                         "path" => {
-                                            if let Some(p) = data.and_then(|d| d.as_str()) {
-                                                s.current_uri = Some(p.to_string());
-                                            }
+                                            s.current_uri = data.and_then(|d| d.as_str()).map(String::from);
                                         }
                                         "media-title" => {
                                             if let Some(mt) = data.and_then(|d| d.as_str()) {
-                                                s.media_title = Some(mt.to_string());
+                                                if !mt.is_empty() {
+                                                    s.media_title = Some(mt.to_string());
+                                                }
                                             }
                                         }
                                         "volume" => {
@@ -327,10 +327,12 @@ impl MpvEngine {
     pub async fn load_file(
         &self,
         uri: &str,
+        title: Option<&str>,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         {
             let mut s = self.state.write();
             s.current_uri = Some(uri.to_string());
+            s.media_title = title.map(String::from);
             s.position = 0.0;
             s.is_playing = true;
         }
@@ -370,7 +372,8 @@ impl MpvEngine {
 
         if is_eof {
             if let Some(uri) = uri_opt {
-                return self.load_file(&uri).await;
+                let cur_title = self.state.read().media_title.clone();
+                return self.load_file(&uri, cur_title.as_deref()).await;
             } else {
                 let _ = self.seek(0.0).await;
             }

@@ -102,7 +102,7 @@
 
         <button
           type="button"
-          class="w-9 h-9 sm:w-11 sm:h-11 {isPlaying ? 'rounded-[18px] sm:rounded-[22px]' : 'rounded-[12px] sm:rounded-[14px]'} bg-white text-black flex items-center justify-center active:scale-90 hover:scale-105 transition-[transform,border-radius,background-color] duration-300 [transition-timing-function:cubic-bezier(0.2,0,0,1)] cursor-pointer select-none shadow-md shadow-black/30 hover:shadow-black/40"
+          class="w-9 h-9 sm:w-11 sm:h-11 {isPlaying ? 'rounded-[12px] sm:rounded-[14px]' : 'rounded-[18px] sm:rounded-[22px]'} bg-white text-black flex items-center justify-center active:scale-90 hover:scale-105 transition-[transform,border-radius,background-color] duration-300 [transition-timing-function:cubic-bezier(0.2,0,0,1)] cursor-pointer select-none shadow-md shadow-black/30 hover:shadow-black/40"
           onclick={() => playerState.togglePlay()}
           title={playerState.isLoading ? 'Buffering stream...' : isPlaying ? 'Pause' : 'Play'}
           aria-label={playerState.isLoading ? 'Buffering stream...' : isPlaying ? 'Pause' : 'Play'}
