@@ -44,7 +44,16 @@ pnpm tauri dev
 ```
 
 ### Build Production Binary
+> [!IMPORTANT]
+> Aethon is compiled via the remote GitHub Actions CI pipeline to ensure reproducible AppImage packaging across Linux environments.
+
+To update the local installed AppImage directly from the latest CI build:
 ```bash
-pnpm tauri build
+aethon-update
 ```
-The output binary and packages will be located in `src-tauri/target/release/`.
+
+---
+
+## 📜 Changelog
+
+For a complete record of updates, performance enhancements, and bug fixes from version 0.0.1 to 0.0.35, see [CHANGELOG.md](file:///home/abhin/Projects/music/CHANGELOG.md).
