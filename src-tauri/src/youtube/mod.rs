@@ -46,7 +46,7 @@ fn player_client() -> &'static reqwest::Client {
             .tcp_nodelay(true)
             .pool_max_idle_per_host(10)
             .pool_idle_timeout(std::time::Duration::from_secs(90))
-            .timeout(std::time::Duration::from_millis(2400))
+            .timeout(std::time::Duration::from_secs(4))
             .build()
             .unwrap_or_else(|_| reqwest::Client::new())
     })
@@ -264,26 +264,6 @@ impl YouTubeService {
         let client = player_client();
         let visitor_data = Self::get_or_fetch_visitor_data().await;
 
-        let mut vr_client = serde_json::json!({
-            "clientName": "ANDROID_VR",
-            "clientVersion": "1.60.19",
-            "androidSdkVersion": 34,
-            "osName": "Android",
-            "osVersion": "14",
-            "deviceMake": "Oculus",
-            "deviceModel": "Quest 3",
-            "hl": "en",
-            "gl": "IN"
-        });
-        let mut ts_client = serde_json::json!({
-            "clientName": "ANDROID_TESTSUITE",
-            "clientVersion": "1.9",
-            "androidSdkVersion": 34,
-            "osName": "Android",
-            "osVersion": "14",
-            "hl": "en",
-            "gl": "IN"
-        });
         let mut ios_client = serde_json::json!({
             "clientName": "IOS",
             "clientVersion": "20.03.02",
@@ -296,51 +276,15 @@ impl YouTubeService {
         });
 
         if let Some(ref vd) = visitor_data {
-            vr_client["visitorData"] = serde_json::Value::String(vd.clone());
-            ts_client["visitorData"] = serde_json::Value::String(vd.clone());
             ios_client["visitorData"] = serde_json::Value::String(vd.clone());
         }
 
-        let vr_body = serde_json::json!({
-            "context": { "client": vr_client },
-            "videoId": video_id,
-            "contentCheckOk": true,
-            "racyCheckOk": true
-        });
-        let ts_body = serde_json::json!({
-            "context": { "client": ts_client },
-            "videoId": video_id,
-            "contentCheckOk": true,
-            "racyCheckOk": true
-        });
         let ios_body = serde_json::json!({
             "context": { "client": ios_client },
             "videoId": video_id,
             "contentCheckOk": true,
             "racyCheckOk": true
         });
-
-        let vr_fut = client
-            .post("https://www.youtube.com/youtubei/v1/player?prettyPrint=false")
-            .header("Content-Type", "application/json")
-            .header("X-Goog-Api-Format-Version", "2")
-            .header(
-                "User-Agent",
-                "com.google.android.apps.youtube.vr.oculus/1.60.19 (Linux; U; Android 14; en_US; Quest 3; Build/UP1A.231005.007.A1; Cronet/132.0.6808.3)",
-            )
-            .json(&vr_body)
-            .send();
-
-        let ts_fut = client
-            .post("https://www.youtube.com/youtubei/v1/player?prettyPrint=false")
-            .header("Content-Type", "application/json")
-            .header("X-Goog-Api-Format-Version", "2")
-            .header(
-                "User-Agent",
-                "com.google.android.youtube/1.9 (Linux; U; Android 14; en_US)",
-            )
-            .json(&ts_body)
-            .send();
 
         let ios_fut = client
             .post("https://www.youtube.com/youtubei/v1/player?prettyPrint=false")
@@ -353,16 +297,12 @@ impl YouTubeService {
             .json(&ios_body)
             .send();
 
-        let (vr_res, ts_res, ios_res) = tokio::join!(vr_fut, ts_fut, ios_fut);
-
-        for resp_res in [vr_res, ts_res, ios_res] {
-            if let Ok(resp) = resp_res {
-                if resp.status().is_success() {
-                    if let Ok(json) = resp.json::<serde_json::Value>().await {
-                        Self::capture_visitor_data(&json);
-                        if let Some(url) = Self::pick_best_audio_format(&json) {
-                            return Some(url);
-                        }
+        if let Ok(resp) = ios_fut.await {
+            if resp.status().is_success() {
+                if let Ok(json) = resp.json::<serde_json::Value>().await {
+                    Self::capture_visitor_data(&json);
+                    if let Some(url) = Self::pick_best_audio_format(&json) {
+                        return Some(url);
                     }
                 }
             }
@@ -476,30 +416,19 @@ impl YouTubeService {
     }
 
     pub fn resolve_via_ytdlp_direct(uri: &str, title: &str, artist: &str) -> String {
-        let brave_cookie_path = dirs::config_dir()
-            .map(|d| d.join("BraveSoftware/Brave-Browser/Default/Cookies"))
-            .unwrap_or_default();
-        let firefox_profile = dirs::home_dir()
-            .map(|h| h.join(".mozilla/firefox"))
-            .unwrap_or_default();
-
         let mut cmd = Command::new("yt-dlp");
         cmd.arg("--get-url")
             .arg("--no-playlist")
             .arg("--no-warnings")
             .arg("--no-check-certificates")
             .arg("--socket-timeout")
-            .arg("8")
+            .arg("5")
+            .arg("--extractor-args")
+            .arg("youtube:player_client=android")
             .arg("-f")
-            .arg("251/140/bestaudio[ext=webm]/bestaudio/best");
-
-        if brave_cookie_path.exists() {
-            cmd.arg("--cookies-from-browser=brave");
-        } else if firefox_profile.exists() {
-            cmd.arg("--cookies-from-browser=firefox");
-        }
-
-        cmd.arg("--").arg(uri);
+            .arg("251/140/bestaudio[ext=webm]/bestaudio/best")
+            .arg("--")
+            .arg(uri);
         crate::sanitize_host_command(&mut cmd);
 
         if let Ok(output) = cmd.output() {
@@ -521,18 +450,13 @@ impl YouTubeService {
                 .arg("--get-url")
                 .arg("--no-playlist")
                 .arg("--no-warnings")
+                .arg("--no-check-certificates")
                 .arg("--socket-timeout")
-                .arg("8")
+                .arg("5")
+                .arg("--extractor-args")
+                .arg("youtube:player_client=android")
                 .arg("-f")
-                .arg("251/140/bestaudio/best");
-
-            if brave_cookie_path.exists() {
-                alt_cmd.arg("--cookies-from-browser=brave");
-            } else if firefox_profile.exists() {
-                alt_cmd.arg("--cookies-from-browser=firefox");
-            }
-
-            alt_cmd
+                .arg("251/140/bestaudio/best")
                 .arg("--")
                 .arg(format!("ytsearch1:{}", query));
             crate::sanitize_host_command(&mut alt_cmd);

@@ -44,9 +44,6 @@ pub async fn play_track(
         YouTubeService::invalidate_cached_stream(&full_uri);
     }
 
-    // Instantly silence and stop previous audio playback in MPV so previous tracks never linger or overlap
-    let _ = state.mpv.send_cmd(r#"{"command": ["stop"]}"#).await;
-
     // Mark engine as buffering new track before stream resolution so no stale player-state event clears isLoading
     {
         let mut s = state.mpv.state.write();

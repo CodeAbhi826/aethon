@@ -48,6 +48,7 @@ class PlayerState {
   accentColor = $state('#d0bcff');
   equalizerBands = $state<number[]>([0, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
   isLoading = $state(false);
+  hasMpvLoaded = $state(false);
   shuffleMode = $state(false);
   repeatMode = $state<'off' | 'all' | 'one'>('off');
   autoplayRadio = $state(true);
@@ -177,6 +178,7 @@ class PlayerState {
     try {
       await listen<PlaybackState>('player-state', (event) => {
         if (!event.payload.current_uri) {
+          this.hasMpvLoaded = false;
           this.playback = {
             ...event.payload,
             is_playing: false,
@@ -189,6 +191,7 @@ class PlayerState {
           return;
         }
 
+        this.hasMpvLoaded = true;
         this.playback = event.payload;
 
         // Keep isLoading true while MPV is resolving/buffering the stream; only clear when real audio frames play
@@ -304,6 +307,7 @@ class PlayerState {
         }
         this.currentRecapSession = null;
         this.lastRecapReportedPos = 0;
+        this.hasMpvLoaded = false;
         this.playNext();
       });
 
@@ -324,6 +328,7 @@ class PlayerState {
       const state = await invoke<PlaybackState>('get_playback_state').catch(() => null);
       if (state) {
         if (!state.current_uri) {
+          this.hasMpvLoaded = false;
           this.playback = {
             ...state,
             is_playing: false,
@@ -333,6 +338,7 @@ class PlayerState {
               : state.duration,
           };
         } else {
+          this.hasMpvLoaded = true;
           this.playback = state;
         }
       }
@@ -738,7 +744,11 @@ class PlayerState {
     }
 
     // Only reload if MPV has no active stream loaded (e.g. cold boot with restored track from localStorage)
-    if (!this.playback.is_playing && this.currentTrack && !this.playback.current_uri) {
+    if (
+      !this.playback.is_playing &&
+      this.currentTrack &&
+      (!this.hasMpvLoaded || !this.playback.current_uri || this.playback.position === 0)
+    ) {
       const resumePos = this.playback.position;
       if (resumePos > 0) {
         this.pendingResumePosition = resumePos;

@@ -106,16 +106,7 @@ impl MpvEngine {
 
         // Low-latency RAM-buffered MPV configuration for <1s stream startup
         let mut cmd = Command::new(mpv_bin);
-        let mut ytdl_raw = "no-playlist=,no-check-certificates=".to_string();
-        if let Some(cfg) = dirs::config_dir() {
-            if cfg.join("BraveSoftware/Brave-Browser").exists() {
-                ytdl_raw.push_str(",cookies-from-browser=brave");
-            } else if let Some(home) = dirs::home_dir() {
-                if home.join(".mozilla/firefox").exists() {
-                    ytdl_raw.push_str(",cookies-from-browser=firefox");
-                }
-            }
-        }
+        let ytdl_raw = "no-playlist=,no-check-certificates=,extractor-args=youtube:player_client=android".to_string();
 
         cmd.arg("--idle=yes")
             .arg("--no-video")
@@ -456,16 +447,17 @@ impl MpvEngine {
     }
 
     pub async fn toggle_pause(&self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        let (is_eof, uri_opt, title_opt) = {
+        let (is_eof, is_idle, uri_opt, title_opt) = {
             let s = self.state.read();
             let at_end = s.duration > 0.0 && s.position >= (s.duration - 0.5);
-            (at_end, s.current_uri.clone(), s.media_title.clone())
+            let idle = s.position == 0.0 && !s.is_playing;
+            (at_end, idle, s.current_uri.clone(), s.media_title.clone())
         };
 
-        if is_eof {
+        if is_eof || is_idle {
             if let Some(uri) = uri_opt {
                 return self.load_file_with_canonical(&uri, None, title_opt.as_deref()).await;
-            } else {
+            } else if is_eof {
                 let _ = self.seek(0.0).await;
             }
         }
