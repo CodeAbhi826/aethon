@@ -7,10 +7,11 @@ alwaysApply: true
 
 When working on audio streaming, MPV integration, or stream resolvers:
 
-1. **Sub-Second Stream Resolution (<1s Target):**
-   - Prioritize verified InnerTube mobile endpoints (`IOS 20.03.02`) that deliver direct googlevideo Opus (itag 251) streams in <300ms.
-   - Set network timeouts for InnerTube calls to at least 3500ms to tolerate mobile/international TLS handshakes.
-   - Never query deprecated or bot-blocked clients (e.g., `ANDROID_VR`, `ANDROID_TESTSUITE`) that trigger `LOGIN_REQUIRED`.
+1. **Stream Resolution & Range Support:**
+   - Google Video's `c=IOS` stream endpoint enforces Apple's HLS bounded chunking and rejects open-ended byte ranges (`bytes=0-`) with HTTP 403 Forbidden. Because MPV/FFmpeg demuxers issue `bytes=0-` requests, raw iOS stream URLs must not be passed directly to MPV.
+   - Use stable `TVHTML5` extraction (via async `yt-dlp` without cookies) which solves the `n=` transform and yields full open-ended range compatible googlevideo streams.
+   - Cache all resolved stream URLs in memory (`STREAM_CACHE`) for 4 hours to enable instant (<1ms) replays, seeking, and queue navigation.
+   - Fall back smoothly to the canonical `https://www.youtube.com/watch?v={id}` URL if direct extraction times out, allowing MPV's native async demuxer to stream it.
 
 2. **Zero-Stall Fallback Policy:**
    - Never invoke `yt-dlp` with `--cookies-from-browser` synchronously on the playback critical path; extracting browser cookies from SQLite takes 30–70s and causes playback timeouts.

@@ -260,6 +260,7 @@ impl YouTubeService {
 
     /// ArchiveTune-style multi-client InnerTube `/youtubei/v1/player` direct stream extraction (~250ms)
     /// Queries ANDROID_VR, ANDROID_TESTSUITE, and IOS concurrently with visitorData so direct `googlevideo.com` URLs resolve without PoToken or JS cipher delays.
+    #[allow(dead_code)]
     pub async fn resolve_innertube_direct_stream(video_id: &str) -> Option<String> {
         let client = player_client();
         let visitor_data = Self::get_or_fetch_visitor_data().await;
@@ -311,6 +312,7 @@ impl YouTubeService {
         None
     }
 
+    #[allow(dead_code)]
     fn pick_best_audio_format(player_json: &serde_json::Value) -> Option<String> {
         let status = player_json
             .pointer("/playabilityStatus/status")
@@ -376,21 +378,6 @@ impl YouTubeService {
                     return cached.direct_url.clone();
                 }
             }
-
-            if let Some(direct_url) = Self::resolve_innertube_direct_stream(&video_id).await {
-                stream_cache().lock().insert(
-                    video_id.clone(),
-                    CachedStream {
-                        direct_url: direct_url.clone(),
-                        expires_at: now + 14_400,
-                    },
-                );
-                crate::aethon_log!(
-                    "Resolved direct InnerTube stream in ~250ms for video_id={}",
-                    video_id
-                );
-                return direct_url;
-            }
         }
 
         let uri_owned = uri.to_string();
@@ -422,11 +409,9 @@ impl YouTubeService {
             .arg("--no-warnings")
             .arg("--no-check-certificates")
             .arg("--socket-timeout")
-            .arg("5")
-            .arg("--extractor-args")
-            .arg("youtube:player_client=android")
+            .arg("6")
             .arg("-f")
-            .arg("251/140/bestaudio[ext=webm]/bestaudio/best")
+            .arg("251/140/bestaudio/best")
             .arg("--")
             .arg(uri);
         crate::sanitize_host_command(&mut cmd);
@@ -452,9 +437,7 @@ impl YouTubeService {
                 .arg("--no-warnings")
                 .arg("--no-check-certificates")
                 .arg("--socket-timeout")
-                .arg("5")
-                .arg("--extractor-args")
-                .arg("youtube:player_client=android")
+                .arg("6")
                 .arg("-f")
                 .arg("251/140/bestaudio/best")
                 .arg("--")

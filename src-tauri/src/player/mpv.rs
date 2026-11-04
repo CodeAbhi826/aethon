@@ -106,14 +106,14 @@ impl MpvEngine {
 
         // Low-latency RAM-buffered MPV configuration for <1s stream startup
         let mut cmd = Command::new(mpv_bin);
-        let ytdl_raw = "no-playlist=,no-check-certificates=,extractor-args=youtube:player_client=android".to_string();
+        let ytdl_raw = "no-playlist=,no-check-certificates=,socket-timeout=6".to_string();
 
         cmd.arg("--idle=yes")
             .arg("--no-video")
             .arg("--no-terminal")
             .arg(format!("--input-ipc-server={}", socket_path))
             .arg("--ytdl=yes")
-            .arg("--ytdl-format=251/140/bestaudio[ext=webm]/bestaudio/best")
+            .arg("--ytdl-format=251/140/bestaudio/best")
             .arg(format!("--ytdl-raw-options={}", ytdl_raw))
             .arg("--keep-open=yes")
             .arg("--gapless-audio=yes")
