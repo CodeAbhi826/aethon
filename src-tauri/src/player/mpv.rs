@@ -106,7 +106,7 @@ impl MpvEngine {
 
         // Low-latency RAM-buffered MPV configuration for <1s stream startup
         let mut cmd = Command::new(mpv_bin);
-        let ytdl_raw = "no-playlist=,no-check-certificates=,socket-timeout=6".to_string();
+        let ytdl_raw = "no-config=,no-playlist=,no-check-certificates=,socket-timeout=6".to_string();
 
         cmd.arg("--idle=yes")
             .arg("--no-video")

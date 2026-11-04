@@ -4,6 +4,8 @@ use std::collections::HashMap;
 use std::process::Command;
 use std::sync::OnceLock;
 use std::time::{SystemTime, UNIX_EPOCH};
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio::net::TcpListener;
 
 pub mod auth_sync;
 
@@ -18,21 +20,28 @@ pub struct YouTubeTrack {
 }
 
 #[derive(Debug, Clone)]
-struct CachedStream {
-    direct_url: String,
-    expires_at: u64,
+pub struct CachedStream {
+    pub playable_url: String,
+    pub upstream_url: String,
+    pub content_length: Option<u64>,
+    pub mime_type: String,
+    pub user_agent: String,
+    pub expires_at: u64,
 }
 
 static HTTP_CLIENT: OnceLock<reqwest::Client> = OnceLock::new();
 static PLAYER_CLIENT: OnceLock<reqwest::Client> = OnceLock::new();
 static STREAM_CACHE: OnceLock<Mutex<HashMap<String, CachedStream>>> = OnceLock::new();
 static VISITOR_DATA: OnceLock<Mutex<Option<String>>> = OnceLock::new();
+static CHUNK_PROXY_PORT: OnceLock<u16> = OnceLock::new();
+
+const CHUNK_SIZE: u64 = 524_288; // 512 KB bounded slices
 
 fn http_client() -> &'static reqwest::Client {
     HTTP_CLIENT.get_or_init(|| {
         reqwest::Client::builder()
             .tcp_nodelay(true)
-            .pool_max_idle_per_host(10)
+            .pool_max_idle_per_host(12)
             .pool_idle_timeout(std::time::Duration::from_secs(90))
             .timeout(std::time::Duration::from_secs(4))
             .build()
@@ -44,9 +53,9 @@ fn player_client() -> &'static reqwest::Client {
     PLAYER_CLIENT.get_or_init(|| {
         reqwest::Client::builder()
             .tcp_nodelay(true)
-            .pool_max_idle_per_host(10)
+            .pool_max_idle_per_host(12)
             .pool_idle_timeout(std::time::Duration::from_secs(90))
-            .timeout(std::time::Duration::from_secs(4))
+            .timeout(std::time::Duration::from_millis(2600))
             .build()
             .unwrap_or_else(|_| reqwest::Client::new())
     })
@@ -67,6 +76,198 @@ fn now_unix() -> u64 {
         .unwrap_or(0)
 }
 
+/// Starts a lightweight localhost HTTP range-chunking proxy (`127.0.0.1:<port>/stream/<video_id>`).
+/// Converts MPV's open-ended Range requests into bounded 512KB slices to bypass Google Video's 403 Forbidden firewall.
+fn ensure_chunk_proxy_server() -> u16 {
+    *CHUNK_PROXY_PORT.get_or_init(|| {
+        let std_listener = std::net::TcpListener::bind("127.0.0.1:0")
+            .expect("Failed to bind local stream chunk proxy");
+        let _ = std_listener.set_nonblocking(true);
+        let port = std_listener
+            .local_addr()
+            .map(|a| a.port())
+            .unwrap_or(0);
+
+        tauri::async_runtime::spawn(async move {
+            let Ok(listener) = TcpListener::from_std(std_listener) else {
+                return;
+            };
+            while let Ok((socket, _)) = listener.accept().await {
+                tokio::spawn(handle_proxy_client(socket));
+            }
+        });
+
+        crate::aethon_log!("Local bounded-range chunk proxy listening on 127.0.0.1:{}", port);
+        port
+    })
+}
+
+async fn handle_proxy_client(mut socket: tokio::net::TcpStream) {
+    let _ = socket.set_nodelay(true);
+    let mut buf = [0u8; 4096];
+    let Ok(n) = socket.read(&mut buf).await else {
+        return;
+    };
+    if n == 0 {
+        return;
+    }
+
+    let req_str = String::from_utf8_lossy(&buf[..n]);
+    let mut lines = req_str.lines();
+    let Some(first_line) = lines.next() else {
+        return;
+    };
+    let parts: Vec<&str> = first_line.split_whitespace().collect();
+    if parts.len() < 2 {
+        return;
+    }
+    let method = parts[0];
+    let path = parts[1];
+    let video_id = path
+        .strip_prefix("/stream/")
+        .unwrap_or("")
+        .split('?')
+        .next()
+        .unwrap_or("")
+        .trim();
+
+    let Some(entry) = stream_cache().lock().get(video_id).cloned() else {
+        let _ = socket
+            .write_all(b"HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\nConnection: close\r\n\r\n")
+            .await;
+        return;
+    };
+
+    // Parse Range header from MPV (e.g., "Range: bytes=0-" or "Range: bytes=1048576-")
+    let mut req_start: u64 = 0;
+    let mut req_end_opt: Option<u64> = None;
+    for line in lines {
+        let lower = line.to_ascii_lowercase();
+        if let Some(rest) = lower.strip_prefix("range:") {
+            if let Some(bytes_part) = rest.trim().strip_prefix("bytes=") {
+                let mut bounds = bytes_part.split('-');
+                if let Some(s) = bounds.next().and_then(|v| v.trim().parse::<u64>().ok()) {
+                    req_start = s;
+                }
+                if let Some(e) = bounds
+                    .next()
+                    .and_then(|v| v.trim().parse::<u64>().ok())
+                {
+                    req_end_opt = Some(e);
+                }
+            }
+        }
+    }
+
+    let client = http_client();
+    let first_chunk_end = match (req_end_opt, entry.content_length) {
+        (Some(re), Some(total)) => re.min(req_start + CHUNK_SIZE - 1).min(total.saturating_sub(1)),
+        (Some(re), None) => re.min(req_start + CHUNK_SIZE - 1),
+        (None, Some(total)) => (req_start + CHUNK_SIZE - 1).min(total.saturating_sub(1)),
+        (None, None) => req_start + CHUNK_SIZE - 1,
+    };
+
+    // Fetch first bounded chunk to verify upstream 206 & discover total length if not already known
+    let Ok(first_resp) = client
+        .get(&entry.upstream_url)
+        .header("User-Agent", &entry.user_agent)
+        .header("Range", format!("bytes={}-{}", req_start, first_chunk_end))
+        .send()
+        .await
+    else {
+        return;
+    };
+
+    if !first_resp.status().is_success() {
+        let _ = socket
+            .write_all(b"HTTP/1.1 502 Bad Gateway\r\nContent-Length: 0\r\nConnection: close\r\n\r\n")
+            .await;
+        return;
+    }
+
+    let total_len = entry
+        .content_length
+        .or_else(|| {
+            first_resp
+                .headers()
+                .get("content-range")
+                .and_then(|h| h.to_str().ok())
+                .and_then(|s| s.rsplit('/').next())
+                .and_then(|t| t.trim().parse::<u64>().ok())
+        })
+        .unwrap_or(0);
+
+    if total_len == 0 || req_start >= total_len {
+        let _ = socket
+            .write_all(b"HTTP/1.1 416 Range Not Satisfiable\r\nContent-Length: 0\r\nConnection: close\r\n\r\n")
+            .await;
+        return;
+    }
+
+    // Update cached content_length if newly discovered
+    if entry.content_length.is_none() {
+        if let Some(cached) = stream_cache().lock().get_mut(video_id) {
+            cached.content_length = Some(total_len);
+        }
+    }
+
+    let final_end = req_end_opt
+        .map(|e| e.min(total_len - 1))
+        .unwrap_or(total_len - 1);
+    let content_len = final_end - req_start + 1;
+
+    let resp_headers = format!(
+        "HTTP/1.1 206 Partial Content\r\nContent-Type: {}\r\nAccept-Ranges: bytes\r\nContent-Range: bytes {}-{}/{}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+        entry.mime_type, req_start, final_end, total_len, content_len
+    );
+
+    if socket.write_all(resp_headers.as_bytes()).await.is_err() {
+        return;
+    }
+    if method.eq_ignore_ascii_case("HEAD") {
+        return;
+    }
+
+    // Write first bounded chunk payload to MPV immediately
+    let Ok(first_bytes) = first_resp.bytes().await else {
+        return;
+    };
+    if first_bytes.is_empty() || socket.write_all(&first_bytes).await.is_err() {
+        return;
+    }
+
+    let mut cur_pos = req_start + (first_bytes.len() as u64);
+
+    // Stream remaining bounded 512KB chunks seamlessly until final_end or MPV closes socket
+    while cur_pos <= final_end {
+        let chunk_end = (cur_pos + CHUNK_SIZE - 1).min(final_end);
+        let Ok(resp) = client
+            .get(&entry.upstream_url)
+            .header("User-Agent", &entry.user_agent)
+            .header("Range", format!("bytes={}-{}", cur_pos, chunk_end))
+            .send()
+            .await
+        else {
+            break;
+        };
+
+        if !resp.status().is_success() {
+            break;
+        }
+
+        let Ok(bytes) = resp.bytes().await else {
+            break;
+        };
+        if bytes.is_empty() {
+            break;
+        }
+        if socket.write_all(&bytes).await.is_err() {
+            break;
+        }
+        cur_pos += bytes.len() as u64;
+    }
+}
+
 pub struct YouTubeService;
 
 impl YouTubeService {
@@ -83,6 +284,16 @@ impl YouTubeService {
         }
         if let Some(idx) = uri.find("youtu.be/") {
             let rest = &uri[idx + 9..];
+            let id: String = rest
+                .chars()
+                .take_while(|&c| c != '&' && c != '#' && c != '?')
+                .collect();
+            if id.len() == 11 {
+                return Some(id);
+            }
+        }
+        if let Some(idx) = uri.find("/stream/") {
+            let rest = &uri[idx + 8..];
             let id: String = rest
                 .chars()
                 .take_while(|&c| c != '&' && c != '#' && c != '?')
@@ -235,7 +446,8 @@ impl YouTubeService {
 
         let mut results = Vec::new();
 
-        if let Ok(resp) = songs_res {
+        // Extract general shelf first so `musicCardShelfRenderer` (Top Result) lands at index 0
+        if let Ok(resp) = general_res {
             if resp.status().is_success() {
                 if let Ok(json_data) = resp.json::<serde_json::Value>().await {
                     Self::capture_visitor_data(&json_data);
@@ -245,7 +457,7 @@ impl YouTubeService {
         }
 
         if results.len() < limit {
-            if let Ok(resp) = general_res {
+            if let Ok(resp) = songs_res {
                 if resp.status().is_success() {
                     if let Ok(json_data) = resp.json::<serde_json::Value>().await {
                         Self::capture_visitor_data(&json_data);
@@ -258,13 +470,35 @@ impl YouTubeService {
         Some(results)
     }
 
-    /// ArchiveTune-style multi-client InnerTube `/youtubei/v1/player` direct stream extraction (~250ms)
-    /// Queries ANDROID_VR, ANDROID_TESTSUITE, and IOS concurrently with visitorData so direct `googlevideo.com` URLs resolve without PoToken or JS cipher delays.
-    #[allow(dead_code)]
-    pub async fn resolve_innertube_direct_stream(video_id: &str) -> Option<String> {
+    /// Fast ~250ms InnerTube `/youtubei/v1/player` extraction + bounded-range verification
+    async fn resolve_innertube_bounded_stream(video_id: &str) -> Option<CachedStream> {
         let client = player_client();
         let visitor_data = Self::get_or_fetch_visitor_data().await;
 
+        let vr_ua = "com.google.android.apps.youtube.vr.oculus/1.60.19 (Linux; U; Android 14; en_US; Quest 3; Build/UP1A.231005.007.A1; Cronet/132.0.6808.3)";
+        let ts_ua = "com.google.android.youtube/1.9 (Linux; U; Android 14; en_US)";
+        let ios_ua = "com.google.ios.youtube/20.03.02 (iPhone16,2; U; CPU iOS 18_2_1 like Mac OS X;)";
+
+        let mut vr_client = serde_json::json!({
+            "clientName": "ANDROID_VR",
+            "clientVersion": "1.60.19",
+            "androidSdkVersion": 34,
+            "osName": "Android",
+            "osVersion": "14",
+            "deviceMake": "Oculus",
+            "deviceModel": "Quest 3",
+            "hl": "en",
+            "gl": "IN"
+        });
+        let mut ts_client = serde_json::json!({
+            "clientName": "ANDROID_TESTSUITE",
+            "clientVersion": "1.9",
+            "androidSdkVersion": 34,
+            "osName": "Android",
+            "osVersion": "14",
+            "hl": "en",
+            "gl": "IN"
+        });
         let mut ios_client = serde_json::json!({
             "clientName": "IOS",
             "clientVersion": "20.03.02",
@@ -277,9 +511,23 @@ impl YouTubeService {
         });
 
         if let Some(ref vd) = visitor_data {
+            vr_client["visitorData"] = serde_json::Value::String(vd.clone());
+            ts_client["visitorData"] = serde_json::Value::String(vd.clone());
             ios_client["visitorData"] = serde_json::Value::String(vd.clone());
         }
 
+        let vr_body = serde_json::json!({
+            "context": { "client": vr_client },
+            "videoId": video_id,
+            "contentCheckOk": true,
+            "racyCheckOk": true
+        });
+        let ts_body = serde_json::json!({
+            "context": { "client": ts_client },
+            "videoId": video_id,
+            "contentCheckOk": true,
+            "racyCheckOk": true
+        });
         let ios_body = serde_json::json!({
             "context": { "client": ios_client },
             "videoId": video_id,
@@ -287,23 +535,52 @@ impl YouTubeService {
             "racyCheckOk": true
         });
 
+        let vr_fut = client
+            .post("https://www.youtube.com/youtubei/v1/player?prettyPrint=false")
+            .header("Content-Type", "application/json")
+            .header("X-Goog-Api-Format-Version", "2")
+            .header("User-Agent", vr_ua)
+            .json(&vr_body)
+            .send();
+
+        let ts_fut = client
+            .post("https://www.youtube.com/youtubei/v1/player?prettyPrint=false")
+            .header("Content-Type", "application/json")
+            .header("X-Goog-Api-Format-Version", "2")
+            .header("User-Agent", ts_ua)
+            .json(&ts_body)
+            .send();
+
         let ios_fut = client
             .post("https://www.youtube.com/youtubei/v1/player?prettyPrint=false")
             .header("Content-Type", "application/json")
             .header("X-Goog-Api-Format-Version", "2")
-            .header(
-                "User-Agent",
-                "com.google.ios.youtube/20.03.02 (iPhone16,2; U; CPU iOS 18_2_1 like Mac OS X;)",
-            )
+            .header("User-Agent", ios_ua)
             .json(&ios_body)
             .send();
 
-        if let Ok(resp) = ios_fut.await {
-            if resp.status().is_success() {
-                if let Ok(json) = resp.json::<serde_json::Value>().await {
-                    Self::capture_visitor_data(&json);
-                    if let Some(url) = Self::pick_best_audio_format(&json) {
-                        return Some(url);
+        let (vr_res, ts_res, ios_res) = tokio::join!(vr_fut, ts_fut, ios_fut);
+
+        for (resp_res, ua) in [(vr_res, vr_ua), (ts_res, ts_ua), (ios_res, ios_ua)] {
+            if let Ok(resp) = resp_res {
+                if resp.status().is_success() {
+                    if let Ok(json) = resp.json::<serde_json::Value>().await {
+                        Self::capture_visitor_data(&json);
+                        if let Some((upstream_url, content_length, mime_type)) =
+                            Self::pick_best_audio_format(&json)
+                        {
+                            let port = ensure_chunk_proxy_server();
+                            let playable_url =
+                                format!("http://127.0.0.1:{}/stream/{}", port, video_id);
+                            return Some(CachedStream {
+                                playable_url,
+                                upstream_url,
+                                content_length,
+                                mime_type,
+                                user_agent: ua.to_string(),
+                                expires_at: now_unix() + 14_400,
+                            });
+                        }
                     }
                 }
             }
@@ -312,8 +589,9 @@ impl YouTubeService {
         None
     }
 
-    #[allow(dead_code)]
-    fn pick_best_audio_format(player_json: &serde_json::Value) -> Option<String> {
+    fn pick_best_audio_format(
+        player_json: &serde_json::Value,
+    ) -> Option<(String, Option<u64>, String)> {
         let status = player_json
             .pointer("/playabilityStatus/status")
             .and_then(|s| s.as_str())
@@ -326,15 +604,15 @@ impl YouTubeService {
             .pointer("/streamingData/adaptiveFormats")
             .and_then(|f| f.as_array())?;
 
-        let mut best_url: Option<String> = None;
+        let mut best: Option<(String, Option<u64>, String)> = None;
         let mut best_score: i64 = -1;
 
         for fmt in formats {
-            let mime = fmt
+            let mime_raw = fmt
                 .get("mimeType")
                 .and_then(|m| m.as_str())
                 .unwrap_or("");
-            if !mime.starts_with("audio/") {
+            if !mime_raw.starts_with("audio/") {
                 continue;
             }
             let Some(url) = fmt.get("url").and_then(|u| u.as_str()) else {
@@ -342,6 +620,16 @@ impl YouTubeService {
             };
             let itag = fmt.get("itag").and_then(|i| i.as_i64()).unwrap_or(0);
             let bitrate = fmt.get("bitrate").and_then(|b| b.as_i64()).unwrap_or(0);
+            let content_len = fmt
+                .get("contentLength")
+                .and_then(|c| c.as_str())
+                .and_then(|s| s.parse::<u64>().ok());
+            let clean_mime = mime_raw
+                .split(';')
+                .next()
+                .unwrap_or("audio/webm")
+                .trim()
+                .to_string();
 
             let bonus = match itag {
                 251 => 500_000,
@@ -352,11 +640,11 @@ impl YouTubeService {
             let score = bitrate + bonus;
             if score > best_score {
                 best_score = score;
-                best_url = Some(url.to_string());
+                best = Some((url.to_string(), content_len, clean_mime));
             }
         }
 
-        best_url
+        best
     }
 
     pub async fn resolve_playable_stream_async(
@@ -375,11 +663,23 @@ impl YouTubeService {
             if let Some(cached) = stream_cache().lock().get(&video_id) {
                 if cached.expires_at > now {
                     crate::aethon_log!("Stream cache HIT for video_id={}", video_id);
-                    return cached.direct_url.clone();
+                    return cached.playable_url.clone();
                 }
+            }
+
+            // Tier 1: ~0.25s InnerTube ANDROID_VR / ANDROID_TESTSUITE / IOS + Local Bounded-Range Chunk Proxy
+            if let Some(entry) = Self::resolve_innertube_bounded_stream(&video_id).await {
+                let playable = entry.playable_url.clone();
+                stream_cache().lock().insert(video_id.clone(), entry);
+                crate::aethon_log!(
+                    "Resolved sub-second bounded-range stream via local proxy for video_id={}",
+                    video_id
+                );
+                return playable;
             }
         }
 
+        // Tier 2 Fallback: `yt-dlp --no-config -g` in blocking thread pool
         let uri_owned = uri.to_string();
         let title_owned = title.to_string();
         let artist_owned = artist.to_string();
@@ -388,13 +688,20 @@ impl YouTubeService {
         tokio::task::spawn_blocking(move || {
             let resolved = Self::resolve_via_ytdlp_direct(&uri_owned, &title_owned, &artist_owned);
             if !vid_owned.is_empty() && resolved.contains("googlevideo.com") {
+                let port = ensure_chunk_proxy_server();
+                let proxy_url = format!("http://127.0.0.1:{}/stream/{}", port, vid_owned);
                 stream_cache().lock().insert(
                     vid_owned,
                     CachedStream {
-                        direct_url: resolved.clone(),
+                        playable_url: proxy_url.clone(),
+                        upstream_url: resolved,
+                        content_length: None,
+                        mime_type: "audio/webm".to_string(),
+                        user_agent: "Mozilla/5.0 (X11; Linux x86_64; rv:135.0) Gecko/20100101 Firefox/135.0".to_string(),
                         expires_at: now_unix() + 14_400,
                     },
                 );
+                return proxy_url;
             }
             resolved
         })
@@ -404,14 +711,17 @@ impl YouTubeService {
 
     pub fn resolve_via_ytdlp_direct(uri: &str, title: &str, artist: &str) -> String {
         let mut cmd = Command::new("yt-dlp");
-        cmd.arg("--get-url")
+        cmd.arg("--no-config")
+            .arg("--get-url")
             .arg("--no-playlist")
             .arg("--no-warnings")
             .arg("--no-check-certificates")
             .arg("--socket-timeout")
-            .arg("6")
+            .arg("5")
             .arg("-f")
-            .arg("251/140/bestaudio/best")
+            .arg("251/140/bestaudio[ext=webm]/bestaudio/best")
+            .arg("--extractor-args")
+            .arg("youtube:player_client=tv,android_vr,ios;player_skip=webpage,configs")
             .arg("--")
             .arg(uri);
         crate::sanitize_host_command(&mut cmd);
@@ -432,14 +742,17 @@ impl YouTubeService {
         if !query.is_empty() {
             let mut alt_cmd = Command::new("yt-dlp");
             alt_cmd
+                .arg("--no-config")
                 .arg("--get-url")
                 .arg("--no-playlist")
                 .arg("--no-warnings")
                 .arg("--no-check-certificates")
                 .arg("--socket-timeout")
-                .arg("6")
+                .arg("5")
                 .arg("-f")
                 .arg("251/140/bestaudio/best")
+                .arg("--extractor-args")
+                .arg("youtube:player_client=tv,android_vr;player_skip=webpage,configs")
                 .arg("--")
                 .arg(format!("ytsearch1:{}", query));
             crate::sanitize_host_command(&mut alt_cmd);
@@ -668,7 +981,8 @@ impl YouTubeService {
         let search_query = format!("ytsearch{}:{}", max_results, query);
 
         let mut cmd = Command::new("yt-dlp");
-        cmd.arg("--flat-playlist")
+        cmd.arg("--no-config")
+            .arg("--flat-playlist")
             .arg("--print")
             .arg("%(id)s||%(title)s||%(uploader)s||%(duration)s")
             .arg("--")

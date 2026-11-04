@@ -483,7 +483,8 @@ pub async fn download_track(
         let out_template = music_dir.join("%(title)s [%(id)s].%(ext)s");
 
         let mut cmd = std::process::Command::new("yt-dlp");
-        cmd.arg("-x")
+        cmd.arg("--no-config")
+            .arg("-x")
             .arg("--audio-format")
             .arg("mp3")
             .arg("--audio-quality")
