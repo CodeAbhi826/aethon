@@ -116,6 +116,15 @@ class SettingsState {
     await this.loadFromDb();
     this.updateActiveTheme();
     this.refreshCacheSize();
+
+    // Apply saved audio engine settings to MPV on startup
+    if (this.replayGain) {
+      invoke('set_replaygain', { enabled: this.replayGain, mode: this.replayGainMode }).catch(() => {});
+    }
+    if (this.crossfadeDuration > 0) {
+      invoke('set_crossfade', { duration: this.crossfadeDuration }).catch(() => {});
+    }
+
     try {
       await listen<YtmAccountProfile>('ytm-login-success', async (event) => {
         const p = event.payload;
@@ -437,7 +446,7 @@ class SettingsState {
 
   exportSettings(): string {
     const data = {
-      version: '0.0.36',
+      version: '0.0.37',
       exportedAt: new Date().toISOString(),
       appearance: {
         dynamicTheme: this.dynamicTheme,

@@ -108,10 +108,15 @@ impl Database {
 
     pub fn upsert_track(&self, track: &Track) -> Result<()> {
         let conn = self.conn.lock();
+        let _ = conn.execute(
+            "DELETE FROM tracks WHERE file_path = ?1 AND id != ?2",
+            params![track.file_path, track.id],
+        );
         conn.execute(
             "INSERT INTO tracks (id, title, artist, album, duration, file_path, cover_art, format, bitrate, sample_rate, play_count, favorite, date_added)
              VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)
-             ON CONFLICT(file_path) DO UPDATE SET
+             ON CONFLICT(id) DO UPDATE SET
+                file_path = excluded.file_path,
                 title = excluded.title,
                 artist = excluded.artist,
                 album = excluded.album,
@@ -143,10 +148,12 @@ impl Database {
         let mut conn = self.conn.lock();
         let tx = conn.transaction()?;
         {
+            let mut del_stmt = tx.prepare("DELETE FROM tracks WHERE file_path = ?1 AND id != ?2")?;
             let mut stmt = tx.prepare(
                 "INSERT INTO tracks (id, title, artist, album, duration, file_path, cover_art, format, bitrate, sample_rate, play_count, favorite, date_added)
                  VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)
-                 ON CONFLICT(file_path) DO UPDATE SET
+                 ON CONFLICT(id) DO UPDATE SET
+                    file_path = excluded.file_path,
                     title = excluded.title,
                     artist = excluded.artist,
                     album = excluded.album,
@@ -157,6 +164,7 @@ impl Database {
                     sample_rate = coalesce(excluded.sample_rate, tracks.sample_rate)",
             )?;
             for track in tracks {
+                let _ = del_stmt.execute(params![track.file_path, track.id]);
                 stmt.execute(params![
                     track.id,
                     track.title,

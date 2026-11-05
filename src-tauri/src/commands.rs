@@ -218,16 +218,26 @@ pub async fn search_youtube(
     crate::aethon_log!("search_youtube: query='{}'", query);
     let gl = state
         .db
-        .get_setting("ytmRegion")
+        .get_setting("regionCode")
         .ok()
         .flatten()
+        .or_else(|| state.db.get_setting("ytmRegion").ok().flatten())
         .unwrap_or_else(|| "IN".to_string());
     Ok(YouTubeService::search(&query, limit.unwrap_or(15), &gl).await)
 }
 
 #[tauri::command]
 pub fn get_all_settings(state: State<'_, AppState>) -> Result<HashMap<String, String>, String> {
-    state.db.get_all_settings().map_err(|e| e.to_string())
+    let settings = state.db.get_all_settings().map_err(|e| e.to_string())?;
+    if let Some(enabled_str) = settings.get("streamCachingEnabled") {
+        let enabled = enabled_str == "true";
+        let max_gb = settings
+            .get("maxCacheSizeGb")
+            .and_then(|v| v.parse::<f64>().ok())
+            .unwrap_or(10.0);
+        crate::youtube::configure_stream_cache(enabled, max_gb);
+    }
+    Ok(settings)
 }
 
 #[tauri::command]
@@ -238,6 +248,27 @@ pub fn get_setting(key: String, state: State<'_, AppState>) -> Result<Option<Str
 #[tauri::command]
 pub fn set_setting(key: String, value: String, state: State<'_, AppState>) -> Result<(), String> {
     crate::aethon_log!("set_setting: {}={}", key, value);
+    if key == "streamCachingEnabled" {
+        let enabled = value == "true";
+        let max_gb = state
+            .db
+            .get_setting("maxCacheSizeGb")
+            .ok()
+            .flatten()
+            .and_then(|v| v.parse::<f64>().ok())
+            .unwrap_or(10.0);
+        crate::youtube::configure_stream_cache(enabled, max_gb);
+    } else if key == "maxCacheSizeGb" {
+        let max_gb = value.parse::<f64>().unwrap_or(10.0);
+        let enabled = state
+            .db
+            .get_setting("streamCachingEnabled")
+            .ok()
+            .flatten()
+            .map(|v| v == "true")
+            .unwrap_or(true);
+        crate::youtube::configure_stream_cache(enabled, max_gb);
+    }
     state
         .db
         .set_setting(&key, &value)
@@ -250,6 +281,17 @@ pub fn set_settings_batch(
     state: State<'_, AppState>,
 ) -> Result<(), String> {
     crate::aethon_log!("set_settings_batch: {} settings keys", settings.len());
+    if let Some(enabled_str) = settings.get("streamCachingEnabled") {
+        let enabled = enabled_str == "true";
+        let max_gb = settings
+            .get("maxCacheSizeGb")
+            .and_then(|v| v.parse::<f64>().ok())
+            .unwrap_or(10.0);
+        crate::youtube::configure_stream_cache(enabled, max_gb);
+    } else if let Some(max_gb_str) = settings.get("maxCacheSizeGb") {
+        let max_gb = max_gb_str.parse::<f64>().unwrap_or(10.0);
+        crate::youtube::configure_stream_cache(true, max_gb);
+    }
     state
         .db
         .set_settings_batch(&settings)

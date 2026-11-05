@@ -115,7 +115,7 @@ impl MpvEngine {
             .arg("--ytdl=yes")
             .arg("--ytdl-format=251/140/bestaudio/best")
             .arg(format!("--ytdl-raw-options={}", ytdl_raw))
-            .arg("--keep-open=yes")
+            .arg("--keep-open=no")
             .arg("--gapless-audio=yes")
             .arg("--cache=yes")
             .arg("--cache-on-disk=no")
@@ -271,6 +271,19 @@ impl MpvEngine {
                                                 }
                                             }
                                         }
+                                        "eof-reached" => {
+                                            if let Some(eof) = data.and_then(|d| d.as_bool()) {
+                                                if eof {
+                                                    s.is_playing = false;
+                                                    s.is_buffering = false;
+                                                    s.position = 0.0;
+                                                    if let Some(ref handle) = app_handle {
+                                                        let _ = handle.emit("player-state", &*s);
+                                                        let _ = handle.emit("track-ended", ());
+                                                    }
+                                                }
+                                            }
+                                        }
                                         "volume" => {
                                             if let Some(v) = data.and_then(|d| d.as_f64()) {
                                                 s.volume = v;
@@ -379,6 +392,9 @@ impl MpvEngine {
         engine
             .send_cmd(r#"{"command": ["observe_property", 11, "media-title"]}"#)
             .await?;
+        engine
+            .send_cmd(r#"{"command": ["observe_property", 12, "eof-reached"]}"#)
+            .await?;
 
         Ok(engine)
     }
@@ -447,19 +463,13 @@ impl MpvEngine {
     }
 
     pub async fn toggle_pause(&self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        let (is_eof, is_idle, uri_opt, title_opt) = {
+        let at_end = {
             let s = self.state.read();
-            let at_end = s.duration > 0.0 && s.position >= (s.duration - 0.5);
-            let idle = s.position == 0.0 && !s.is_playing;
-            (at_end, idle, s.current_uri.clone(), s.media_title.clone())
+            s.duration > 0.0 && s.position >= (s.duration - 0.5)
         };
 
-        if is_eof || is_idle {
-            if let Some(uri) = uri_opt {
-                return self.load_file_with_canonical(&uri, None, title_opt.as_deref()).await;
-            } else if is_eof {
-                let _ = self.seek(0.0).await;
-            }
+        if at_end {
+            let _ = self.seek(0.0).await;
         }
 
         let msg = serde_json::json!({

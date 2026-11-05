@@ -40,7 +40,7 @@ fn lyrics_client() -> &'static reqwest::Client {
         reqwest::Client::builder()
             .tcp_nodelay(true)
             .timeout(std::time::Duration::from_secs(5))
-            .user_agent("Aethon/0.0.36 (https://github.com/codeabhi826/aethon)")
+            .user_agent("Aethon/0.0.37 (https://github.com/codeabhi826/aethon)")
             .build()
             .unwrap_or_else(|_| reqwest::Client::new())
     })

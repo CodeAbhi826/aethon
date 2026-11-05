@@ -339,9 +339,62 @@ pub async fn sync_ytm_library_internal(
         }
     }
 
+    for yt in &history_tracks {
+        let track = Track {
+            id: format!("yt_{}", yt.id),
+            title: yt.title.clone(),
+            artist: yt.artist.clone(),
+            album: "YouTube Music History".to_string(),
+            duration: yt.duration,
+            file_path: yt.stream_url.clone(),
+            cover_art: Some(yt.thumbnail.clone()),
+            format: "Opus 256k".to_string(),
+            bitrate: Some(256),
+            sample_rate: Some(48000),
+            play_count: 1,
+            favorite: false,
+            date_added: now,
+        };
+        let _ = db.upsert_track(&track);
+        let _ = db.record_play(&track.id);
+    }
+
+    // C. Fetch Playlists via "FEmusic_liked_playlists"
+    let pl_body = serde_json::json!({
+        "context": build_innertube_context(gl, page_id),
+        "browseId": "FEmusic_liked_playlists"
+    });
+    let mut playlists_count = 0;
+    if let Ok(resp) = client
+        .post("https://music.youtube.com/youtubei/v1/browse")
+        .json(&pl_body)
+        .send()
+        .await
+    {
+        if let Ok(json) = resp.json::<serde_json::Value>().await {
+            if let Some(items) = json
+                .pointer("/contents/singleColumnBrowseResultsRenderer/tabs/0/tabRenderer/content/sectionListRenderer/contents/0/gridRenderer/items")
+                .or_else(|| json.pointer("/contents/twoColumnBrowseResultsRenderer/secondaryContents/sectionListRenderer/contents/0/gridRenderer/items"))
+                .and_then(|v| v.as_array())
+            {
+                for item in items {
+                    let renderer = item.get("musicTwoRowItemRenderer");
+                    if let Some(r) = renderer {
+                        let title = r.pointer("/title/runs/0/text").and_then(|v| v.as_str()).unwrap_or("Untitled Playlist");
+                        let nav_endpoint = r.pointer("/navigationEndpoint/browseEndpoint/browseId").and_then(|v| v.as_str());
+                        if let Some(browse_id) = nav_endpoint {
+                            let _ = db.upsert_cloud_playlist(browse_id, title, Some("Synced from YouTube Music"));
+                            playlists_count += 1;
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     Ok(YtmSyncSummary {
         liked_songs_count: liked_tracks.len(),
-        playlists_count: 0,
+        playlists_count,
         history_count: history_tracks.len(),
     })
 }

@@ -2,7 +2,7 @@
   import { onMount } from 'svelte';
   import { invoke } from '@tauri-apps/api/core';
   import { playerState } from '../state.svelte';
-  import type { Track, YouTubeTrack } from '../types';
+  import { sanitizeArtist, type Track, type YouTubeTrack } from '../types';
 
   let albumTracks = $state<Track[]>([]);
   let isLoading = $state(true);
@@ -37,7 +37,7 @@
         albumTracks = res.map((yt, idx) => ({
           id: `yt_${yt.id}`,
           title: yt.title,
-          artist: yt.artist || album.artist,
+          artist: sanitizeArtist(yt.artist || album.artist),
           album: album.title,
           duration: yt.duration || 210,
           file_path: yt.stream_url,
@@ -45,7 +45,7 @@
           format: 'Opus 256k',
           play_count: 50 + idx,
           favorite: false,
-          date_added: Date.now(),
+          date_added: Math.floor(Date.now() / 1000),
         }));
       } else {
         albumTracks = localAlbumTracks;

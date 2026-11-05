@@ -1,6 +1,6 @@
 # Aethon 🎵
 
-**Aethon** (`v0.0.36`) is an ultra-lightweight, GPU-accelerated, lossless desktop music player for **Arch Linux** (KDE Plasma on Wayland), blending the streaming & cloud architecture of **[ArchiveTune](https://github.com/rukamori/ArchiveTune)** (`moe.koiverse.archivetune`) with the editorial minimalism and spring physics of **Apple Music**.
+**Aethon** (`v0.0.37`) is an ultra-lightweight, GPU-accelerated, lossless desktop music player for **Arch Linux** (KDE Plasma on Wayland), blending the streaming & cloud architecture of **[ArchiveTune](https://github.com/rukamori/ArchiveTune)** (`moe.koiverse.archivetune`) with the editorial minimalism and spring physics of **Apple Music**.
 
 ---
 
@@ -68,4 +68,4 @@ aethon-update
 
 ## 📜 Changelog
 
-For a complete record of updates, performance enhancements, and bug fixes from version 0.0.1 to 0.0.36, see [CHANGELOG.md](file:///home/abhin/Projects/music/CHANGELOG.md).
+For a complete record of updates, performance enhancements, and bug fixes from version 0.0.1 to 0.0.37, see [CHANGELOG.md](file:///home/abhin/Projects/music/CHANGELOG.md).

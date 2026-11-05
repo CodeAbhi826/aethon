@@ -4,6 +4,36 @@ All notable changes, architectural upgrades, and performance fixes in **Aethon**
 
 ---
 
+## [v0.0.37] — 2026-11-05
+
+### ⚡ ArchiveTune Progressive Disk-Cache Architecture (`src-tauri/src/youtube/mod.rs`)
+- **Root-Cause SABR 403 Cutoff Resolution**:
+  - Uncovered the exact cause of the ~28–60s playback cutoff: YouTube's mobile InnerTube streams (`IOS`) enforce a strict SABR byte-range ceiling (~20–23% of content length, or ~912 KB – 1022 KB), returning `HTTP 403 Forbidden` for any HTTP Range requests beyond that ceiling.
+  - Resolved **Visitor Token Poisoning**: `WEB_REMIX` visitor tokens sent to `ANDROID_VR` caused `ANDROID_VR` to return `LOGIN_REQUIRED`. Completely segregated `WEB_VISITOR_DATA` and `VR_VISITOR_DATA` stores so `ANDROID_VR` only receives VR visitor tokens.
+  - Implemented **Tail-Byte Probing**: When falling back to `IOS`, Aethon proactively probes a 32-byte slice past the 1 MB boundary (`content_length - 64..content_length - 33`). If Google Video returns `403 Forbidden`, the stream is rejected before playback starts, cleanly falling through to `yt-dlp` (`android_vr,tv,mweb,web_safari` without `player_skip=webpage,configs`).
+- **Four-Tier Stream Resolution Engine**:
+  - **Tier 0 (<5 ms Disk Hit)**: Instant local playback from `~/.cache/aethon/streams/<video_id>.webm` (or `.m4a`) if cached. Zero network latency, instant scrubbing, 100% offline-ready.
+  - **Tier 1 (~250 ms Fast InnerTube)**: Concurrent `ANDROID_VR` / `ANDROID_TESTSUITE` / verified `IOS` resolution with segregated visitor data.
+  - **Tier 2 (Self-Healing Progressive Downloader)**: Asynchronous background downloader (`run_stream_downloader`) streams 512 KB slices (`&range={start}-{end}` query param + `Range:` header fallback) into `~/.cache/aethon/streams/<video_id>.part`. Automatically self-heals expired or 403'd chunks via `yt-dlp` and resumes writing at the exact byte offset without dropping MPV's socket.
+  - **Tier 3 (Progressive Read-Through Proxy)**: Reads directly from `.part` / `.webm` and delivers chunks to MPV. When the playback read cursor meets the network write cursor, it awaits `tokio::sync::Notify` instead of returning POSIX EOF, preventing premature track end while keeping time-to-sound under 300 ms.
+- **Cache Management & Quota Enforcement (`enforce_disk_cache_limit`)**:
+  - Automatic LRU eviction based on user-configured `maxCacheSizeGb` (default 10 GB).
+  - Atomically renames `.part` to `.webm` / `.m4a` and stores metadata JSON on completion.
+
+### 🛠️ 10 Additional Deep-Dive Audit Bug Fixes
+1. **Visitor Token Segregation (`youtube/mod.rs`)**: Split `WEB_VISITOR_DATA` and `VR_VISITOR_DATA` to prevent `ANDROID_VR` authorization failure.
+2. **Database Primary Key Collision Fix (`library/db.rs`)**: Fixed SQLite `UNIQUE constraint failed: tracks.id` in `upsert_track` and `upsert_tracks_batch` by deleting stale conflicting `file_path` rows and using `ON CONFLICT(id) DO UPDATE SET file_path = excluded.file_path, ...`.
+3. **YouTube Music Cloud Playlists & History Persistence (`youtube/auth_sync.rs`)**: Added `FEmusic_liked_playlists` browse extraction + `db.upsert_cloud_playlist()`, and persisted synced `history_tracks` into SQLite `tracks` and `play_history`.
+4. **MPV Keep-Open & EOF-Reached Observation (`player/mpv.rs`)**: Changed `--keep-open=yes` to `--keep-open=no` and registered MPV property observer for `"eof-reached"` (`id 12`), ensuring `track-ended` always fires reliably across streaming and cached tracks.
+5. **Toggle Pause Replay Bug (`player/mpv.rs`)**: Simplified `MpvEngine::toggle_pause` to atomic `cycle pause`, preventing raw YouTube web URLs from being dispatched to MPV on pause/resume.
+6. **Repeat One Track Unload Fix (`src/lib/state.svelte.ts`)**: Changed `playNext()` in `repeatMode === 'one'` from `this.seek(0)` to `await this.playTrack(this.currentTrack)` so tracks replay seamlessly from the local disk cache (<5 ms) after MPV unloads at EOF.
+7. **Local Stream URL Track Reconciliation (`src/lib/state.svelte.ts`)**: Updated `extractVideoId`, `isSameTrack`, and `reconcilePlayingTrack` to recognize `/stream/`, `/streams/`, and loopback proxy URLs (`127.0.0.1:`).
+8. **Stream Cache Settings Wiring & Region Code Prioritization (`commands.rs`)**: Wired `streamCachingEnabled` and `maxCacheSizeGb` to `youtube::configure_stream_cache()`, and prioritized `regionCode` over `ytmRegion` in `search_youtube`.
+9. **Startup ReplayGain & Crossfade MPV Initialization (`src/lib/settingsState.svelte.ts`)**: Wired startup `invoke('set_replaygain', ...)` and `invoke('set_crossfade', ...)` on application launch.
+10. **AlbumView Artist Sanitization & Timestamp Normalization (`src/lib/views/AlbumView.svelte`)**: Normalized `date_added` to Unix seconds (`Math.floor(Date.now() / 1000)`) and applied `sanitizeArtist()`.
+
+---
+
 ## [v0.0.36] — 2026-11-04
 
 ### 🚀 Sub-Second Cold Playback Engine (`ChunkProxyServer`)

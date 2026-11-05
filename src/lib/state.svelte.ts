@@ -525,9 +525,12 @@ class PlayerState {
 
   extractVideoId(uri: string | null | undefined): string | null {
     if (!uri) return null;
-    const m = uri.match(/(?:v=|youtu\.be\/|\/embed\/|\/watch\?v=)([0-9A-Za-z_-]{11})/);
+    const m = uri.match(/(?:v=|youtu\.be\/|\/embed\/|\/watch\?v=|\/stream\/|\/streams\/)([0-9A-Za-z_-]{11})/);
     if (m) return m[1];
     if (uri.startsWith('yt_')) return uri.replace('yt_', '');
+    const clean = uri.split('?')[0].split('#')[0];
+    const filenameMatch = clean.match(/([0-9A-Za-z_-]{11})\.(?:webm|m4a|part|opus|mp3)$/);
+    if (filenameMatch) return filenameMatch[1];
     return null;
   }
 
@@ -535,7 +538,12 @@ class PlayerState {
     if (!track || !uri) return false;
     if (track.file_path === uri) return true;
     if (track.id === uri) return true;
-    if (uri.includes('googlevideo.com')) return true;
+    if (uri.includes('googlevideo.com') || uri.includes('127.0.0.1') || uri.includes('/streams/')) {
+      const v1 = this.extractVideoId(track.file_path) || this.extractVideoId(track.id);
+      const v2 = this.extractVideoId(uri);
+      if (v1 && v2 && v1 === v2) return true;
+      if (this.currentTrack && track.id === this.currentTrack.id) return true;
+    }
     const v1 = this.extractVideoId(track.file_path) || this.extractVideoId(track.id);
     const v2 = this.extractVideoId(uri);
     if (v1 && v2 && v1 === v2) return true;
@@ -544,7 +552,7 @@ class PlayerState {
 
   reconcilePlayingTrack(uri: string, mediaTitle?: string | null) {
     if (!uri) return;
-    if (this.currentTrack && (this.isSameTrack(this.currentTrack, uri) || uri.includes('googlevideo.com'))) {
+    if (this.currentTrack && (this.isSameTrack(this.currentTrack, uri) || uri.includes('googlevideo.com') || uri.includes('127.0.0.1') || uri.includes('/streams/'))) {
       return;
     }
 
@@ -558,7 +566,7 @@ class PlayerState {
     if (candidate) {
       this.currentTrack = candidate;
     } else {
-      if (this.currentTrack && uri.includes('googlevideo.com')) {
+      if (this.currentTrack && (uri.includes('googlevideo.com') || uri.includes('127.0.0.1') || uri.includes('/streams/'))) {
         return;
       }
       const vid = this.extractVideoId(uri);
@@ -917,7 +925,7 @@ class PlayerState {
 
   async playNext() {
     if (this.repeatMode === 'one' && this.currentTrack) {
-      this.seek(0);
+      await this.playTrack(this.currentTrack);
       return;
     }
 
