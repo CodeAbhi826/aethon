@@ -178,6 +178,7 @@ impl MpvEngine {
             let mut mpv_paused = false;
             let mut mpv_core_idle = true;
             let mut mpv_paused_for_cache = false;
+            let mut last_time_pos_emit = std::time::Instant::now();
 
             while let Ok(n) = buf_reader.read_line(&mut line).await {
                 if n == 0 {
@@ -310,8 +311,22 @@ impl MpvEngine {
                                     }
 
                                     let _ = mpv_paused_for_cache;
-                                    if let Some(ref handle) = app_handle {
-                                        let _ = handle.emit("player-state", &*s);
+                                    let should_emit = if name == "time-pos" {
+                                        if last_time_pos_emit.elapsed() >= std::time::Duration::from_millis(100) {
+                                            last_time_pos_emit = std::time::Instant::now();
+                                            true
+                                        } else {
+                                            false
+                                        }
+                                    } else {
+                                        last_time_pos_emit = std::time::Instant::now();
+                                        true
+                                    };
+
+                                    if should_emit {
+                                        if let Some(ref handle) = app_handle {
+                                            let _ = handle.emit("player-state", &*s);
+                                        }
                                     }
                                 }
                             }

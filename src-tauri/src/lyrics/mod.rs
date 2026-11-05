@@ -40,7 +40,7 @@ fn lyrics_client() -> &'static reqwest::Client {
         reqwest::Client::builder()
             .tcp_nodelay(true)
             .timeout(std::time::Duration::from_secs(5))
-            .user_agent("Aethon/0.0.37 (https://github.com/codeabhi826/aethon)")
+            .user_agent("Aethon/0.0.38 (https://github.com/codeabhi826/aethon)")
             .build()
             .unwrap_or_else(|_| reqwest::Client::new())
     })
@@ -87,12 +87,14 @@ impl LyricsService {
         }
     }
 
-    /// ArchiveTune-style 5-provider fallback pipeline:
-    /// 1. Local `.lrc` sidecar file & embedded ID3/Vorbis `Lyrics` tag
-    /// 2. LRCLIB Exact + Duration-Scored Fuzzy Search (`lrclib.net`)
-    /// 3. KuGou Synced LRC (`mobileservice.kugou.com` -> `lyrics.kugou.com`, Base64 LRC)
-    /// 4. NetEase Cloud Music (`music.163.com` synced `lrc` + `romalrc` + `tlyric`)
-    /// 5. SimpMusic / YouLyPlus VideoID API (`api-lyrics.simpmusic.org`)
+    /// ArchiveTune 7-Provider Lyrics Fallback Pipeline:
+    /// Tier 0: Local .lrc Sidecar + Embedded Tags + Disk Cache (~/.cache/aethon/lyrics/)
+    /// Tier 1: LRCLIB Exact + Search with ±12s duration validation
+    /// Tier 2: NetEase Cloud Music (synced lrc + romalrc + tlyric)
+    /// Tier 3: SimpMusic / YouLyPlus VideoID API
+    /// Tier 4: KuGou Music Synced LRC
+    /// Tier 5: YouTube Music Native InnerTube (timedLyricsData & musicDescriptionShelfRenderer)
+    /// Tier 6: Lyrics.ovh Plain Text Fallback
     pub async fn fetch_lyrics(
         title: &str,
         artist: &str,
@@ -100,7 +102,7 @@ impl LyricsService {
         file_path: Option<&str>,
         video_id: Option<&str>,
     ) -> Result<LyricsResult, Box<dyn std::error::Error + Send + Sync>> {
-        // 1. Check local .lrc sidecar or embedded audio tags first
+        // Tier 0a: Local .lrc sidecar or embedded audio tags first (0 ms)
         if let Some(fp) = file_path {
             if !fp.starts_with("http://") && !fp.starts_with("https://") {
                 if let Some(local_res) = Self::fetch_local_or_embedded(fp) {
@@ -117,9 +119,19 @@ impl LyricsService {
             .trim()
             .to_string();
 
+        let resolved_vid = video_id
+            .map(|s| s.to_string())
+            .or_else(|| file_path.and_then(crate::youtube::YouTubeService::extract_video_id));
+
+        // Tier 0b: Check Disk Cache (~/.cache/aethon/lyrics/)
+        let c_key = Self::disk_cache_key(&clean_title, &clean_artist, resolved_vid.as_deref());
+        if let Some(cached) = Self::read_disk_cache(&c_key) {
+            return Ok(Self::enrich_romanization(cached));
+        }
+
         let mut plain_fallback: Option<LyricsResult> = None;
 
-        // 2. Provider: LRCLIB (Exact + Search with duration scoring)
+        // Tier 1: LRCLIB (Exact + Search with ±12s duration scoring)
         for (q_title, q_artist) in [
             (title, artist),
             (clean_title.as_str(), clean_artist.as_str()),
@@ -127,46 +139,41 @@ impl LyricsService {
             if q_title.is_empty() {
                 continue;
             }
-            if let Some(res) = Self::fetch_lrclib(q_title, q_artist, duration).await {
+            if let Some(mut res) = Self::fetch_lrclib(q_title, q_artist, duration).await {
                 if res.synced && !res.lines.is_empty() {
-                    return Ok(Self::enrich_romanization(res));
+                    // NetEase romalrc / tlyric auto-merge when CJK/Kanji characters are detected
+                    if res.lines.iter().any(|l| Self::has_cjk_characters(&l.text)) && !res.has_romanized {
+                        Self::merge_netease_roma_trans_onto(&mut res.lines, &clean_title, &clean_artist, duration).await;
+                        res.has_romanized = res.lines.iter().any(|l| l.romanized.is_some());
+                    }
+                    let enriched = Self::enrich_romanization(res);
+                    Self::write_disk_cache(&c_key, &enriched);
+                    return Ok(enriched);
                 } else if plain_fallback.is_none() && res.plain_text.is_some() {
                     plain_fallback = Some(res);
                 }
             }
         }
 
-        // 3. Provider: NetEase Cloud Music (Includes official `romalrc` romanized timestamps + `lrc`)
-        if let Some(res) =
-            Self::fetch_netease(&clean_title, &clean_artist, duration).await
-        {
+        // Tier 2: NetEase Cloud Music (Official synced lrc + romalrc + tlyric)
+        if let Some(res) = Self::fetch_netease(&clean_title, &clean_artist, duration).await {
             if res.synced && !res.lines.is_empty() {
-                return Ok(Self::enrich_romanization(res));
+                let enriched = Self::enrich_romanization(res);
+                Self::write_disk_cache(&c_key, &enriched);
+                return Ok(enriched);
             } else if plain_fallback.is_none() && res.plain_text.is_some() {
                 plain_fallback = Some(res);
             }
         }
 
-        // 4. Provider: KuGou Synced LRC (ArchiveTune KuGou provider)
-        if let Some(res) =
-            Self::fetch_kugou(&clean_title, &clean_artist, duration).await
-        {
-            if res.synced && !res.lines.is_empty() {
-                return Ok(Self::enrich_romanization(res));
-            } else if plain_fallback.is_none() && res.plain_text.is_some() {
-                plain_fallback = Some(res);
-            }
-        }
-
-        // 5. Provider: SimpMusic VideoID API (if YouTube video_id or watch URL is known)
-        let resolved_vid = video_id
-            .map(|s| s.to_string())
-            .or_else(|| file_path.and_then(crate::youtube::YouTubeService::extract_video_id));
+        // Tier 3: SimpMusic / YouLyPlus VideoID API
         if let Some(ref vid) = resolved_vid {
             if !vid.is_empty() {
                 if let Some(res) = Self::fetch_simpmusic(vid).await {
                     if res.synced && !res.lines.is_empty() {
-                        return Ok(Self::enrich_romanization(res));
+                        let enriched = Self::enrich_romanization(res);
+                        Self::write_disk_cache(&c_key, &enriched);
+                        return Ok(enriched);
                     } else if plain_fallback.is_none() && res.plain_text.is_some() {
                         plain_fallback = Some(res);
                     }
@@ -174,11 +181,94 @@ impl LyricsService {
             }
         }
 
-        if let Some(plain) = plain_fallback {
-            return Ok(Self::enrich_romanization(plain));
+        // Tier 4: KuGou Synced LRC
+        if let Some(res) = Self::fetch_kugou(&clean_title, &clean_artist, duration).await {
+            if res.synced && !res.lines.is_empty() {
+                let enriched = Self::enrich_romanization(res);
+                Self::write_disk_cache(&c_key, &enriched);
+                return Ok(enriched);
+            } else if plain_fallback.is_none() && res.plain_text.is_some() {
+                plain_fallback = Some(res);
+            }
         }
 
-        Err("No lyrics found across Local, LRCLIB, NetEase, KuGou, or SimpMusic".into())
+        // Tier 5: YouTube Music Native InnerTube (timedLyricsData synced & musicDescriptionShelfRenderer plain)
+        if let Some(ref vid) = resolved_vid {
+            if !vid.is_empty() {
+                if let Some(res) = Self::fetch_innertube_lyrics(vid).await {
+                    if res.synced && !res.lines.is_empty() {
+                        let enriched = Self::enrich_romanization(res);
+                        Self::write_disk_cache(&c_key, &enriched);
+                        return Ok(enriched);
+                    } else if plain_fallback.is_none() && res.plain_text.is_some() {
+                        plain_fallback = Some(res);
+                    }
+                }
+            }
+        }
+
+        // Tier 6: Lyrics.ovh Plain Text Fallback
+        if let Some(res) = Self::fetch_lyrics_ovh(&clean_title, &clean_artist).await {
+            if plain_fallback.is_none() && res.plain_text.is_some() {
+                plain_fallback = Some(res);
+            }
+        }
+
+        if let Some(plain) = plain_fallback {
+            let enriched = Self::enrich_romanization(plain);
+            Self::write_disk_cache(&c_key, &enriched);
+            return Ok(enriched);
+        }
+
+        Err("No lyrics found across 7-provider pipeline".into())
+    }
+
+    fn disk_cache_dir() -> std::path::PathBuf {
+        dirs::cache_dir()
+            .unwrap_or_else(|| std::path::PathBuf::from("/tmp"))
+            .join("aethon")
+            .join("lyrics")
+    }
+
+    fn disk_cache_key(title: &str, artist: &str, video_id: Option<&str>) -> String {
+        if let Some(vid) = video_id.filter(|v| !v.is_empty()) {
+            format!("yt_{}", vid)
+        } else {
+            use std::hash::{Hash, Hasher};
+            let mut hasher = std::collections::hash_map::DefaultHasher::new();
+            title.to_lowercase().hash(&mut hasher);
+            artist.to_lowercase().hash(&mut hasher);
+            format!("{:016x}", hasher.finish())
+        }
+    }
+
+    fn read_disk_cache(key: &str) -> Option<LyricsResult> {
+        let path = Self::disk_cache_dir().join(format!("{}.json", key));
+        if path.exists() {
+            if let Ok(data) = std::fs::read_to_string(path) {
+                if let Ok(mut res) = serde_json::from_str::<LyricsResult>(&data) {
+                    res.provider = format!("Cached ({})", res.provider);
+                    return Some(res);
+                }
+            }
+        }
+        None
+    }
+
+    fn write_disk_cache(key: &str, result: &LyricsResult) {
+        let dir = Self::disk_cache_dir();
+        let _ = std::fs::create_dir_all(&dir);
+        let path = dir.join(format!("{}.json", key));
+        if let Ok(data) = serde_json::to_string(result) {
+            let _ = std::fs::write(path, data);
+        }
+    }
+
+    pub fn has_cjk_characters(s: &str) -> bool {
+        s.chars().any(|c| {
+            let u = c as u32;
+            (0x4E00..=0x9FFF).contains(&u) || (0x3400..=0x4DBF).contains(&u)
+        })
     }
 
     fn fetch_local_or_embedded(file_path: &str) -> Option<LyricsResult> {
@@ -275,6 +365,17 @@ impl LyricsService {
             return None;
         }
 
+        if let Some(target_d) = duration.filter(|&d| d > 0.0) {
+            items.retain(|item| {
+                item.duration
+                    .map(|d| (d - target_d).abs() <= 12.0)
+                    .unwrap_or(true)
+            });
+            if items.is_empty() {
+                return None;
+            }
+        }
+
         // Sort candidates: prefer synced lyrics with closest duration match
         items.sort_by(|a, b| {
             let a_synced = a.synced_lyrics.as_ref().map(|s| !s.is_empty()).unwrap_or(false);
@@ -315,11 +416,11 @@ impl LyricsService {
         }
     }
 
-    async fn fetch_netease(
+    async fn fetch_netease_raw(
         title: &str,
         artist: &str,
         duration: Option<f64>,
-    ) -> Option<LyricsResult> {
+    ) -> Option<(String, Option<String>, Option<String>)> {
         let client = lyrics_client();
         let query = format!("{} {}", title, artist);
         let search_url = format!(
@@ -377,25 +478,101 @@ impl LyricsService {
         let raw_lrc = lrc_json
             .pointer("/lrc/lyric")
             .and_then(|s| s.as_str())
-            .unwrap_or("");
+            .unwrap_or("")
+            .to_string();
+
+        let roma_lrc = lrc_json
+            .pointer("/romalrc/lyric")
+            .and_then(|s| s.as_str())
+            .map(|s| s.to_string());
+
+        let t_lyric = lrc_json
+            .pointer("/tlyric/lyric")
+            .and_then(|s| s.as_str())
+            .map(|s| s.to_string());
+
+        Some((raw_lrc, roma_lrc, t_lyric))
+    }
+
+    async fn merge_netease_roma_trans_onto(
+        lines: &mut [LyricLine],
+        title: &str,
+        artist: &str,
+        duration: Option<f64>,
+    ) {
+        if let Some((_, Some(roma_str), trans_opt)) =
+            Self::fetch_netease_raw(title, artist, duration).await
+        {
+            let roma_lines = Self::parse_lrc(&roma_str);
+            if !roma_lines.is_empty() {
+                for line in lines.iter_mut() {
+                    if line.romanized.is_none() {
+                        if let Some(closest) = roma_lines
+                            .iter()
+                            .min_by(|a, b| {
+                                (a.time - line.time)
+                                    .abs()
+                                    .partial_cmp(&(b.time - line.time).abs())
+                                    .unwrap_or(std::cmp::Ordering::Equal)
+                            })
+                        {
+                            if (closest.time - line.time).abs() <= 1.2 && !closest.text.is_empty() {
+                                line.romanized = Some(closest.text.clone());
+                            }
+                        }
+                    }
+                }
+            }
+
+            if let Some(t_str) = trans_opt {
+                let trans_lines = Self::parse_lrc(&t_str);
+                if !trans_lines.is_empty() {
+                    for line in lines.iter_mut() {
+                        if line.translation.is_none() {
+                            if let Some(closest) = trans_lines
+                                .iter()
+                                .min_by(|a, b| {
+                                    (a.time - line.time)
+                                        .abs()
+                                        .partial_cmp(&(b.time - line.time).abs())
+                                        .unwrap_or(std::cmp::Ordering::Equal)
+                                })
+                            {
+                                if (closest.time - line.time).abs() <= 1.2 && !closest.text.is_empty() {
+                                    line.translation = Some(closest.text.clone());
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    async fn fetch_netease(
+        title: &str,
+        artist: &str,
+        duration: Option<f64>,
+    ) -> Option<LyricsResult> {
+        let (raw_lrc, roma_opt, trans_opt) =
+            Self::fetch_netease_raw(title, artist, duration).await?;
         if raw_lrc.trim().is_empty() {
             return None;
         }
 
-        let mut lines = Self::parse_lrc(raw_lrc);
+        let mut lines = Self::parse_lrc(&raw_lrc);
         if lines.is_empty() {
             return Some(LyricsResult {
                 synced: false,
                 lines: Vec::new(),
-                plain_text: Some(raw_lrc.to_string()),
+                plain_text: Some(raw_lrc),
                 provider: "NetEase".to_string(),
                 has_romanized: false,
             });
         }
 
-        // Align official NetEase `romalrc` (romanized lyrics) if present
-        if let Some(roma_str) = lrc_json.pointer("/romalrc/lyric").and_then(|s| s.as_str()) {
-            let roma_lines = Self::parse_lrc(roma_str);
+        if let Some(roma_str) = roma_opt {
+            let roma_lines = Self::parse_lrc(&roma_str);
             if !roma_lines.is_empty() {
                 for line in &mut lines {
                     if let Some(closest) = roma_lines
@@ -407,7 +584,7 @@ impl LyricsService {
                                 .unwrap_or(std::cmp::Ordering::Equal)
                         })
                     {
-                        if (closest.time - line.time).abs() <= 0.8 && !closest.text.is_empty() {
+                        if (closest.time - line.time).abs() <= 1.0 && !closest.text.is_empty() {
                             line.romanized = Some(closest.text.clone());
                         }
                     }
@@ -415,9 +592,8 @@ impl LyricsService {
             }
         }
 
-        // Align NetEase `tlyric` (translated lyrics) if present
-        if let Some(trans_str) = lrc_json.pointer("/tlyric/lyric").and_then(|s| s.as_str()) {
-            let trans_lines = Self::parse_lrc(trans_str);
+        if let Some(trans_str) = trans_opt {
+            let trans_lines = Self::parse_lrc(&trans_str);
             if !trans_lines.is_empty() {
                 for line in &mut lines {
                     if let Some(closest) = trans_lines
@@ -429,7 +605,7 @@ impl LyricsService {
                                 .unwrap_or(std::cmp::Ordering::Equal)
                         })
                     {
-                        if (closest.time - line.time).abs() <= 0.8 && !closest.text.is_empty() {
+                        if (closest.time - line.time).abs() <= 1.0 && !closest.text.is_empty() {
                             line.translation = Some(closest.text.clone());
                         }
                     }
@@ -441,7 +617,7 @@ impl LyricsService {
         Some(LyricsResult {
             synced: true,
             lines,
-            plain_text: Some(raw_lrc.to_string()),
+            plain_text: Some(raw_lrc),
             provider: "NetEase".to_string(),
             has_romanized,
         })
@@ -540,6 +716,152 @@ impl LyricsService {
         }
 
         None
+    }
+
+    async fn fetch_innertube_lyrics(video_id: &str) -> Option<LyricsResult> {
+        let client = lyrics_client();
+        let next_url = "https://music.youtube.com/youtubei/v1/next";
+        let next_payload = serde_json::json!({
+            "context": {
+                "client": {
+                    "clientName": "WEB_REMIX",
+                    "clientVersion": "1.20240101.01.00",
+                    "hl": "en"
+                }
+            },
+            "videoId": video_id
+        });
+
+        let resp = client.post(next_url).json(&next_payload).send().await.ok()?;
+        if !resp.status().is_success() {
+            return None;
+        }
+        let next_json: serde_json::Value = resp.json().await.ok()?;
+
+        let mut browse_id: Option<String> = None;
+        if let Some(tabs) = next_json
+            .pointer("/contents/singleColumnMusicWatchNextResultsRenderer/tabbedRenderer/watchNextTabbedResultsRenderer/tabs")
+            .and_then(|t| t.as_array())
+        {
+            for tab in tabs {
+                if let Some(b_id) = tab
+                    .pointer("/tabRenderer/endpoint/browseEndpoint/browseId")
+                    .and_then(|b| b.as_str())
+                {
+                    if b_id.starts_with("MPLYt_") {
+                        browse_id = Some(b_id.to_string());
+                        break;
+                    }
+                }
+            }
+        }
+
+        let b_id = browse_id?;
+        let browse_url = "https://music.youtube.com/youtubei/v1/browse";
+        let browse_payload = serde_json::json!({
+            "context": {
+                "client": {
+                    "clientName": "WEB_REMIX",
+                    "clientVersion": "1.20240101.01.00",
+                    "hl": "en"
+                }
+            },
+            "browseId": b_id
+        });
+
+        let b_resp = client.post(browse_url).json(&browse_payload).send().await.ok()?;
+        if !b_resp.status().is_success() {
+            return None;
+        }
+        let b_json: serde_json::Value = b_resp.json().await.ok()?;
+
+        if let Some(timed_arr) = b_json
+            .pointer("/contents/sectionListRenderer/contents/0/musicDescriptionShelfRenderer/timedLyricsData")
+            .or_else(|| b_json.pointer("/contents/elementRenderer/timedLyricsData"))
+            .and_then(|a| a.as_array())
+        {
+            let mut lines = Vec::new();
+            for item in timed_arr {
+                let text = item
+                    .get("lyricLine")
+                    .and_then(|s| s.as_str())
+                    .unwrap_or("")
+                    .trim()
+                    .to_string();
+                let start_ms = item
+                    .pointer("/cueRange/startTimeMilliseconds")
+                    .and_then(|s| s.as_str())
+                    .and_then(|s| s.parse::<f64>().ok())
+                    .or_else(|| item.pointer("/cueRange/startTimeMilliseconds").and_then(|v| v.as_f64()))
+                    .unwrap_or(0.0);
+                if !text.is_empty() {
+                    lines.push(LyricLine {
+                        time: start_ms / 1000.0,
+                        text,
+                        romanized: None,
+                        translation: None,
+                    });
+                }
+            }
+            if !lines.is_empty() {
+                return Some(LyricsResult {
+                    synced: true,
+                    lines,
+                    plain_text: None,
+                    provider: "YouTube Music".to_string(),
+                    has_romanized: false,
+                });
+            }
+        }
+
+        if let Some(runs) = b_json
+            .pointer("/contents/sectionListRenderer/contents/0/musicDescriptionShelfRenderer/description/runs")
+            .and_then(|r| r.as_array())
+        {
+            let mut text = String::new();
+            for run in runs {
+                if let Some(t) = run.get("text").and_then(|s| s.as_str()) {
+                    text.push_str(t);
+                }
+            }
+            let trimmed = text.trim();
+            if !trimmed.is_empty() {
+                return Some(LyricsResult {
+                    synced: false,
+                    lines: Vec::new(),
+                    plain_text: Some(trimmed.to_string()),
+                    provider: "YouTube Music".to_string(),
+                    has_romanized: false,
+                });
+            }
+        }
+
+        None
+    }
+
+    async fn fetch_lyrics_ovh(title: &str, artist: &str) -> Option<LyricsResult> {
+        let client = lyrics_client();
+        let url = format!(
+            "https://api.lyrics.ovh/v1/{}/{}",
+            urlencoding::encode(artist),
+            urlencoding::encode(title)
+        );
+        let resp = client.get(&url).send().await.ok()?;
+        if !resp.status().is_success() {
+            return None;
+        }
+        let json: serde_json::Value = resp.json().await.ok()?;
+        let text = json.get("lyrics")?.as_str()?.trim();
+        if text.is_empty() {
+            return None;
+        }
+        Some(LyricsResult {
+            synced: false,
+            lines: Vec::new(),
+            plain_text: Some(text.to_string()),
+            provider: "Lyrics.ovh".to_string(),
+            has_romanized: false,
+        })
     }
 
     /// Enrich every `LyricLine` with automatic phonetic romanization if it contains non-Latin script
@@ -672,7 +994,7 @@ impl Romanizer {
             let u = c as u32;
             (0xAC00..=0xD7A3).contains(&u) // Hangul syllables
                 || (0x3040..=0x30FF).contains(&u) // Hiragana + Katakana
-                || (0x0900..=0x097F).contains(&u) // Devanagari (Hindi/Marathi/Sanskrit)
+                || (0x0900..=0x0D7F).contains(&u) // Indic scripts (Devanagari, Bengali, Gurmukhi, Gujarati, Odia, Tamil, Telugu, Kannada, Malayalam)
                 || (0x0400..=0x04FF).contains(&u) // Cyrillic
         })
     }
@@ -719,7 +1041,6 @@ impl Romanizer {
 
             // 2. Japanese Hiragana & Katakana (Hepburn Romanization)
             if (0x3040..=0x30FF).contains(&u) {
-                // Normalize Katakana to Hiragana offset where possible
                 let h_char = if (0x30A1..=0x30F6).contains(&u) {
                     char::from_u32(u - 0x60).unwrap_or(c)
                 } else {
@@ -749,7 +1070,7 @@ impl Romanizer {
                     continue;
                 }
 
-                // Digraphs (きゃ, しゃ, ちゃ, にゃ, ひゃ, みゃ, りゃ, ぎゃ, じゃ, びゃ, ぴゃ)
+                // Digraphs (きゃ, しゃ, ちゃ, etc.)
                 if let Some(nh) = next_h {
                     if matches!(nh, 'ゃ' | 'ゅ' | 'ょ') {
                         if let Some(base) = Self::kana_base(h_char) {
@@ -777,9 +1098,6 @@ impl Romanizer {
 
                 if let Some(rom) = Self::kana_base(h_char) {
                     out.push_str(rom);
-                    if h_char == 'ん' || !out.ends_with(' ') {
-                        // Add subtle word spacing before particles
-                    }
                 } else if c == 'ー' {
                     if let Some(last) = out.chars().last() {
                         if matches!(last, 'a' | 'i' | 'u' | 'e' | 'o') {
@@ -793,9 +1111,41 @@ impl Romanizer {
                 continue;
             }
 
-            // 3. Devanagari / Hindi Phonetic Transliteration
-            if (0x0900..=0x097F).contains(&u) {
-                let has_nukta = chars.get(i + 1).copied() == Some('\u{093c}');
+            // 3. 10-Script Indic Phonetic Transliteration (Devanagari, Malayalam, Tamil, Telugu, Kannada, Bengali, Gujarati, Gurmukhi, Odia)
+            if (0x0900..=0x0D7F).contains(&u) {
+                // Malayalam Chillu Letters (0x0D7A..=0x0D7F)
+                if (0x0D7A..=0x0D7F).contains(&u) {
+                    let chillu = match u {
+                        0x0D7A => "nn", // ൺ
+                        0x0D7B => "n",  // ൻ
+                        0x0D7C => "r",  // ർ
+                        0x0D7D => "l",  // ൽ
+                        0x0D7E => "ll", // ൾ
+                        0x0D7F => "k",  // ൿ
+                        _ => "",
+                    };
+                    out.push_str(chillu);
+                    i += 1;
+                    continue;
+                }
+
+                // Malayalam Special Clusters: റ്റ (tta) & ന്റ (nda)
+                if c == 'റ' && chars.get(i + 1) == Some(&'്') && chars.get(i + 2) == Some(&'റ') {
+                    out.push_str("tta");
+                    i += 3;
+                    continue;
+                }
+                if c == 'ന' && chars.get(i + 1) == Some(&'്') && chars.get(i + 2) == Some(&'റ') {
+                    out.push_str("nda");
+                    i += 3;
+                    continue;
+                }
+
+                let block = u & 0xFF80;
+                let offset = (u & 0x7F) as u8;
+
+                // Devanagari Nukta handling
+                let has_nukta = block == 0x0900 && chars.get(i + 1).copied() == Some('\u{093c}');
                 let cons_opt = if has_nukta {
                     match c {
                         'क' => Some("q"),
@@ -805,50 +1155,50 @@ impl Romanizer {
                         'ड' => Some("r"),
                         'ढ' => Some("rh"),
                         'फ' => Some("f"),
-                        _ => Self::devanagari_consonant(c),
+                        _ => Self::indic_consonant(offset, block),
                     }
                 } else {
-                    Self::devanagari_consonant(c)
+                    Self::indic_consonant(offset, block)
                 };
 
                 if let Some(cons) = cons_opt {
-                    let offset = if has_nukta { 2 } else { 1 };
+                    let step = if has_nukta { 2 } else { 1 };
                     out.push_str(cons);
-                    let next_c = chars.get(i + offset).copied();
-                    match next_c {
-                        Some('्') => {
-                            // Virama / Halant suppresses inherent 'a'
-                            i += offset + 1;
+                    let next_c = chars.get(i + step).copied();
+                    if let Some(nc) = next_c {
+                        let nu = nc as u32;
+                        let n_offset = (nu & 0x7F) as u8;
+                        if n_offset == 0x4D {
+                            // Virama / Halant / Chandrakkala: suppresses inherent 'a'
+                            i += step + 1;
+                            continue;
+                        } else if let Some(matra) = Self::indic_matra(n_offset, block) {
+                            out.push_str(matra);
+                            i += step + 1;
+                            continue;
+                        } else if nc.is_whitespace() || nc.is_ascii_punctuation() {
+                            // Word-final schwa deletion in modern Indic languages
+                            i += step;
                             continue;
                         }
-                        Some(nc) if Self::devanagari_matra(nc).is_some() => {
-                            out.push_str(Self::devanagari_matra(nc).unwrap());
-                            i += offset + 1;
-                            continue;
-                        }
-                        Some(nc) if nc.is_whitespace() || nc.is_ascii_punctuation() => {
-                            // Word-final schwa deletion in modern Hindi
-                            i += offset;
-                            continue;
-                        }
-                        None => {
-                            i += offset;
-                            continue;
-                        }
-                        _ => {
-                            out.push('a');
-                            i += offset;
-                            continue;
-                        }
+                    } else {
+                        // End of string: schwa deletion
+                        i += step;
+                        continue;
                     }
-                } else if let Some(vow) = Self::devanagari_vowel_or_sign(c) {
+
+                    // Inherent vowel 'a'
+                    out.push('a');
+                    i += step;
+                    continue;
+                } else if let Some(vow) = Self::indic_vowel(offset, block) {
                     out.push_str(vow);
                     i += 1;
                     continue;
                 }
             }
 
-            // 4. Cyrillic Transliteration
+            // 4. Cyrillic Transliteration (0x0400..=0x04FF)
             if (0x0400..=0x04FF).contains(&u) {
                 if let Some(cyr) = Self::cyrillic_char(c) {
                     out.push_str(cyr);
@@ -891,41 +1241,92 @@ impl Romanizer {
         })
     }
 
-    fn devanagari_consonant(c: char) -> Option<&'static str> {
-        Some(match c {
-            'क' => "k", 'ख' => "kh", 'ग' => "g", 'घ' => "gh", 'ङ' => "ng",
-            'च' => "ch", 'छ' => "chh", 'ज' => "j", 'झ' => "jh", 'ञ' => "ny",
-            'ट' => "t", 'ठ' => "th", 'ड' => "d", 'ढ' => "dh", 'ण' => "n",
-            'त' => "t", 'थ' => "th", 'द' => "d", 'ध' => "dh", 'न' => "n",
-            'प' => "p", 'फ' => "ph", 'ब' => "b", 'भ' => "bh", 'म' => "m",
-            'य' => "y", 'र' => "r", 'ल' => "l", 'व' => "v",
-            'श' => "sh", 'ष' => "sh", 'स' => "s", 'ह' => "h",
-            'ळ' => "l",
-            '\u{0958}' => "q",
-            '\u{0959}' => "kh",
-            '\u{095a}' => "gh",
-            '\u{095b}' => "z",
-            '\u{095c}' => "r",
-            '\u{095d}' => "rh",
-            '\u{095e}' => "f",
+    fn indic_consonant(offset: u8, block: u32) -> Option<&'static str> {
+        Some(match offset {
+            0x15 => "k",
+            0x16 => "kh",
+            0x17 => "g",
+            0x18 => "gh",
+            0x19 => "ng",
+            0x1A => "ch",
+            0x1B => "chh",
+            0x1C => "j",
+            0x1D => "jh",
+            0x1E => "ny",
+            0x1F => "t",
+            0x20 => "th",
+            0x21 => "d",
+            0x22 => "dh",
+            0x23 => if block == 0x0B80 || block == 0x0D00 { "nn" } else { "n" },
+            0x24 => "t",
+            0x25 => "th",
+            0x26 => "d",
+            0x27 => "dh",
+            0x28 => "n",
+            0x29 => if block == 0x0B80 { "na" } else { "nn" }, // Tamil ன
+            0x2A => "p",
+            0x2B => "ph",
+            0x2C => "b",
+            0x2D => "bh",
+            0x2E => "m",
+            0x2F => "y",
+            0x30 => "r",
+            0x31 => "rr", // Tamil/Malayalam ற/റ
+            0x32 => "l",
+            0x33 => "ll", // Tamil/Malayalam/Kannada/Telugu ள/ള/ಳ/ళ
+            0x34 => "zha", // Tamil/Malayalam ழ/ഴ (retroflex approximant)
+            0x35 => "v",
+            0x36 => "sh",
+            0x37 => "sh",
+            0x38 => "s",
+            0x39 => "h",
+            0x58 => "q",
+            0x59 => "kh",
+            0x5A => "gh",
+            0x5B => "z",
+            0x5C => "r",
+            0x5D => "rh",
+            0x5E => "f",
             _ => return None,
         })
     }
 
-    fn devanagari_matra(c: char) -> Option<&'static str> {
-        Some(match c {
-            'ा' => "aa", 'ि' => "i", 'ी' => "ee", 'ु' => "u", 'ू' => "oo",
-            'ृ' => "ri", 'े' => "e", 'ै' => "ai", 'ो' => "o", 'ौ' => "au",
-            'ॉ' => "o", 'ॅ' => "e",
+    fn indic_matra(offset: u8, _block: u32) -> Option<&'static str> {
+        Some(match offset {
+            0x3E => "aa",
+            0x3F => "i",
+            0x40 => "ee",
+            0x41 => "u",
+            0x42 => "oo",
+            0x43 => "ri",
+            0x46 => "e",  // Short e (Tamil/Telugu/Kannada/Malayalam)
+            0x47 => "ee", // Long e
+            0x48 => "ai",
+            0x4A => "o",  // Short o (Tamil/Telugu/Kannada/Malayalam)
+            0x4B => "oo", // Long o
+            0x4C => "au",
+            0x4F => "au",
             _ => return None,
         })
     }
 
-    fn devanagari_vowel_or_sign(c: char) -> Option<&'static str> {
-        Some(match c {
-            'अ' => "a", 'आ' => "aa", 'इ' => "i", 'ई' => "ee", 'उ' => "u", 'ऊ' => "oo",
-            'ऋ' => "ri", 'ए' => "e", 'ऐ' => "ai", 'ओ' => "o", 'औ' => "au",
-            'ं' | 'ँ' => "n", 'ः' => "h", '।' => ".",
+    fn indic_vowel(offset: u8, _block: u32) -> Option<&'static str> {
+        Some(match offset {
+            0x05 => "a",
+            0x06 => "aa",
+            0x07 => "i",
+            0x08 => "ee",
+            0x09 => "u",
+            0x0A => "oo",
+            0x0B => "ri",
+            0x0E => "e",
+            0x0F => "ee",
+            0x10 => "ai",
+            0x12 => "o",
+            0x13 => "oo",
+            0x14 => "au",
+            0x02 => "m", // Anusvara (Am / M)
+            0x03 => "h", // Visarga
             _ => return None,
         })
     }

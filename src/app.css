@@ -29,7 +29,6 @@
 }
 
 html, body {
-  scroll-behavior: smooth;
   -webkit-overflow-scrolling: touch;
 }
 
@@ -83,18 +82,18 @@ body {
 /* Material 3 Acrylic Glassmorphism */
 .m3-acrylic {
   background: var(--md-sys-acrylic, rgba(32, 26, 39, 0.72));
-  backdrop-filter: blur(28px) saturate(180%);
-  -webkit-backdrop-filter: blur(28px) saturate(180%);
+  backdrop-filter: blur(14px) saturate(180%);
+  -webkit-backdrop-filter: blur(14px) saturate(180%);
 }
 .m3-acrylic-card {
   background: var(--md-sys-acrylic-card, rgba(43, 36, 52, 0.55));
-  backdrop-filter: blur(20px) saturate(160%);
-  -webkit-backdrop-filter: blur(20px) saturate(160%);
+  backdrop-filter: blur(14px) saturate(160%);
+  -webkit-backdrop-filter: blur(14px) saturate(160%);
 }
 .m3-acrylic-dock {
   background: var(--md-sys-acrylic-dock, rgba(16, 13, 20, 0.88));
-  backdrop-filter: blur(36px) saturate(200%);
-  -webkit-backdrop-filter: blur(36px) saturate(200%);
+  backdrop-filter: blur(14px) saturate(200%);
+  -webkit-backdrop-filter: blur(14px) saturate(200%);
   border-top: 1px solid rgba(255, 255, 255, 0.08);
 }
 
@@ -127,4 +126,35 @@ input[type=range] {
 }
 .smooth-shape {
   transition-timing-function: cubic-bezier(0.2, 0, 0, 1);
+}
+
+/* Single ArchiveTune / Apple Music Variable-Arc Circular Loading Spinner */
+.archivetune-spinner-svg {
+  display: block;
+  transform-origin: center;
+}
+.archivetune-spinner-arc {
+  stroke-dasharray: 48 100;
+  stroke-linecap: round;
+}
+
+/* Apple Music Instrumental Rhythm Pulse Dots */
+@keyframes interludePulse {
+  0%, 100% {
+    opacity: 0.25;
+    transform: scale(0.85);
+  }
+  50% {
+    opacity: 0.95;
+    transform: scale(1.15);
+  }
+}
+.interlude-dot-1 {
+  animation: interludePulse 1.4s ease-in-out infinite;
+}
+.interlude-dot-2 {
+  animation: interludePulse 1.4s ease-in-out 0.22s infinite;
+}
+.interlude-dot-3 {
+  animation: interludePulse 1.4s ease-in-out 0.44s infinite;
 }

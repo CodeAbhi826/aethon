@@ -99,7 +99,7 @@
   <div class="flex-1 flex overflow-hidden relative">
     <NavigationRail />
 
-    <main class="flex-1 overflow-y-auto relative scroll-smooth">
+    <main class="flex-1 overflow-y-auto relative">
       {#key playerState.activeTab}
         <div in:fly={{ y: 8, duration: 220, opacity: 0 }} class="min-h-full">
           {#if playerState.activeTab === 'home'}

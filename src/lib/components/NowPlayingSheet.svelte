@@ -57,19 +57,67 @@
     return raw;
   });
 
+  let scrollAnimId: number | null = null;
+  let lastScrolledIndex = -1;
+
   $effect(() => {
     const currentId = playerState.currentTrack?.id ?? null;
     if (currentId !== lastTrackId) {
       lastTrackId = currentId;
+      lastScrolledIndex = -1;
       userIsScrolling = false;
       if (scrollResumeTimeout) clearTimeout(scrollResumeTimeout);
+      if (scrollAnimId !== null) {
+        cancelAnimationFrame(scrollAnimId);
+        scrollAnimId = null;
+      }
       if (lyricsContainerEl) {
-        lyricsContainerEl.scrollTo({ top: 0, behavior: 'smooth' });
+        lyricsContainerEl.scrollTop = 0;
       }
     }
   });
 
+  function animateScrollTo(targetY: number) {
+    if (!lyricsContainerEl) return;
+    if (scrollAnimId !== null) {
+      cancelAnimationFrame(scrollAnimId);
+      scrollAnimId = null;
+    }
+
+    const startY = lyricsContainerEl.scrollTop;
+    const distance = targetY - startY;
+    if (Math.abs(distance) < 2) return;
+
+    const startTime = performance.now();
+    const duration = 380; // ms spring duration
+
+    const step = (now: number) => {
+      if (!lyricsContainerEl || userIsScrolling) {
+        scrollAnimId = null;
+        return;
+      }
+      const elapsed = now - startTime;
+      const progress = Math.min(1, elapsed / duration);
+      // Apple exponential spring easing
+      const ease = 1 - Math.pow(1 - progress, 3.5);
+      lyricsContainerEl.scrollTop = startY + distance * ease;
+
+      if (progress < 1) {
+        scrollAnimId = requestAnimationFrame(step);
+      } else {
+        lyricsContainerEl.scrollTop = targetY;
+        scrollAnimId = null;
+      }
+    };
+
+    scrollAnimId = requestAnimationFrame(step);
+  }
+
   function handleUserScroll() {
+    if (scrollAnimId !== null) {
+      cancelAnimationFrame(scrollAnimId);
+      scrollAnimId = null;
+    }
     if (!playerState.lyrics.synced) return;
     userIsScrolling = true;
     if (scrollResumeTimeout) clearTimeout(scrollResumeTimeout);
@@ -131,21 +179,18 @@
 
   function scrollToActiveLyric() {
     if (activeIndex >= 0 && lyricsContainerEl && !userIsScrolling) {
-      const activeEl = lyricsContainerEl.children[activeIndex] as HTMLElement;
+      const activeEl = lyricsContainerEl.querySelector(`[data-lyric-index="${activeIndex}"]`) as HTMLElement | null;
       if (activeEl) {
         const containerHeight = lyricsContainerEl.clientHeight;
-        const targetScroll =
-          activeEl.offsetTop - containerHeight * 0.36 + activeEl.clientHeight / 2;
-        lyricsContainerEl.scrollTo({
-          top: Math.max(0, targetScroll),
-          behavior: 'smooth',
-        });
+        const targetScroll = Math.max(0, activeEl.offsetTop - containerHeight * 0.34 + activeEl.clientHeight / 2);
+        animateScrollTo(targetScroll);
       }
     }
   }
 
   $effect(() => {
-    if (activeIndex >= 0 && !userIsScrolling && settingsState.autoScrollLyrics) {
+    if (activeIndex >= 0 && activeIndex !== lastScrolledIndex && !userIsScrolling && settingsState.autoScrollLyrics) {
+      lastScrolledIndex = activeIndex;
       scrollToActiveLyric();
     }
   });
@@ -153,6 +198,7 @@
   $effect(() => {
     const canvas = canvasEl;
     const open = playerState.isNowPlayingOpen;
+    const isPlaying = playerState.playback.is_playing;
     if (!open || !canvas || !settingsState.spectrumVisualizer) {
       if (animId !== null) {
         cancelAnimationFrame(animId);
@@ -167,20 +213,19 @@
     const bars = 36;
     let phases = Array.from({ length: bars }, () => Math.random() * Math.PI * 2);
 
-    const render = () => {
+    const drawFrame = (playing: boolean) => {
       const w = canvas.width;
       const h = canvas.height;
       ctx.clearRect(0, 0, w, h);
 
       const barWidth = w / bars - 3;
-      const isPlaying = playerState.playback.is_playing;
 
       for (let i = 0; i < bars; i++) {
-        if (isPlaying) {
+        if (playing) {
           phases[i] += 0.05 + (i % 5) * 0.015;
         }
         const centerFactor = 1 - Math.abs(i - bars / 2) / (bars / 2);
-        const amp = isPlaying
+        const amp = playing
           ? (Math.sin(phases[i]) * 0.4 + 0.5) * centerFactor * h * 0.72 + 3
           : 3;
 
@@ -188,15 +233,28 @@
         const y = (h - amp) / 2;
 
         ctx.fillStyle = playerState.accentColor || '#d0bcff';
-        ctx.globalAlpha = isPlaying ? 0.35 + centerFactor * 0.45 : 0.2;
+        ctx.globalAlpha = playing ? 0.35 + centerFactor * 0.45 : 0.2;
         ctx.beginPath();
         ctx.roundRect(x, y, barWidth, amp, 2);
         ctx.fill();
       }
+    };
+
+    if (!isPlaying) {
+      if (animId !== null) {
+        cancelAnimationFrame(animId);
+        animId = null;
+      }
+      drawFrame(false); // Halt visualizer immediately when paused
+      return;
+    }
+
+    const render = () => {
+      drawFrame(true);
       animId = requestAnimationFrame(render);
     };
 
-    render();
+    animId = requestAnimationFrame(render);
 
     return () => {
       if (animId !== null) {
@@ -208,6 +266,7 @@
 
   onDestroy(() => {
     if (animId !== null) cancelAnimationFrame(animId);
+    if (scrollAnimId !== null) cancelAnimationFrame(scrollAnimId);
     if (scrollResumeTimeout) clearTimeout(scrollResumeTimeout);
   });
 </script>
@@ -219,25 +278,21 @@
     aria-label="Now Playing"
     in:fly={{ y: 560, duration: 420, opacity: 0.2, easing: appleSheetEasing }}
     out:fly={{ y: 560, duration: 340, opacity: 0, easing: appleSheetEasing }}
-    class="fixed inset-0 z-50 bg-[#08080b]/96 backdrop-blur-3xl flex flex-col justify-between px-4 sm:px-8 py-3 sm:py-5 overflow-hidden select-none will-change-transform"
+    class="fixed inset-0 z-50 bg-[#08080b]/96 flex flex-col justify-between px-4 sm:px-8 py-3 sm:py-5 overflow-hidden select-none will-change-transform"
     style="--artwork-glow: {playerState.accentColor || '#d0bcff'};"
   >
-    <!-- Dynamic Multi-Point Ambient Mesh Backdrop -->
-    {#if hiResArtwork}
-      <div class="absolute inset-0 pointer-events-none overflow-hidden opacity-35" transition:fade={{ duration: 350 }}>
-        <img
-          src={hiResArtwork}
-          alt=""
-          class="w-full h-full object-cover blur-[110px] scale-125 saturate-150 transition-all duration-1000"
-        />
-        <div class="absolute inset-0 bg-gradient-to-b from-black/40 via-[#08080b]/65 to-[#08080b]"></div>
-      </div>
-    {:else}
+    <!-- Hardware GPU Composited Dual Radial Gradient Mesh Backdrop -->
+    <div class="absolute inset-0 pointer-events-none overflow-hidden opacity-30 z-0">
       <div
-        class="absolute -top-40 -left-40 w-[520px] h-[520px] rounded-full blur-[160px] opacity-20 pointer-events-none transition-colors duration-1000"
-        style="background: {playerState.accentColor};"
+        class="absolute -top-[15%] -left-[10%] w-[75vw] h-[75vw] max-w-[720px] max-h-[720px] rounded-full blur-[120px] transition-colors duration-1000 gpu-layer"
+        style="background: radial-gradient(circle, var(--artwork-glow, #d0bcff) 0%, transparent 70%);"
       ></div>
-    {/if}
+      <div
+        class="absolute -bottom-[20%] -right-[10%] w-[70vw] h-[70vw] max-w-[680px] max-h-[680px] rounded-full blur-[130px] transition-colors duration-1000 gpu-layer"
+        style="background: radial-gradient(circle, var(--md-sys-mesh-2, rgba(41, 128, 185, 0.4)) 0%, transparent 70%);"
+      ></div>
+      <div class="absolute inset-0 bg-gradient-to-b from-black/35 via-transparent to-[#08080b]"></div>
+    </div>
 
     <!-- Top Bar -->
     <header class="flex items-center justify-between z-20 shrink-0 pb-1">
@@ -437,8 +492,8 @@
                   <div class="absolute inset-0 bg-gradient-to-r from-transparent via-white/80 to-transparent animate-shimmer-bar"></div>
                 {:else}
                   <div
-                    class="absolute left-0 top-0 bottom-0 bg-white rounded-full transition-[width] duration-100"
-                    style="width: {playerState.progressPercent}%;"
+                    class="absolute inset-0 bg-white rounded-full origin-left will-change-transform"
+                    style="transform: scaleX({playerState.progressPercent / 100});"
                   ></div>
                 {/if}
                 <input
@@ -456,7 +511,7 @@
               </div>
             </div>
 
-            <!-- Transport Controls with Outer + Inner SVG Circular Progress Ring -->
+            <!-- Transport Controls with Single ArchiveTune Circular Spinner -->
             <div class="flex items-center justify-between px-2 pt-1">
               <button
                 onclick={() => playerState.toggleShuffle()}
@@ -478,25 +533,6 @@
                 </button>
 
                 <div class="relative flex items-center justify-center">
-                  {#if isBuffering}
-                    <svg
-                      class="absolute -inset-2 w-[calc(100%+16px)] h-[calc(100%+16px)] animate-spin text-white pointer-events-none"
-                      viewBox="0 0 64 64"
-                      fill="none"
-                    >
-                      <circle cx="32" cy="32" r="29" stroke="currentColor" stroke-opacity="0.18" stroke-width="2.5" />
-                      <circle
-                        cx="32"
-                        cy="32"
-                        r="29"
-                        stroke="currentColor"
-                        stroke-width="2.5"
-                        stroke-dasharray="60 130"
-                        stroke-linecap="round"
-                      />
-                    </svg>
-                  {/if}
-
                   <button
                     onclick={() => playerState.togglePlay()}
                     class="sheet-squircle-btn w-14 h-14 {playerState.playback.is_playing ? 'is-playing' : ''} bg-white text-black flex items-center justify-center active:scale-90 hover:scale-105 cursor-pointer shadow-xl shadow-black/40"
@@ -507,16 +543,15 @@
                         : 'Play'}
                   >
                     {#if isBuffering}
-                      <svg class="w-7 h-7 animate-spin text-black" viewBox="0 0 36 36" fill="none">
-                        <circle cx="18" cy="18" r="13" stroke="currentColor" stroke-opacity="0.22" stroke-width="3.2" />
+                      <svg class="w-7 h-7 animate-spin archivetune-spinner-svg text-black" viewBox="0 0 36 36" fill="none">
+                        <circle cx="18" cy="18" r="14" stroke="currentColor" stroke-opacity="0.22" stroke-width="3" />
                         <circle
+                          class="archivetune-spinner-arc"
                           cx="18"
                           cy="18"
-                          r="13"
+                          r="14"
                           stroke="currentColor"
-                          stroke-width="3.2"
-                          stroke-dasharray="52 100"
-                          stroke-linecap="round"
+                          stroke-width="3"
                         />
                       </svg>
                     {:else if playerState.playback.is_playing}
@@ -631,22 +666,60 @@
             ontouchmove={handleUserScroll}
             role="region"
             aria-label="Lyrics"
-            class="flex-1 overflow-y-auto px-3 sm:px-6 py-8 space-y-3 lyrics-scroll-container scrollbar-none contain-gpu"
+            class="flex-1 overflow-y-auto px-3 sm:px-6 py-8 space-y-3 scrollbar-none contain-gpu"
           >
-            {#if playerState.lyrics.synced && playerState.lyrics.lines.length > 0}
+            {#if playerState.isLoadingLyrics}
+              <div class="h-full flex flex-col items-center justify-center text-center text-white/50 py-16 gap-3">
+                <svg class="w-8 h-8 animate-spin archivetune-spinner-svg text-white/60" viewBox="0 0 24 24" fill="none">
+                  <circle class="opacity-15" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="2.5" />
+                  <circle class="archivetune-spinner-arc" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="2.5" />
+                </svg>
+                <p class="text-xs font-medium tracking-wide text-white/45 uppercase">Loading Lyrics...</p>
+              </div>
+            {:else if playerState.lyrics.synced && playerState.lyrics.lines.length > 0}
+              <!-- Instrumental Intro Rhythm Dots (>= 4.0s before first line) -->
+              {#if playerState.lyrics.lines[0].time >= 4.0}
+                {@const isIntroActive = (playerState.playback.position + settingsState.lyricOffsetSeconds) < playerState.lyrics.lines[0].time}
+                <div class="py-4 px-4 flex items-center gap-2 transition-opacity duration-300 {isIntroActive ? 'opacity-85' : 'opacity-20'}">
+                  <span class="w-2.5 h-2.5 rounded-full bg-white interlude-dot-1 inline-block"></span>
+                  <span class="w-2.5 h-2.5 rounded-full bg-white interlude-dot-2 inline-block"></span>
+                  <span class="w-2.5 h-2.5 rounded-full bg-white interlude-dot-3 inline-block"></span>
+                </div>
+              {/if}
+
               {#each playerState.lyrics.lines as line, i}
-                {@const isCur = i === activeIndex}
+                {@const dist = i - activeIndex}
+                {@const isCur = dist === 0}
+                
+                <!-- Mid-song Instrumental Break Rhythm Dots (gap >= 10.0s between lines) -->
+                {#if i > 0 && (line.time - playerState.lyrics.lines[i - 1].time) >= 10.0}
+                  {@const curPos = playerState.playback.position + settingsState.lyricOffsetSeconds}
+                  {@const isBreakActive = curPos >= playerState.lyrics.lines[i - 1].time + 2.0 && curPos < line.time}
+                  <div class="py-3 px-4 flex items-center gap-2 transition-opacity duration-300 {isBreakActive ? 'opacity-85' : 'opacity-20'}">
+                    <span class="w-2 h-2 rounded-full bg-white interlude-dot-1 inline-block"></span>
+                    <span class="w-2 h-2 rounded-full bg-white interlude-dot-2 inline-block"></span>
+                    <span class="w-2 h-2 rounded-full bg-white interlude-dot-3 inline-block"></span>
+                  </div>
+                {/if}
+
                 <button
                   type="button"
+                  data-lyric-index={i}
                   onclick={() => {
                     playerState.seek(line.time - settingsState.lyricOffsetSeconds);
                     resumeSync();
                   }}
-                  class="w-full text-left font-display font-bold tracking-tight transition-all duration-300 py-2.5 px-4 rounded-2xl block text-xl sm:text-2xl md:text-[28px] leading-snug cursor-pointer select-none gpu-lyric {isCur
+                  class="w-full text-left font-display font-bold tracking-tight py-2.5 px-4 rounded-2xl block text-xl sm:text-2xl md:text-[28px] leading-snug cursor-pointer select-none gpu-lyric cascade-lyric {isCur
                     ? 'active-lyric'
-                    : settingsState.blurInactiveLines
-                      ? 'inactive-lyric-blur'
-                      : 'inactive-lyric-sharp'}"
+                    : dist === 1
+                      ? 'cascade-dist-1'
+                      : dist === 2
+                        ? 'cascade-dist-2'
+                        : dist >= 3
+                          ? 'cascade-dist-far'
+                          : dist === -1
+                            ? 'cascade-dist-past-1'
+                            : 'cascade-dist-past-far'}"
                   style={isCur
                     ? `--lyric-glow: ${playerState.accentColor || 'var(--md-sys-primary)'};`
                     : ''}
@@ -755,44 +828,48 @@
     transform: translate3d(0, 0, 0);
   }
 
-  .inactive-lyric-blur {
-    filter: blur(1.2px);
-    opacity: 0.32;
-    transform: translate3d(0, 0, 0) scale(0.98);
-    color: rgba(255, 255, 255, 0.75);
+  /* Distance-Graded GPU Spring Cascade (zero CPU filter passes) */
+  .cascade-lyric {
     transform-origin: left center;
-    transition: all 0.35s cubic-bezier(0.16, 1, 0.3, 1);
-  }
-  .inactive-lyric-blur:hover {
-    filter: blur(0px);
-    opacity: 0.85;
-    transform: translate3d(0, 0, 0) scale(1);
-    color: #ffffff;
-  }
-
-  .inactive-lyric-sharp {
-    filter: none;
-    opacity: 0.4;
-    transform: translate3d(0, 0, 0) scale(0.98);
-    color: rgba(255, 255, 255, 0.75);
-    transform-origin: left center;
-    transition: all 0.35s cubic-bezier(0.16, 1, 0.3, 1);
-  }
-  .inactive-lyric-sharp:hover {
-    opacity: 0.85;
-    transform: translate3d(0, 0, 0) scale(1);
-    color: #ffffff;
+    transition: opacity 0.32s cubic-bezier(0.16, 1, 0.3, 1), transform 0.32s cubic-bezier(0.16, 1, 0.3, 1), color 0.25s ease;
   }
 
   .active-lyric {
-    filter: none;
     opacity: 1;
-    transform: translate3d(0, 0, 0) scale(1.02);
+    transform: translate3d(0, 0, 0) scale(1.025);
     color: #ffffff;
     text-shadow: 0 0 28px color-mix(in srgb, var(--lyric-glow, #d0bcff) 55%, transparent);
-    transform-origin: left center;
-    background: rgba(255, 255, 255, 0.05);
-    transition: all 0.35s cubic-bezier(0.16, 1, 0.3, 1);
+    background: rgba(255, 255, 255, 0.055);
+  }
+
+  .cascade-dist-1 {
+    opacity: 0.54;
+    transform: translate3d(0, 0, 0) scale(0.985);
+    color: rgba(255, 255, 255, 0.88);
+  }
+
+  .cascade-dist-2 {
+    opacity: 0.34;
+    transform: translate3d(0, 0, 0) scale(0.97);
+    color: rgba(255, 255, 255, 0.8);
+  }
+
+  .cascade-dist-far {
+    opacity: 0.20;
+    transform: translate3d(0, 0, 0) scale(0.955);
+    color: rgba(255, 255, 255, 0.7);
+  }
+
+  .cascade-dist-past-1 {
+    opacity: 0.26;
+    transform: translate3d(0, 0, 0) scale(0.97);
+    color: rgba(255, 255, 255, 0.7);
+  }
+
+  .cascade-dist-past-far {
+    opacity: 0.16;
+    transform: translate3d(0, 0, 0) scale(0.955);
+    color: rgba(255, 255, 255, 0.65);
   }
 
   .word-sung {
@@ -804,10 +881,6 @@
   }
   .word-singing {
     filter: drop-shadow(0 0 10px var(--lyric-glow, #d0bcff));
-  }
-
-  .lyrics-scroll-container {
-    scroll-behavior: smooth;
   }
 
   .sheet-squircle-btn {

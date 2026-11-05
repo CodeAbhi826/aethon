@@ -58,6 +58,16 @@ class PlayerState {
   lastMprisPlaying = false;
   pendingResumePosition: number | null = null;
   currentRecapSession = $state<PlaybackTrackingSession | null>(null);
+  homeQuickPickFeed = $state<Track[]>([]);
+  homeChartTracks = $state<Track[]>([]);
+  homeArtistRadioTracks = $state<Track[]>([]);
+  homeFeedLoaded = $state(false);
+  isLoadingLyrics = $state(false);
+  private lyricsRequestId = 0;
+  private lastReconciledUri: string | null = null;
+  private lastMediaSessionTrackId: string | null = null;
+  private lastMediaSessionPlaying: boolean | null = null;
+  private lastSavedPosition = 0;
   lastRecapReportedPos = 0;
 
   formattedTime = $derived.by(() => {
@@ -179,7 +189,7 @@ class PlayerState {
       await listen<PlaybackState>('player-state', (event) => {
         if (!event.payload.current_uri) {
           this.hasMpvLoaded = false;
-          this.playback = {
+          Object.assign(this.playback, {
             ...event.payload,
             is_playing: false,
             is_buffering: false,
@@ -187,12 +197,12 @@ class PlayerState {
             duration: this.currentTrack
               ? this.playback.duration || (this.currentTrack.duration ?? 0)
               : event.payload.duration,
-          };
+          });
           return;
         }
 
         this.hasMpvLoaded = true;
-        this.playback = event.payload;
+        Object.assign(this.playback, event.payload);
 
         // Keep isLoading true while MPV is resolving/buffering the stream; only clear when real audio frames play
         if (event.payload.is_buffering) {
@@ -203,7 +213,10 @@ class PlayerState {
 
         // Automatic Track Reconciliation between MPV backend and Svelte UI
         if (event.payload.current_uri && event.payload.is_playing) {
-          this.reconcilePlayingTrack(event.payload.current_uri, event.payload.media_title);
+          if (this.lastReconciledUri !== event.payload.current_uri) {
+            this.lastReconciledUri = event.payload.current_uri;
+            this.reconcilePlayingTrack(event.payload.current_uri, event.payload.media_title);
+          }
         }
 
         if (
@@ -218,12 +231,22 @@ class PlayerState {
         }
 
         if (this.currentTrack) {
-          this.updateMediaSession(this.currentTrack);
+          if (
+            this.lastMediaSessionTrackId !== this.currentTrack.id ||
+            this.lastMediaSessionPlaying !== event.payload.is_playing
+          ) {
+            this.lastMediaSessionTrackId = this.currentTrack.id;
+            this.lastMediaSessionPlaying = event.payload.is_playing;
+            this.updateMediaSession(this.currentTrack);
+          }
+
           if (
             typeof localStorage !== 'undefined' &&
             event.payload.position > 0 &&
-            this.pendingResumePosition === null
+            this.pendingResumePosition === null &&
+            Math.abs(event.payload.position - this.lastSavedPosition) >= 5.0
           ) {
+            this.lastSavedPosition = event.payload.position;
             try {
               localStorage.setItem('aethon_last_position', String(event.payload.position));
               localStorage.setItem('aethon_last_track_id', this.currentTrack.id);
@@ -844,6 +867,16 @@ class PlayerState {
     filePath?: string,
     videoId?: string | null
   ) {
+    const reqId = ++this.lyricsRequestId;
+    this.isLoadingLyrics = true;
+    this.lyrics = {
+      synced: false,
+      lines: [],
+      plain_text: undefined,
+      provider: '',
+      has_romanized: false,
+    };
+
     try {
       const res = await invoke<LyricsResult>('get_lyrics', {
         title,
@@ -852,15 +885,23 @@ class PlayerState {
         filePath: filePath || null,
         videoId: videoId || null,
       });
-      this.lyrics = res;
+      if (reqId === this.lyricsRequestId) {
+        this.lyrics = res;
+      }
     } catch {
-      this.lyrics = {
-        synced: false,
-        lines: [],
-        plain_text: undefined,
-        provider: '',
-        has_romanized: false,
-      };
+      if (reqId === this.lyricsRequestId) {
+        this.lyrics = {
+          synced: false,
+          lines: [],
+          plain_text: undefined,
+          provider: '',
+          has_romanized: false,
+        };
+      }
+    } finally {
+      if (reqId === this.lyricsRequestId) {
+        this.isLoadingLyrics = false;
+      }
     }
   }
 

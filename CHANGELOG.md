@@ -4,6 +4,48 @@ All notable changes, architectural upgrades, and performance fixes in **Aethon**
 
 ---
 
+## [v0.0.38] — 2026-11-06
+
+### 🚀 60fps WebKitGTK GPU Compositor & UI Smoothness
+- **WebKitGTK 100% GPU Compositing Engine (`src-tauri/src/main.rs`)**:
+  - Activated `WEBKIT_FORCE_COMPOSITING_MODE=1` and removed conflicting `WEBKIT_DISABLE_COMPOSITING_MODE`.
+  - Configured hardware-accelerated rendering and GPU layer compositing.
+- **Micro-Stutter Eliminations & State Throttle (`src-tauri/src/player/mpv.rs` & `src/lib/state.svelte.ts`)**:
+  - Throttled MPV `time-pos` property change IPC emissions to 10 Hz (100 ms) while maintaining 0 ms immediacy for play/pause/seek events.
+  - In-place mutation of `playerState.playback` via `Object.assign` avoiding full Svelte proxy invalidation cascades.
+  - Guarded `reconcilePlayingTrack` and `updateMediaSession` to only fire when track URI or play status genuinely changes.
+  - Throttled `localStorage` position persistence from every tick down to $\ge 5.0$s delta.
+  - Cached Home feeds in `playerState` (`homeQuickPickFeed`, `homeChartTracks`, `homeArtistRadioTracks`, `homeFeedLoaded`) eliminating blank-flash re-fetches on tab switches.
+- **High-Performance Scrubber & Color Extraction (`BottomPlayer.svelte`, `NowPlayingSheet.svelte`, `src/lib/theme.ts`)**:
+  - Replaced CPU layout reflows (`width: X%`) with hardware-accelerated `transform: scaleX(...)` on scrubber progress bars.
+  - Replaced full-image color extraction with 24x24 offscreen canvas chroma-weighted sampling and RAM cache.
+  - Removed full-window CSS `backdrop-blur-3xl` and heavy Gaussian blur in `NowPlayingSheet.svelte` in favor of a GPU dual radial gradient mesh.
+- **Apple Music / ArchiveTune Synced Lyrics Enhancements (`NowPlayingSheet.svelte`)**:
+  - Eliminated per-line `filter: blur(1.2px)` in favor of distance-graded CSS spring cascades (`cascade-lyric`), keeping rendering entirely on the GPU.
+  - 60fps `requestAnimationFrame` spring auto-scroll (`animateScrollTo`) centering active lyrics smoothly.
+  - Musical interlude rhythm indicators (`• • •` with `interlude-dot-1/2/3` pulsing) for intro breaks ($\ge 4.0$s) and mid-song breaks ($\ge 10.0$s).
+  - Single circular ArchiveTune spinner (`archivetune-spinner-svg` + `archivetune-spinner-arc`) across buttons, cards, and lyrics loading skeleton (`isLoadingLyrics` + `lyricsRequestId`).
+
+### 🎵 7-Provider ArchiveTune Lyrics Pipeline (`src-tauri/src/lyrics/mod.rs`)
+- **Tier 0**: Local `.lrc` sidecars, embedded tags (`USLT`/`SYLT`/`LYRICS`), and persistent disk cache in `~/.cache/aethon/lyrics/`.
+- **Tier 1**: LRCLIB with `±12s` duration filtering and NetEase CJK auto-merge (`romalrc` + `tlyric`).
+- **Tier 2**: NetEase Cloud Music (`lrc` + `romalrc` + `tlyric`).
+- **Tier 3**: SimpMusic / YouLyPlus YouTube `videoId` lookup.
+- **Tier 4**: KuGou Music duration-matched search with Base64 decoded lyrics.
+- **Tier 5**: YouTube Music Native InnerTube (`timedLyricsData` and `musicDescriptionShelfRenderer`).
+- **Tier 6**: Lyrics.ovh plain-text fallback.
+
+### 🌐 12-Script Phonetic Romanization Engine (`Romanizer` in `src-tauri/src/lyrics/mod.rs`)
+- Full mathematical syllable decomposition for **Korean Hangul** (Revised Romanization).
+- Hepburn romanization for **Japanese Kana** (Hiragana/Katakana with sokuon and digraphs).
+- Unified ISCII offset mapping with language-specific rules:
+  - **Malayalam**: Chillu letters (`ൻ`, `ർ`, `ൽ`, `ൾ`, `ൺ`, `ൿ`), retroflex `ഴ` (`zha`), and clusters `റ്റ`/`ന്റ`.
+  - **Tamil**: Retroflex `ழ` (`zha`), `ற`, `ன/ண`.
+  - **Devanagari** (Hindi, Marathi, Sanskrit) with nukta, halant, and schwa deletion.
+  - **Telugu, Kannada, Bengali, Gujarati, Gurmukhi, Odia, and Cyrillic**.
+
+---
+
 ## [v0.0.37] — 2026-11-05
 
 ### ⚡ ArchiveTune Progressive Disk-Cache Architecture (`src-tauri/src/youtube/mod.rs`)

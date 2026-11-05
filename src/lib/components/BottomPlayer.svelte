@@ -44,26 +44,9 @@
           </div>
         {/if}
 
-        {#if isLoading}
-          <div class="absolute inset-0 bg-black/55 backdrop-blur-[1px] flex items-center justify-center">
-            <svg class="w-6 h-6 animate-spin text-[var(--md-sys-primary)]" viewBox="0 0 36 36" fill="none">
-              <circle cx="18" cy="18" r="14" stroke="currentColor" stroke-opacity="0.2" stroke-width="3" />
-              <circle
-                cx="18"
-                cy="18"
-                r="14"
-                stroke="currentColor"
-                stroke-width="3"
-                stroke-dasharray="56 100"
-                stroke-linecap="round"
-              />
-            </svg>
-          </div>
-        {:else}
-          <div class="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 flex items-center justify-center transition">
-            <span class="material-symbols-rounded text-white text-lg sm:text-xl">keyboard_arrow_up</span>
-          </div>
-        {/if}
+        <div class="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 flex items-center justify-center transition">
+          <span class="material-symbols-rounded text-white text-lg sm:text-xl">keyboard_arrow_up</span>
+        </div>
       </button>
 
       <div class="min-w-0 flex-1">
@@ -132,43 +115,23 @@
         <span class="material-symbols-rounded text-xl sm:text-2xl filled">skip_previous</span>
       </button>
 
-      <!-- Play / Pause Button with ArchiveTune SVG Circular Progress Ring -->
+      <!-- Play / Pause Button with Single ArchiveTune Circular Spinner -->
       <div class="relative flex items-center justify-center">
-        {#if isLoading}
-          <svg
-            class="absolute -inset-1.5 w-[calc(100%+12px)] h-[calc(100%+12px)] animate-spin text-[var(--md-sys-primary)] pointer-events-none"
-            viewBox="0 0 48 48"
-            fill="none"
-          >
-            <circle cx="24" cy="24" r="21" stroke="currentColor" stroke-opacity="0.18" stroke-width="2.5" />
-            <circle
-              cx="24"
-              cy="24"
-              r="21"
-              stroke="currentColor"
-              stroke-width="2.5"
-              stroke-dasharray="48 100"
-              stroke-linecap="round"
-            />
-          </svg>
-        {/if}
-
         <button
           onclick={() => playerState.togglePlay()}
           class="squircle-morph-btn relative w-9 h-9 sm:w-11 sm:h-11 {playerState.playback.is_playing ? 'is-playing' : ''} bg-[var(--md-sys-primary)] text-[var(--md-sys-on-primary)] flex items-center justify-center active:scale-90 hover:scale-105 cursor-pointer select-none shadow-md shadow-black/30"
           title={isLoading ? 'Buffering stream...' : playerState.playback.is_playing ? 'Pause' : 'Play'}
         >
           {#if isLoading}
-            <svg class="w-5 h-5 animate-spin text-current" viewBox="0 0 36 36" fill="none">
-              <circle cx="18" cy="18" r="13" stroke="currentColor" stroke-opacity="0.25" stroke-width="3.2" />
+            <svg class="w-5 h-5 animate-spin archivetune-spinner-svg text-current" viewBox="0 0 36 36" fill="none">
+              <circle cx="18" cy="18" r="14" stroke="currentColor" stroke-opacity="0.25" stroke-width="3" />
               <circle
+                class="archivetune-spinner-arc"
                 cx="18"
                 cy="18"
-                r="13"
+                r="14"
                 stroke="currentColor"
-                stroke-width="3.2"
-                stroke-dasharray="52 100"
-                stroke-linecap="round"
+                stroke-width="3"
               />
             </svg>
           {:else if playerState.playback.is_playing}
@@ -212,8 +175,8 @@
           <div class="absolute inset-0 bg-gradient-to-r from-transparent via-[var(--md-sys-primary)]/60 to-transparent animate-shimmer-bar"></div>
         {:else}
           <div
-            class="absolute left-0 top-0 bottom-0 bg-[var(--md-sys-primary)] rounded-full transition-[width] duration-100"
-            style="width: {playerState.progressPercent}%;"
+            class="absolute inset-0 bg-[var(--md-sys-primary)] rounded-full origin-left will-change-transform"
+            style="transform: scaleX({playerState.progressPercent / 100});"
           ></div>
         {/if}
         <input

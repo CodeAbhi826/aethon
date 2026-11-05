@@ -16,11 +16,11 @@
   ];
 
   let activeMood = $state('All');
-  let quickPickFeed = $state<Track[]>([]);
-  let chartTracks = $state<Track[]>([]);
-  let artistRadioTracks = $state<Track[]>([]);
-  let isLoadingFeed = $state(true);
-  let isLoadingCharts = $state(true);
+  let quickPickFeed = $state<Track[]>(playerState.homeQuickPickFeed);
+  let chartTracks = $state<Track[]>(playerState.homeChartTracks);
+  let artistRadioTracks = $state<Track[]>(playerState.homeArtistRadioTracks);
+  let isLoadingFeed = $state(!playerState.homeFeedLoaded);
+  let isLoadingCharts = $state(!playerState.homeFeedLoaded);
 
   let isBuffering = $derived(playerState.isLoading || Boolean(playerState.playback.is_buffering));
 
@@ -126,7 +126,16 @@
     return list;
   });
 
-  async function loadHomeFeeds(customMoodQuery?: string) {
+  async function loadHomeFeeds(customMoodQuery?: string, forceRefresh = false) {
+    if (!forceRefresh && !customMoodQuery && playerState.homeFeedLoaded && playerState.homeQuickPickFeed.length > 0) {
+      quickPickFeed = playerState.homeQuickPickFeed;
+      chartTracks = playerState.homeChartTracks;
+      artistRadioTracks = playerState.homeArtistRadioTracks;
+      isLoadingFeed = false;
+      isLoadingCharts = false;
+      return;
+    }
+
     isLoadingFeed = true;
     try {
       const primaryQuery =
@@ -144,7 +153,11 @@
       ]);
 
       if (feedRes && feedRes.length > 0) {
-        quickPickFeed = feedRes.map((yt) => ytToTrack(yt, 'Quick Picks'));
+        const tracks = feedRes.map((yt) => ytToTrack(yt, 'Quick Picks'));
+        quickPickFeed = tracks;
+        if (!customMoodQuery) {
+          playerState.homeQuickPickFeed = tracks;
+        }
         if (quickPickFeed[0]) {
           playerState.prefetchStream(
             quickPickFeed[0].file_path,
@@ -155,8 +168,11 @@
       }
 
       if (chartRes && chartRes.length > 0) {
-        chartTracks = chartRes.map((yt) => ytToTrack(yt, 'Top Charts'));
+        const cTracks = chartRes.map((yt) => ytToTrack(yt, 'Top Charts'));
+        chartTracks = cTracks;
+        playerState.homeChartTracks = cTracks;
       }
+      playerState.homeFeedLoaded = true;
     } finally {
       isLoadingFeed = false;
       isLoadingCharts = false;
@@ -174,7 +190,9 @@
       })
         .then((res) => {
           if (res && res.length > 0) {
-            artistRadioTracks = res.map((yt) => ytToTrack(yt, `${artist} Station`));
+            const rTracks = res.map((yt) => ytToTrack(yt, `${artist} Station`));
+            artistRadioTracks = rTracks;
+            playerState.homeArtistRadioTracks = rTracks;
           }
         })
         .catch(() => {});
@@ -222,7 +240,7 @@
         {/if}
         <button
           type="button"
-          onclick={() => loadHomeFeeds(moods.find((m) => m.label === activeMood)?.query)}
+          onclick={() => loadHomeFeeds(moods.find((m) => m.label === activeMood)?.query, true)}
           class="w-8 h-8 rounded-full bg-white/[0.06] hover:bg-white/[0.12] flex items-center justify-center text-white/65 hover:text-white transition-colors cursor-pointer"
           title="Refresh Home Feed"
         >
@@ -320,9 +338,9 @@
               <!-- Floating Play / SVG Circular Loader / Equalizer Pill -->
               <div class="w-10 h-10 rounded-full bg-white text-black flex items-center justify-center shadow-lg shrink-0 group-hover:scale-105 transition-transform">
                 {#if isCurrent && isBuffering}
-                  <svg class="w-5 h-5 animate-spin text-black" viewBox="0 0 36 36" fill="none">
-                    <circle cx="18" cy="18" r="13" stroke="currentColor" stroke-opacity="0.2" stroke-width="3.2" />
-                    <circle cx="18" cy="18" r="13" stroke="currentColor" stroke-width="3.2" stroke-dasharray="52 100" stroke-linecap="round" />
+                  <svg class="w-5 h-5 animate-spin archivetune-spinner-svg text-black" viewBox="0 0 24 24" fill="none">
+                    <circle class="opacity-15" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="2.5" />
+                    <circle class="archivetune-spinner-arc" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="2.5" />
                   </svg>
                 {:else if isCurrent && playerState.playback.is_playing}
                   <div class="flex items-end gap-[2.5px] h-3.5">
@@ -411,9 +429,9 @@
                     : 'opacity-0 group-hover:opacity-100'} flex items-center justify-center transition-opacity"
                 >
                   {#if isCurrent && isBuffering}
-                    <svg class="w-5 h-5 animate-spin text-[var(--md-sys-primary)]" viewBox="0 0 36 36" fill="none">
-                      <circle cx="18" cy="18" r="13" stroke="currentColor" stroke-opacity="0.22" stroke-width="3.2" />
-                      <circle cx="18" cy="18" r="13" stroke="currentColor" stroke-width="3.2" stroke-dasharray="52 100" stroke-linecap="round" />
+                    <svg class="w-5 h-5 animate-spin archivetune-spinner-svg text-[var(--md-sys-primary)]" viewBox="0 0 24 24" fill="none">
+                      <circle class="opacity-15" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="2.5" />
+                      <circle class="archivetune-spinner-arc" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="2.5" />
                     </svg>
                   {:else if isCurrent && playerState.playback.is_playing}
                     <div class="flex items-end gap-[2.5px] h-3.5">
@@ -523,9 +541,9 @@
               >
                 <div class="w-9 h-9 rounded-full bg-white text-black flex items-center justify-center shadow-lg">
                   {#if isCurrent && isBuffering}
-                    <svg class="w-4 h-4 animate-spin text-black" viewBox="0 0 36 36" fill="none">
-                      <circle cx="18" cy="18" r="13" stroke="currentColor" stroke-opacity="0.2" stroke-width="3.4" />
-                      <circle cx="18" cy="18" r="13" stroke="currentColor" stroke-width="3.4" stroke-dasharray="52 100" stroke-linecap="round" />
+                    <svg class="w-4 h-4 animate-spin archivetune-spinner-svg text-black" viewBox="0 0 24 24" fill="none">
+                      <circle class="opacity-15" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="2.5" />
+                      <circle class="archivetune-spinner-arc" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="2.5" />
                     </svg>
                   {:else if isCurrent && playerState.playback.is_playing}
                     <div class="flex items-end gap-[2px] h-3">
@@ -608,9 +626,9 @@
               >
                 <div class="w-9 h-9 rounded-full bg-white text-black flex items-center justify-center shadow-lg">
                   {#if isCurrent && isBuffering}
-                    <svg class="w-4 h-4 animate-spin text-black" viewBox="0 0 36 36" fill="none">
-                      <circle cx="18" cy="18" r="13" stroke="currentColor" stroke-opacity="0.2" stroke-width="3.4" />
-                      <circle cx="18" cy="18" r="13" stroke="currentColor" stroke-width="3.4" stroke-dasharray="52 100" stroke-linecap="round" />
+                    <svg class="w-4 h-4 animate-spin archivetune-spinner-svg text-black" viewBox="0 0 24 24" fill="none">
+                      <circle class="opacity-15" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="2.5" />
+                      <circle class="archivetune-spinner-arc" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="2.5" />
                     </svg>
                   {:else if isCurrent && playerState.playback.is_playing}
                     <div class="flex items-end gap-[2px] h-3">
@@ -675,9 +693,9 @@
                 {/if}
                 <div class="absolute inset-0 bg-black/45 {isCurrent ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'} flex items-center justify-center transition-opacity">
                   {#if isCurrent && isBuffering}
-                    <svg class="w-4 h-4 animate-spin text-[var(--md-sys-primary)]" viewBox="0 0 36 36" fill="none">
-                      <circle cx="18" cy="18" r="13" stroke="currentColor" stroke-opacity="0.2" stroke-width="3.2" />
-                      <circle cx="18" cy="18" r="13" stroke="currentColor" stroke-width="3.2" stroke-dasharray="52 100" stroke-linecap="round" />
+                    <svg class="w-4 h-4 animate-spin archivetune-spinner-svg text-[var(--md-sys-primary)]" viewBox="0 0 24 24" fill="none">
+                      <circle class="opacity-15" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="2.5" />
+                      <circle class="archivetune-spinner-arc" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="2.5" />
                     </svg>
                   {:else if isCurrent && playerState.playback.is_playing}
                     <div class="flex items-end gap-[2px] h-3">
