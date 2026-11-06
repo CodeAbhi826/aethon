@@ -344,9 +344,9 @@
                   </svg>
                 {:else if isCurrent && playerState.playback.is_playing}
                   <div class="flex items-end gap-[2.5px] h-3.5">
-                    <span class="w-[3px] bg-black rounded-full animate-eq-1"></span>
-                    <span class="w-[3px] bg-black rounded-full animate-eq-2"></span>
-                    <span class="w-[3px] bg-black rounded-full animate-eq-3"></span>
+                    <span class="w-[3px] h-full bg-black rounded-full animate-eq-1"></span>
+                    <span class="w-[3px] h-full bg-black rounded-full animate-eq-2"></span>
+                    <span class="w-[3px] h-full bg-black rounded-full animate-eq-3"></span>
                   </div>
                 {:else}
                   <span class="material-symbols-rounded text-xl filled">play_arrow</span>
@@ -435,9 +435,9 @@
                     </svg>
                   {:else if isCurrent && playerState.playback.is_playing}
                     <div class="flex items-end gap-[2.5px] h-3.5">
-                      <span class="w-[3px] bg-[var(--md-sys-primary)] rounded-full animate-eq-1"></span>
-                      <span class="w-[3px] bg-[var(--md-sys-primary)] rounded-full animate-eq-2"></span>
-                      <span class="w-[3px] bg-[var(--md-sys-primary)] rounded-full animate-eq-3"></span>
+                      <span class="w-[3px] h-full bg-[var(--md-sys-primary)] rounded-full animate-eq-1"></span>
+                      <span class="w-[3px] h-full bg-[var(--md-sys-primary)] rounded-full animate-eq-2"></span>
+                      <span class="w-[3px] h-full bg-[var(--md-sys-primary)] rounded-full animate-eq-3"></span>
                     </div>
                   {:else}
                     <span class="material-symbols-rounded text-white text-xl filled">play_arrow</span>
@@ -547,9 +547,9 @@
                     </svg>
                   {:else if isCurrent && playerState.playback.is_playing}
                     <div class="flex items-end gap-[2px] h-3">
-                      <span class="w-[2.5px] bg-black rounded-full animate-eq-1"></span>
-                      <span class="w-[2.5px] bg-black rounded-full animate-eq-2"></span>
-                      <span class="w-[2.5px] bg-black rounded-full animate-eq-3"></span>
+                      <span class="w-[2.5px] h-full bg-black rounded-full animate-eq-1"></span>
+                      <span class="w-[2.5px] h-full bg-black rounded-full animate-eq-2"></span>
+                      <span class="w-[2.5px] h-full bg-black rounded-full animate-eq-3"></span>
                     </div>
                   {:else}
                     <span class="material-symbols-rounded text-xl filled">play_arrow</span>
@@ -632,9 +632,9 @@
                     </svg>
                   {:else if isCurrent && playerState.playback.is_playing}
                     <div class="flex items-end gap-[2px] h-3">
-                      <span class="w-[2.5px] bg-black rounded-full animate-eq-1"></span>
-                      <span class="w-[2.5px] bg-black rounded-full animate-eq-2"></span>
-                      <span class="w-[2.5px] bg-black rounded-full animate-eq-3"></span>
+                      <span class="w-[2.5px] h-full bg-black rounded-full animate-eq-1"></span>
+                      <span class="w-[2.5px] h-full bg-black rounded-full animate-eq-2"></span>
+                      <span class="w-[2.5px] h-full bg-black rounded-full animate-eq-3"></span>
                     </div>
                   {:else}
                     <span class="material-symbols-rounded text-xl filled">play_arrow</span>
@@ -699,9 +699,9 @@
                     </svg>
                   {:else if isCurrent && playerState.playback.is_playing}
                     <div class="flex items-end gap-[2px] h-3">
-                      <span class="w-[2.5px] bg-[var(--md-sys-primary)] rounded-full animate-eq-1"></span>
-                      <span class="w-[2.5px] bg-[var(--md-sys-primary)] rounded-full animate-eq-2"></span>
-                      <span class="w-[2.5px] bg-[var(--md-sys-primary)] rounded-full animate-eq-3"></span>
+                      <span class="w-[2.5px] h-full bg-[var(--md-sys-primary)] rounded-full animate-eq-1"></span>
+                      <span class="w-[2.5px] h-full bg-[var(--md-sys-primary)] rounded-full animate-eq-2"></span>
+                      <span class="w-[2.5px] h-full bg-[var(--md-sys-primary)] rounded-full animate-eq-3"></span>
                     </div>
                   {:else}
                     <span class="material-symbols-rounded text-white text-lg filled">play_arrow</span>
@@ -744,24 +744,30 @@
 
 <style>
   @keyframes eqBar1 {
-    0%, 100% { height: 35%; }
-    50% { height: 100%; }
+    0%, 100% { transform: scaleY(0.35); }
+    50% { transform: scaleY(1); }
   }
   @keyframes eqBar2 {
-    0%, 100% { height: 95%; }
-    40% { height: 30%; }
+    0%, 100% { transform: scaleY(0.95); }
+    40% { transform: scaleY(0.3); }
   }
   @keyframes eqBar3 {
-    0%, 100% { height: 50%; }
-    65% { height: 95%; }
+    0%, 100% { transform: scaleY(0.5); }
+    65% { transform: scaleY(0.95); }
   }
   .animate-eq-1 {
+    transform-origin: bottom;
+    will-change: transform;
     animation: eqBar1 0.75s ease-in-out infinite;
   }
   .animate-eq-2 {
+    transform-origin: bottom;
+    will-change: transform;
     animation: eqBar2 0.65s ease-in-out infinite;
   }
   .animate-eq-3 {
+    transform-origin: bottom;
+    will-change: transform;
     animation: eqBar3 0.8s ease-in-out infinite;
   }
 </style>

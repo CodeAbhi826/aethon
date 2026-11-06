@@ -1130,13 +1130,47 @@ impl Romanizer {
                 }
 
                 // Malayalam Special Clusters: റ്റ (tta) & ന്റ (nda)
-                if c == 'റ' && chars.get(i + 1) == Some(&'്') && chars.get(i + 2) == Some(&'റ') {
-                    out.push_str("tta");
-                    i += 3;
-                    continue;
-                }
-                if c == 'ന' && chars.get(i + 1) == Some(&'്') && chars.get(i + 2) == Some(&'റ') {
-                    out.push_str("nda");
+                let cluster_cons = if c == 'റ'
+                    && chars.get(i + 1) == Some(&'്')
+                    && chars.get(i + 2) == Some(&'റ')
+                {
+                    Some("tt")
+                } else if c == 'ന'
+                    && chars.get(i + 1) == Some(&'്')
+                    && chars.get(i + 2) == Some(&'റ')
+                {
+                    Some("nd")
+                } else {
+                    None
+                };
+
+                if let Some(cons) = cluster_cons {
+                    out.push_str(cons);
+                    let next_c = chars.get(i + 3).copied();
+                    if let Some(nc) = next_c {
+                        let nu = nc as u32;
+                        let n_offset = (nu & 0x7F) as u8;
+                        let n_block = nu & 0xFF80;
+                        if n_offset == 0x4D {
+                            // Chandrakkala / Halant suppresses inherent 'a'
+                            i += 4;
+                            continue;
+                        } else if let Some(matra) = Self::indic_matra(n_offset, n_block) {
+                            out.push_str(matra);
+                            i += 4;
+                            continue;
+                        } else if nc.is_whitespace() || nc.is_ascii_punctuation() {
+                            // Word-final schwa deletion
+                            i += 3;
+                            continue;
+                        }
+                    } else {
+                        // End of string: schwa deletion
+                        i += 3;
+                        continue;
+                    }
+                    // Inherent vowel 'a'
+                    out.push('a');
                     i += 3;
                     continue;
                 }
@@ -1263,7 +1297,7 @@ impl Romanizer {
             0x26 => "d",
             0x27 => "dh",
             0x28 => "n",
-            0x29 => if block == 0x0B80 { "na" } else { "nn" }, // Tamil ன
+            0x29 => if block == 0x0B80 { "n" } else { "nn" }, // Tamil ன (alveolar nasal)
             0x2A => "p",
             0x2B => "ph",
             0x2C => "b",
@@ -1274,7 +1308,7 @@ impl Romanizer {
             0x31 => "rr", // Tamil/Malayalam ற/റ
             0x32 => "l",
             0x33 => "ll", // Tamil/Malayalam/Kannada/Telugu ள/ള/ಳ/ళ
-            0x34 => "zha", // Tamil/Malayalam ழ/ഴ (retroflex approximant)
+            0x34 => "zh", // Tamil/Malayalam ழ/ഴ (retroflex approximant)
             0x35 => "v",
             0x36 => "sh",
             0x37 => "sh",
@@ -1325,6 +1359,7 @@ impl Romanizer {
             0x12 => "o",
             0x13 => "oo",
             0x14 => "au",
+            0x01 => "n", // Chandrabindu (Nasalization)
             0x02 => "m", // Anusvara (Am / M)
             0x03 => "h", // Visarga
             _ => return None,

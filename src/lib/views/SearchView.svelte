@@ -254,15 +254,15 @@
                   {#if isTopCurrent && (isBuffering || playerState.playback.is_playing)}
                     <div class="absolute inset-0 bg-black/45 flex items-center justify-center">
                       {#if isBuffering}
-                        <svg class="w-7 h-7 animate-spin text-[var(--md-sys-primary)]" viewBox="0 0 36 36" fill="none">
-                          <circle cx="18" cy="18" r="13" stroke="currentColor" stroke-opacity="0.2" stroke-width="3.2" />
-                          <circle cx="18" cy="18" r="13" stroke="currentColor" stroke-width="3.2" stroke-dasharray="52 100" stroke-linecap="round" />
+                        <svg class="w-6 h-6 animate-spin archivetune-spinner-svg text-[var(--md-sys-primary)]" viewBox="0 0 24 24" fill="none">
+                          <circle class="opacity-15" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="2.5" />
+                          <circle class="archivetune-spinner-arc" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="2.5" />
                         </svg>
                       {:else}
                         <div class="flex items-end gap-[3px] h-4">
-                          <span class="w-[3px] bg-[var(--md-sys-primary)] rounded-full animate-eq-1"></span>
-                          <span class="w-[3px] bg-[var(--md-sys-primary)] rounded-full animate-eq-2"></span>
-                          <span class="w-[3px] bg-[var(--md-sys-primary)] rounded-full animate-eq-3"></span>
+                          <span class="w-[3px] h-full bg-[var(--md-sys-primary)] rounded-full animate-eq-1"></span>
+                          <span class="w-[3px] h-full bg-[var(--md-sys-primary)] rounded-full animate-eq-2"></span>
+                          <span class="w-[3px] h-full bg-[var(--md-sys-primary)] rounded-full animate-eq-3"></span>
                         </div>
                       {/if}
                     </div>
@@ -359,15 +359,15 @@
                     <img loading="lazy" decoding="async" src={yt.thumbnail} alt={yt.title} class="w-full h-full object-cover" />
                     <div class="absolute inset-0 bg-black/50 {isCurrent ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'} flex items-center justify-center transition-opacity">
                       {#if isCurrent && isBuffering}
-                        <svg class="w-5 h-5 animate-spin text-[var(--md-sys-primary)]" viewBox="0 0 36 36" fill="none">
-                          <circle cx="18" cy="18" r="13" stroke="currentColor" stroke-opacity="0.2" stroke-width="3.2" />
-                          <circle cx="18" cy="18" r="13" stroke="currentColor" stroke-width="3.2" stroke-dasharray="52 100" stroke-linecap="round" />
+                        <svg class="w-5 h-5 animate-spin archivetune-spinner-svg text-[var(--md-sys-primary)]" viewBox="0 0 24 24" fill="none">
+                          <circle class="opacity-15" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="2.5" />
+                          <circle class="archivetune-spinner-arc" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="2.5" />
                         </svg>
                       {:else if isCurrent && playerState.playback.is_playing}
                         <div class="flex items-end gap-[2.5px] h-3.5">
-                          <span class="w-[3px] bg-[var(--md-sys-primary)] rounded-full animate-eq-1"></span>
-                          <span class="w-[3px] bg-[var(--md-sys-primary)] rounded-full animate-eq-2"></span>
-                          <span class="w-[3px] bg-[var(--md-sys-primary)] rounded-full animate-eq-3"></span>
+                          <span class="w-[3px] h-full bg-[var(--md-sys-primary)] rounded-full animate-eq-1"></span>
+                          <span class="w-[3px] h-full bg-[var(--md-sys-primary)] rounded-full animate-eq-2"></span>
+                          <span class="w-[3px] h-full bg-[var(--md-sys-primary)] rounded-full animate-eq-3"></span>
                         </div>
                       {:else}
                         <span class="material-symbols-rounded text-white text-lg filled">play_arrow</span>
@@ -470,15 +470,15 @@
                   <img loading="lazy" decoding="async" src={yt.thumbnail} alt={yt.title} class="w-full h-full object-cover" />
                   <div class="absolute inset-0 bg-black/50 {isCurrent ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'} flex items-center justify-center transition-opacity">
                     {#if isCurrent && isBuffering}
-                      <svg class="w-4 h-4 animate-spin text-[var(--md-sys-primary)]" viewBox="0 0 36 36" fill="none">
-                        <circle cx="18" cy="18" r="13" stroke="currentColor" stroke-opacity="0.2" stroke-width="3.2" />
-                        <circle cx="18" cy="18" r="13" stroke="currentColor" stroke-width="3.2" stroke-dasharray="52 100" stroke-linecap="round" />
+                      <svg class="w-4 h-4 animate-spin archivetune-spinner-svg text-[var(--md-sys-primary)]" viewBox="0 0 24 24" fill="none">
+                        <circle class="opacity-15" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="2.5" />
+                        <circle class="archivetune-spinner-arc" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="2.5" />
                       </svg>
                     {:else if isCurrent && playerState.playback.is_playing}
                       <div class="flex items-end gap-[2px] h-3">
-                        <span class="w-[2.5px] bg-[var(--md-sys-primary)] rounded-full animate-eq-1"></span>
-                        <span class="w-[2.5px] bg-[var(--md-sys-primary)] rounded-full animate-eq-2"></span>
-                        <span class="w-[2.5px] bg-[var(--md-sys-primary)] rounded-full animate-eq-3"></span>
+                        <span class="w-[2.5px] h-full bg-[var(--md-sys-primary)] rounded-full animate-eq-1"></span>
+                        <span class="w-[2.5px] h-full bg-[var(--md-sys-primary)] rounded-full animate-eq-2"></span>
+                        <span class="w-[2.5px] h-full bg-[var(--md-sys-primary)] rounded-full animate-eq-3"></span>
                       </div>
                     {:else}
                       <span class="material-symbols-rounded text-white text-lg filled">play_arrow</span>
@@ -530,24 +530,30 @@
 
 <style>
   @keyframes eqBar1 {
-    0%, 100% { height: 35%; }
-    50% { height: 100%; }
+    0%, 100% { transform: scaleY(0.35); }
+    50% { transform: scaleY(1); }
   }
   @keyframes eqBar2 {
-    0%, 100% { height: 95%; }
-    40% { height: 30%; }
+    0%, 100% { transform: scaleY(0.95); }
+    40% { transform: scaleY(0.3); }
   }
   @keyframes eqBar3 {
-    0%, 100% { height: 50%; }
-    65% { height: 95%; }
+    0%, 100% { transform: scaleY(0.5); }
+    65% { transform: scaleY(0.95); }
   }
   .animate-eq-1 {
+    transform-origin: bottom;
+    will-change: transform;
     animation: eqBar1 0.75s ease-in-out infinite;
   }
   .animate-eq-2 {
+    transform-origin: bottom;
+    will-change: transform;
     animation: eqBar2 0.65s ease-in-out infinite;
   }
   .animate-eq-3 {
+    transform-origin: bottom;
+    will-change: transform;
     animation: eqBar3 0.8s ease-in-out infinite;
   }
 </style>

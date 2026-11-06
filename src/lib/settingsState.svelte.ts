@@ -446,7 +446,7 @@ class SettingsState {
 
   exportSettings(): string {
     const data = {
-      version: '0.0.37',
+      version: '0.0.38',
       exportedAt: new Date().toISOString(),
       appearance: {
         dynamicTheme: this.dynamicTheme,

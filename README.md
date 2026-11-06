@@ -79,4 +79,4 @@ aethon-update
 
 ## 📜 Changelog
 
-For a complete record of updates, performance enhancements, and bug fixes from version 0.0.1 to 0.0.37, see [CHANGELOG.md](file:///home/abhin/Projects/music/CHANGELOG.md).
+For a complete record of updates, performance enhancements, and bug fixes from version 0.0.1 to 0.0.38, see [CHANGELOG.md](file:///home/abhin/Projects/music/CHANGELOG.md).
