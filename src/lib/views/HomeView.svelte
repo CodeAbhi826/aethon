@@ -313,7 +313,7 @@
             <div class="absolute inset-0 bg-gradient-to-t from-black/90 via-black/30 to-black/10"></div>
 
             <div class="relative z-10 p-4 flex items-center justify-between">
-              <span class="px-2.5 py-1 rounded-full text-[10px] font-semibold uppercase tracking-wider bg-black/45 backdrop-blur-md text-white/85 border border-white/10">
+              <span class="px-2.5 py-1 rounded-full text-[10px] font-semibold uppercase tracking-wider bg-black/75 text-white/85 border border-white/10">
                 {item.tag}
               </span>
               <button
@@ -322,7 +322,7 @@
                   e.stopPropagation();
                   playerState.openContextMenu(track, e.clientX, e.clientY);
                 }}
-                class="w-7 h-7 rounded-full bg-black/40 backdrop-blur-md text-white/75 hover:text-white flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
+                class="w-7 h-7 rounded-full bg-black/75 text-white/75 hover:text-white flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
                 aria-label="More options"
               >
                 <span class="material-symbols-rounded text-base">more_horiz</span>

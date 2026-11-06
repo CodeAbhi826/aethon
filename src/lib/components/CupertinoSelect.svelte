@@ -144,7 +144,7 @@
         aria-haspopup="listbox"
         aria-expanded={isOpen}
         {disabled}
-        class="flex items-center justify-between gap-2.5 px-3.5 py-2 rounded-xl text-xs font-semibold text-white bg-black/40 hover:bg-black/60 border border-white/10 hover:border-[var(--md-sys-primary)]/60 focus:border-[var(--md-sys-primary)] focus:ring-2 focus:ring-[var(--md-sys-primary)]/30 backdrop-blur-md transition-all shadow-sm cursor-pointer select-none"
+        class="flex items-center justify-between gap-2.5 px-3.5 py-2 rounded-xl text-xs font-semibold text-white bg-[#181422]/90 hover:bg-[#201a2e]/95 border border-white/10 hover:border-[var(--md-sys-primary)]/60 focus:border-[var(--md-sys-primary)] focus:ring-2 focus:ring-[var(--md-sys-primary)]/30 transition-all shadow-sm cursor-pointer select-none"
       >
         <span class="truncate max-w-[180px]">{selectedOption?.label ?? 'Select...'}</span>
         <span
@@ -158,7 +158,7 @@
       {#if isOpen}
         <div
           bind:this={popoverEl}
-          class="absolute right-0 {openUpward ? 'bottom-full mb-2' : 'top-full mt-2'} w-64 max-h-60 overflow-y-auto z-50 rounded-2xl bg-[#181520]/95 backdrop-blur-2xl border border-white/15 p-1.5 shadow-2xl space-y-1 animate-dropdown scrollbar-none"
+          class="absolute right-0 {openUpward ? 'bottom-full mb-2' : 'top-full mt-2'} w-64 max-h-60 overflow-y-auto z-50 rounded-2xl bg-[#1c1726] border border-white/15 p-1.5 shadow-2xl space-y-1 animate-dropdown scrollbar-none"
           role="listbox"
         >
           {#each options as opt}
@@ -199,7 +199,7 @@
       aria-haspopup="listbox"
       aria-expanded={isOpen}
       {disabled}
-      class="flex items-center justify-between gap-2.5 px-3.5 py-2 rounded-xl text-xs font-semibold text-white bg-black/40 hover:bg-black/60 border border-white/10 hover:border-[var(--md-sys-primary)]/60 focus:border-[var(--md-sys-primary)] focus:ring-2 focus:ring-[var(--md-sys-primary)]/30 backdrop-blur-md transition-all shadow-sm cursor-pointer select-none"
+      class="flex items-center justify-between gap-2.5 px-3.5 py-2 rounded-xl text-xs font-semibold text-white bg-[#181422]/90 hover:bg-[#201a2e]/95 border border-white/10 hover:border-[var(--md-sys-primary)]/60 focus:border-[var(--md-sys-primary)] focus:ring-2 focus:ring-[var(--md-sys-primary)]/30 transition-all shadow-sm cursor-pointer select-none"
     >
       <span class="truncate max-w-[180px]">{selectedOption?.label ?? 'Select...'}</span>
       <span
@@ -212,7 +212,7 @@
     {#if isOpen}
       <div
         bind:this={popoverEl}
-        class="absolute right-0 {openUpward ? 'bottom-full mb-2' : 'top-full mt-2'} w-64 max-h-60 overflow-y-auto z-50 rounded-2xl bg-[#181520]/95 backdrop-blur-2xl border border-white/15 p-1.5 shadow-2xl space-y-1 animate-dropdown scrollbar-none"
+        class="absolute right-0 {openUpward ? 'bottom-full mb-2' : 'top-full mt-2'} w-64 max-h-60 overflow-y-auto z-50 rounded-2xl bg-[#1c1726] border border-white/15 p-1.5 shadow-2xl space-y-1 animate-dropdown scrollbar-none"
         role="listbox"
       >
         {#each options as opt}

@@ -46,7 +46,7 @@
     onkeydown={(e) => {
       if (e.key === 'Escape') playerState.isQueueOpen = false;
     }}
-    class="fixed inset-0 bg-black/55 backdrop-blur-sm z-50"
+    class="fixed inset-0 bg-black/75 z-50"
   ></div>
 
   <!-- Sliding Queue Panel with Apple spring enter + exit -->

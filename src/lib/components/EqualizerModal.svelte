@@ -218,7 +218,7 @@
 </script>
 
 {#if playerState.isEqualizerOpen}
-  <div class="fixed inset-0 z-50 bg-black/60 backdrop-blur-md flex items-center justify-center p-4">
+  <div class="fixed inset-0 z-50 bg-black/75 flex items-center justify-center p-4">
     <div class="w-full max-w-2xl bg-[#14151a] border border-white/[0.08] rounded-3xl p-6 shadow-2xl animate-scale-up select-none">
       
       <!-- Modal Header -->

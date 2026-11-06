@@ -51,7 +51,7 @@
 
   <div
     bind:this={menuRef}
-    class="fixed z-50 w-56 py-1.5 rounded-2xl bg-[#1e1e24]/95 backdrop-blur-2xl border border-white/10 shadow-2xl shadow-black/80 flex flex-col gap-0.5 text-xs text-white/90 animate-in fade-in zoom-in-95 duration-150"
+    class="fixed z-50 w-56 py-1.5 rounded-2xl bg-[#1e1e24]/98 border border-white/10 shadow-2xl shadow-black/80 flex flex-col gap-0.5 text-xs text-white/90 animate-in fade-in zoom-in-95 duration-150"
     style="left: {adjustedX}px; top: {adjustedY}px;"
     role="menu"
     tabindex="-1"

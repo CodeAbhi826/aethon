@@ -8,7 +8,7 @@ fn main() {
             std::env::set_var("MALLOC_ARENA_MAX", "2");
         }
         std::env::remove_var("WEBKIT_DISABLE_COMPOSITING_MODE");
-        std::env::set_var("WEBKIT_FORCE_COMPOSITING_MODE", "1");
+        std::env::remove_var("WEBKIT_FORCE_COMPOSITING_MODE");
     }
 
     aethon_lib::run()

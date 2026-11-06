@@ -143,7 +143,7 @@
 </script>
 
 <div class="h-full flex flex-col md:flex-row overflow-hidden bg-[var(--md-sys-surface)]/60 text-[var(--md-sys-on-surface)]">
-  <aside class="w-full md:w-72 lg:w-80 shrink-0 border-b md:border-b-0 md:border-r border-white/[0.06] bg-[var(--md-sys-surface-container-low)]/80 backdrop-blur-2xl flex md:flex-col flex-row items-center md:items-stretch overflow-x-auto md:overflow-y-auto p-2 md:p-4 gap-1.5 scrollbar-none z-10">
+  <aside class="w-full md:w-72 lg:w-80 shrink-0 border-b md:border-b-0 md:border-r border-white/[0.06] bg-[var(--md-sys-surface-container-low)]/98 flex md:flex-col flex-row items-center md:items-stretch overflow-x-auto md:overflow-y-auto p-2 md:p-4 gap-1.5 scrollbar-none z-10">
     <div class="px-3 py-3 mb-2 border-b border-white/[0.05] hidden md:block">
       <h2 class="font-display font-bold text-xl text-white tracking-tight flex items-center gap-2">
         <span class="material-symbols-rounded text-[var(--md-sys-primary)]">tune</span>

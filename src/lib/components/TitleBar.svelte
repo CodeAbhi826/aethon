@@ -20,7 +20,7 @@
   }
 </script>
 
-<header class="h-11 w-full flex items-center justify-between px-3.5 bg-[#0e0f13]/85 backdrop-blur-xl border-b border-white/[0.05] select-none z-30 shrink-0">
+<header class="h-11 w-full flex items-center justify-between px-3.5 bg-[#0e0f13]/96 border-b border-white/[0.06] shadow-sm select-none z-30 shrink-0">
   <div class="flex items-center gap-2">
     <img src="/aethon_logo.svg" alt="Aethon" class="w-5 h-5 rounded-md object-contain" />
     <span class="font-heading font-bold text-xs tracking-wide text-white/90">Aethon</span>

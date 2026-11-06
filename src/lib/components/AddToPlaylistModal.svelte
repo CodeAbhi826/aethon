@@ -38,7 +38,7 @@
 <svelte:window onkeydown={handleKeydown} />
 
 {#if playerState.isAddToPlaylistModalOpen && track}
-  <div class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-150">
+  <div class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/75 animate-in fade-in duration-150">
     <div
       class="w-full max-w-sm rounded-3xl bg-[#1c1b1f]/95 border border-white/10 p-5 shadow-2xl shadow-black/80 flex flex-col gap-4 animate-in zoom-in-95 duration-200"
       role="dialog"

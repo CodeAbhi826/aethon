@@ -22,7 +22,7 @@
   <div
     in:scale={{ start: 0.9, duration: 240, opacity: 0 }}
     out:scale={{ start: 0.9, duration: 180, opacity: 0 }}
-    class="fixed bottom-6 right-6 z-50 w-80 rounded-2xl bg-[#141218]/95 backdrop-blur-2xl border border-white/15 p-3.5 shadow-2xl shadow-black/90 flex flex-col gap-2.5 select-none group origin-bottom-right"
+    class="fixed bottom-6 right-6 z-50 w-80 rounded-2xl bg-[#141218]/98 border border-white/15 p-3.5 shadow-2xl shadow-black/90 flex flex-col gap-2.5 select-none group origin-bottom-right"
     role="region"
     aria-label="Mini Player"
   >
