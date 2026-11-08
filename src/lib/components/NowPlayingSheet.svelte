@@ -309,20 +309,22 @@
     aria-label="Now Playing"
     in:fly={{ y: 560, duration: 420, opacity: 0.2, easing: appleSheetEasing }}
     out:fly={{ y: 560, duration: 340, opacity: 0, easing: appleSheetEasing }}
-    class="fixed inset-0 z-50 bg-[#08080b]/96 flex flex-col justify-between px-4 sm:px-8 py-3 sm:py-5 overflow-hidden select-none will-change-transform"
-    style="--artwork-glow: {playerState.accentColor || '#d0bcff'};"
+    class="fixed inset-0 z-50 flex flex-col justify-between px-4 sm:px-8 py-3 sm:py-5 overflow-hidden select-none will-change-transform"
+    style="background-color: #08080c; --artwork-glow: {playerState.accentColor || '#d0bcff'};"
   >
     <!-- Hardware GPU Composited Dual Radial Gradient Mesh Backdrop -->
-    <div class="absolute inset-0 pointer-events-none overflow-hidden opacity-40 z-0">
+    <div class="absolute inset-0 pointer-events-none overflow-hidden z-0">
+      <!-- 100% Solid Deep Base ensuring underlying app is completely hidden -->
+      <div class="absolute inset-0 bg-[#08080c]"></div>
       <div
-        class="absolute -top-[15%] -left-[10%] w-[75vw] h-[75vw] max-w-[720px] max-h-[720px] rounded-full transition-colors duration-1000 gpu-layer"
+        class="absolute -top-[15%] -left-[10%] w-[75vw] h-[75vw] max-w-[720px] max-h-[720px] rounded-full transition-colors duration-1000 gpu-layer opacity-40"
         style="background: radial-gradient(circle, var(--artwork-glow, #d0bcff) 0%, transparent 70%);"
       ></div>
       <div
-        class="absolute -bottom-[20%] -right-[10%] w-[70vw] h-[70vw] max-w-[680px] max-h-[680px] rounded-full transition-colors duration-1000 gpu-layer"
+        class="absolute -bottom-[20%] -right-[10%] w-[70vw] h-[70vw] max-w-[680px] max-h-[680px] rounded-full transition-colors duration-1000 gpu-layer opacity-30"
         style="background: radial-gradient(circle, var(--md-sys-mesh-2, rgba(41, 128, 185, 0.4)) 0%, transparent 70%);"
       ></div>
-      <div class="absolute inset-0 bg-gradient-to-b from-black/35 via-transparent to-[#08080b]"></div>
+      <div class="absolute inset-0 bg-gradient-to-b from-[#08080c]/60 via-transparent to-[#08080c]"></div>
     </div>
 
     <!-- Top Bar -->

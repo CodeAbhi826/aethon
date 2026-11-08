@@ -422,6 +422,8 @@ async fn run_stream_downloader(task: Arc<StreamDownloadTask>, video_id: String) 
             total_len
         );
         enforce_disk_cache_limit();
+    } else if cur_pos == 0 {
+        let _ = fs::remove_file(&part_path);
     }
 }
 
@@ -582,9 +584,15 @@ async fn handle_proxy_client(mut socket: tokio::net::TcpStream) {
         .unwrap_or(if total_len > 0 { total_len - 1 } else { req_start + 524_288 });
     let content_len = final_end - req_start + 1;
 
+    let total_len_str = if total_len > 0 {
+        total_len.to_string()
+    } else {
+        "*".to_string()
+    };
+
     let resp_headers = format!(
         "HTTP/1.1 206 Partial Content\r\nContent-Type: {}\r\nAccept-Ranges: bytes\r\nContent-Range: bytes {}-{}/{}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
-        task.mime_type, req_start, final_end, total_len, content_len
+        task.mime_type, req_start, final_end, total_len_str, content_len
     );
 
     if socket.write_all(resp_headers.as_bytes()).await.is_err() || method.eq_ignore_ascii_case("HEAD") {
@@ -597,6 +605,14 @@ async fn handle_proxy_client(mut socket: tokio::net::TcpStream) {
             break f;
         }
         if task.error.lock().is_some() {
+            let cur_url = task.upstream_url.lock().clone();
+            if cur_url.starts_with("http") {
+                let resp = format!(
+                    "HTTP/1.1 307 Temporary Redirect\r\nLocation: {}\r\nContent-Length: 0\r\nConnection: close\r\n\r\n",
+                    cur_url
+                );
+                let _ = socket.write_all(resp.as_bytes()).await;
+            }
             return;
         }
         tokio::time::sleep(std::time::Duration::from_millis(50)).await;
@@ -1259,7 +1275,7 @@ impl YouTubeService {
             .arg("-f")
             .arg("251/140/bestaudio[ext=webm]/bestaudio/best")
             .arg("--extractor-args")
-            .arg("youtube:player_client=android_vr,tv,mweb,web_safari")
+            .arg("youtube:player_client=tv,mweb,web_safari")
             .arg("--")
             .arg(uri);
         crate::sanitize_host_command(&mut cmd);
@@ -1290,7 +1306,7 @@ impl YouTubeService {
                 .arg("-f")
                 .arg("251/140/bestaudio/best")
                 .arg("--extractor-args")
-                .arg("youtube:player_client=android_vr,tv,mweb,web_safari")
+                .arg("youtube:player_client=tv,mweb,web_safari")
                 .arg("--")
                 .arg(format!("ytsearch1:{}", query));
             crate::sanitize_host_command(&mut alt_cmd);
