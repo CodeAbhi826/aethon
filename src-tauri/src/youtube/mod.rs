@@ -748,17 +748,17 @@ impl YouTubeService {
     }
 
     pub fn upgrade_thumbnail_url(url: &str, video_id: &str) -> String {
-        if url.contains("lh3.googleusercontent.com") || url.contains("yt3.ggpht.com") {
+        if url.contains("googleusercontent.com") || url.contains("ggpht.com") {
             if let Some(eq_idx) = url.rfind('=') {
                 let suffix = &url[eq_idx + 1..];
                 if suffix.starts_with('w') || suffix.starts_with('s') {
-                    return format!("{}=w544-h544-l90-rj", &url[..eq_idx]);
+                    return format!("{}=w1080-h1080-l90-rj", &url[..eq_idx]);
                 }
             }
-            return url.to_string();
+            return format!("{}=w1080-h1080-l90-rj", url);
         }
         if !video_id.is_empty() && (url.is_empty() || url.contains("default.jpg")) {
-            return format!("https://i.ytimg.com/vi/{}/hqdefault.jpg", video_id);
+            return format!("https://i.ytimg.com/vi/{}/maxresdefault.jpg", video_id);
         }
         url.to_string()
     }
@@ -1567,7 +1567,7 @@ impl YouTubeService {
                     .and_then(|d| d.trim().parse::<f64>().ok())
                     .unwrap_or(0.0);
 
-                let thumbnail = format!("https://i.ytimg.com/vi/{}/hqdefault.jpg", id);
+                let thumbnail = format!("https://i.ytimg.com/vi/{}/maxresdefault.jpg", id);
                 let stream_url = format!("https://www.youtube.com/watch?v={}", id);
 
                 if !id.is_empty() && id != "NA" {

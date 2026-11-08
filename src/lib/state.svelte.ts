@@ -12,6 +12,7 @@ import {
 } from './types';
 import { extractAndApplyThemeFromImage, generateThemeFromHex, applyThemeTokens } from './theme';
 import { settingsState, registerThemeListener } from './settingsState.svelte';
+import { getHighResArtwork, fetchCrispAlbumArt } from './artwork';
 
 class PlayerState {
   currentTrack = $state<Track | null>(null);
@@ -606,7 +607,7 @@ class PlayerState {
         album: 'Aethon Stream',
         duration: this.playback.duration || 0,
         file_path: uri,
-        cover_art: vid ? `https://i.ytimg.com/vi/${vid}/hqdefault.jpg` : '',
+        cover_art: vid ? getHighResArtwork(null, vid) : '',
         format: 'Opus',
         play_count: 1,
         favorite: false,
@@ -645,10 +646,16 @@ class PlayerState {
       filePath = `https://www.youtube.com/watch?v=${track.id.replace('yt_', '')}`;
     }
 
+    const trackVid = track.id.startsWith('yt_')
+      ? track.id.replace('yt_', '')
+      : this.extractVideoId(track.file_path);
+    const upgradedCover = getHighResArtwork(track.cover_art, trackVid);
+
     const sanitized: Track = {
       ...track,
       file_path: filePath,
       artist: sanitizeArtist(track.artist),
+      cover_art: upgradedCover,
     };
     if (this.currentTrack && this.currentTrack.id !== sanitized.id) {
       this.pendingResumePosition = null;
@@ -702,6 +709,18 @@ class PlayerState {
       this.reapplyTheme();
     }
 
+    if (sanitized.title && sanitized.artist) {
+      const currentTrackId = sanitized.id;
+      fetchCrispAlbumArt(sanitized.title, sanitized.artist).then((crispArt) => {
+        if (crispArt && this.currentTrack?.id === currentTrackId) {
+          this.currentTrack.cover_art = crispArt;
+          this.updateMediaSession(this.currentTrack);
+          this.updateMpris(this.currentTrack, true);
+          this.applyMonetColorFromImage(crispArt);
+        }
+      });
+    }
+
     if (
       videoId &&
       settingsState.ytmConnected &&
@@ -751,7 +770,7 @@ class PlayerState {
       album: 'YouTube Music',
       duration: yt.duration,
       file_path: yt.stream_url,
-      cover_art: yt.thumbnail,
+      cover_art: getHighResArtwork(yt.thumbnail, yt.id),
       format: 'Opus 256k',
       play_count: 0,
       favorite: false,

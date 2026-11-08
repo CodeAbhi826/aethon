@@ -2,6 +2,8 @@
   import { fly, fade } from 'svelte/transition';
   import { playerState } from '../state.svelte';
   import { sanitizeArtist } from '../types';
+  import { getHighResArtwork } from '../artwork';
+  import ArtistLinks from './ArtistLinks.svelte';
 
   let isBuffering = $derived(playerState.isLoading || Boolean(playerState.playback.is_buffering));
 
@@ -90,7 +92,17 @@
           <div class="p-2.5 rounded-2xl bg-white/[0.06] border border-white/[0.08] flex items-center gap-3">
             <div class="relative w-11 h-11 rounded-xl overflow-hidden shrink-0 bg-white/5">
               {#if playerState.currentTrack.cover_art}
-                <img src={playerState.currentTrack.cover_art} alt={playerState.currentTrack.title} class="w-full h-full object-cover" />
+                <img
+                  src={getHighResArtwork(playerState.currentTrack.cover_art, playerState.currentTrack.id)}
+                  alt={playerState.currentTrack.title}
+                  class="w-full h-full object-cover"
+                  onerror={(e) => {
+                    const target = e.currentTarget as HTMLImageElement;
+                    if (target.src.includes('maxresdefault.jpg')) {
+                      target.src = target.src.replace('maxresdefault.jpg', 'hqdefault.jpg');
+                    }
+                  }}
+                />
               {:else}
                 <div class="w-full h-full flex items-center justify-center">
                   <span class="material-symbols-rounded text-white/40">music_note</span>
@@ -114,9 +126,11 @@
               <div class="text-xs font-semibold text-white truncate">
                 {playerState.currentTrack.title}
               </div>
-              <div class="text-[11px] text-white/55 truncate mt-0.5">
-                {sanitizeArtist(playerState.currentTrack.artist)}
-              </div>
+              <ArtistLinks
+                artist={playerState.currentTrack.artist}
+                class="mt-0.5 block max-w-full"
+                buttonClass="text-[11px] text-white/55 hover:text-white transition-colors cursor-pointer text-left"
+              />
             </div>
           </div>
         </div>
@@ -162,7 +176,19 @@
                   class="relative w-10 h-10 rounded-lg overflow-hidden shrink-0 bg-white/5 cursor-pointer"
                 >
                   {#if track.cover_art}
-                    <img loading="lazy" decoding="async" src={track.cover_art} alt={track.title} class="w-full h-full object-cover" />
+                    <img
+                      loading="lazy"
+                      decoding="async"
+                      src={getHighResArtwork(track.cover_art, track.id)}
+                      alt={track.title}
+                      class="w-full h-full object-cover"
+                      onerror={(e) => {
+                        const target = e.currentTarget as HTMLImageElement;
+                        if (target.src.includes('maxresdefault.jpg')) {
+                          target.src = target.src.replace('maxresdefault.jpg', 'hqdefault.jpg');
+                        }
+                      }}
+                    />
                   {:else}
                     <div class="w-full h-full flex items-center justify-center">
                       <span class="material-symbols-rounded text-white/40 text-sm">music_note</span>
@@ -175,7 +201,11 @@
 
                 <div class="min-w-0 flex-1">
                   <div class="text-xs font-semibold text-white truncate">{track.title}</div>
-                  <div class="text-[11px] text-white/50 truncate mt-0.5">{sanitizeArtist(track.artist)}</div>
+                  <ArtistLinks
+                    artist={track.artist}
+                    class="mt-0.5 block max-w-full"
+                    buttonClass="text-[11px] text-white/50 hover:text-white transition-colors cursor-pointer text-left"
+                  />
                 </div>
               </div>
 

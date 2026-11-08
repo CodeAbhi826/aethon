@@ -2,6 +2,8 @@
   import { scale, fly } from 'svelte/transition';
   import { playerState } from '../state.svelte';
   import { sanitizeArtist } from '../types';
+  import { getHighResArtwork } from '../artwork';
+  import ArtistLinks from './ArtistLinks.svelte';
 
   const currentTrack = $derived(playerState.currentTrack);
   const isPlaying = $derived(playerState.playback.is_playing);
@@ -31,9 +33,15 @@
       <div class="relative w-12 h-12 rounded-xl overflow-hidden shadow-md flex-shrink-0 bg-white/5 border border-white/10">
         {#if currentTrack?.cover_art}
           <img
-            src={currentTrack.cover_art}
+            src={getHighResArtwork(currentTrack.cover_art, currentTrack.id)}
             alt={currentTrack.title}
             class="w-full h-full object-cover transition-transform duration-700 {isPlaying ? 'scale-105' : 'scale-100'}"
+            onerror={(e) => {
+              const target = e.currentTarget as HTMLImageElement;
+              if (target.src.includes('maxresdefault.jpg')) {
+                target.src = target.src.replace('maxresdefault.jpg', 'hqdefault.jpg');
+              }
+            }}
           />
         {:else}
           <div class="w-full h-full flex items-center justify-center text-white/40">
@@ -46,9 +54,11 @@
         <h4 class="text-xs font-semibold text-white truncate leading-tight">
           {currentTrack ? currentTrack.title : 'Not Playing'}
         </h4>
-        <p class="text-[11px] text-white/70 truncate leading-tight mt-0.5">
-          {currentTrack ? sanitizeArtist(currentTrack.artist) : 'Select a song'}
-        </p>
+        <ArtistLinks
+          artist={currentTrack ? currentTrack.artist : ''}
+          class="mt-0.5 block max-w-full"
+          buttonClass="text-[11px] text-white/70 hover:text-white transition-colors cursor-pointer text-left leading-tight"
+        />
       </div>
 
       <div class="flex items-center gap-1 flex-shrink-0">

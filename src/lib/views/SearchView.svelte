@@ -2,6 +2,8 @@
   import { onDestroy } from 'svelte';
   import { playerState } from '../state.svelte';
   import { sanitizeArtist, type Track, type YouTubeTrack } from '../types';
+  import { getHighResArtwork } from '../artwork';
+  import ArtistLinks from '../components/ArtistLinks.svelte';
 
   let searchQuery = $state('');
   let activeFilter = $state<'all' | 'songs' | 'artists'>('all');
@@ -51,7 +53,7 @@
       album: 'YouTube Music',
       duration: yt.duration || 0,
       file_path: yt.stream_url,
-      cover_art: yt.thumbnail,
+      cover_art: getHighResArtwork(yt.thumbnail, yt.id),
       format: 'Opus 256k',
       play_count: 0,
       favorite: false,
@@ -245,9 +247,15 @@
               <div class="flex items-center gap-4">
                 <div class="relative w-24 h-24 rounded-2xl overflow-hidden shadow-lg shrink-0 bg-white/5">
                   <img
-                    src={topResult.thumbnail}
+                    src={getHighResArtwork(topResult.thumbnail, topResult.id)}
                     alt={topResult.title}
                     class="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
+                    onerror={(e) => {
+                      const target = e.currentTarget as HTMLImageElement;
+                      if (target.src.includes('maxresdefault.jpg')) {
+                        target.src = target.src.replace('maxresdefault.jpg', 'hqdefault.jpg');
+                      }
+                    }}
                   />
                   {#if isTopCurrent && (isBuffering || playerState.playback.is_playing)}
                     <div class="absolute inset-0 bg-black/45 flex items-center justify-center">
@@ -271,12 +279,16 @@
                   <h4 class="font-display font-bold text-base sm:text-lg {isTopCurrent ? 'text-[var(--md-sys-primary)]' : 'text-white'} truncate">
                     {topResult.title}
                   </h4>
-                  <p class="text-xs text-white/60 truncate mt-1">
-                    Song • {sanitizeArtist(topResult.artist)}
+                  <div class="text-xs text-white/60 truncate mt-1 flex items-center gap-1">
+                    <span>Song •</span>
+                    <ArtistLinks
+                      artist={topResult.artist}
+                      buttonClass="hover:underline hover:text-white transition-colors cursor-pointer text-left"
+                    />
                     {#if topResult.duration > 0}
-                      <span> • {formatDuration(topResult.duration)}</span>
+                      <span>• {formatDuration(topResult.duration)}</span>
                     {/if}
-                  </p>
+                  </div>
                 </div>
               </div>
 
@@ -353,7 +365,19 @@
               >
                 <div class="flex items-center gap-3 min-w-0 flex-1 pr-3">
                   <div class="relative w-11 h-11 rounded-xl overflow-hidden bg-white/5 shrink-0">
-                    <img loading="lazy" decoding="async" src={yt.thumbnail} alt={yt.title} class="w-full h-full object-cover" />
+                    <img
+                      loading="lazy"
+                      decoding="async"
+                      src={getHighResArtwork(yt.thumbnail, yt.id)}
+                      alt={yt.title}
+                      class="w-full h-full object-cover"
+                      onerror={(e) => {
+                        const target = e.currentTarget as HTMLImageElement;
+                        if (target.src.includes('maxresdefault.jpg')) {
+                          target.src = target.src.replace('maxresdefault.jpg', 'hqdefault.jpg');
+                        }
+                      }}
+                    />
                     <div class="absolute inset-0 bg-black/50 {isCurrent ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'} flex items-center justify-center transition-opacity">
                       {#if isCurrent && isBuffering}
                         <svg class="w-5 h-5 animate-spin archivetune-spinner-svg text-[var(--md-sys-primary)]" viewBox="0 0 24 24" fill="none">
@@ -375,7 +399,11 @@
                     <p class="text-xs font-semibold {isCurrent ? 'text-[var(--md-sys-primary)]' : 'text-white'} truncate">
                       {yt.title}
                     </p>
-                    <p class="text-[11px] text-white/55 truncate mt-0.5">{sanitizeArtist(yt.artist)}</p>
+                    <ArtistLinks
+                      artist={yt.artist}
+                      class="mt-0.5 block max-w-full"
+                      buttonClass="text-[11px] text-white/55 hover:text-white transition-colors cursor-pointer text-left"
+                    />
                   </div>
                 </div>
 
@@ -463,7 +491,19 @@
             >
               <div class="flex items-center gap-3 min-w-0 flex-1 pr-3">
                 <div class="relative w-10 h-10 rounded-lg overflow-hidden bg-white/5 shrink-0">
-                  <img loading="lazy" decoding="async" src={yt.thumbnail} alt={yt.title} class="w-full h-full object-cover" />
+                  <img
+                    loading="lazy"
+                    decoding="async"
+                    src={getHighResArtwork(yt.thumbnail, yt.id)}
+                    alt={yt.title}
+                    class="w-full h-full object-cover"
+                    onerror={(e) => {
+                      const target = e.currentTarget as HTMLImageElement;
+                      if (target.src.includes('maxresdefault.jpg')) {
+                        target.src = target.src.replace('maxresdefault.jpg', 'hqdefault.jpg');
+                      }
+                    }}
+                  />
                   <div class="absolute inset-0 bg-black/50 {isCurrent ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'} flex items-center justify-center transition-opacity">
                     {#if isCurrent && isBuffering}
                       <svg class="w-4 h-4 animate-spin archivetune-spinner-svg text-[var(--md-sys-primary)]" viewBox="0 0 24 24" fill="none">
@@ -485,7 +525,11 @@
                   <p class="text-xs font-semibold {isCurrent ? 'text-[var(--md-sys-primary)]' : 'text-white'} truncate">
                     {yt.title}
                   </p>
-                  <p class="text-[11px] text-white/55 truncate mt-0.5">{sanitizeArtist(yt.artist)}</p>
+                  <ArtistLinks
+                    artist={yt.artist}
+                    class="mt-0.5 block max-w-full"
+                    buttonClass="text-[11px] text-white/55 hover:text-white transition-colors cursor-pointer text-left"
+                  />
                 </div>
               </div>
 

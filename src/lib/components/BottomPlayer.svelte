@@ -1,6 +1,8 @@
 <script lang="ts">
   import { playerState } from '../state.svelte';
   import { sanitizeArtist } from '../types';
+  import { getHighResArtwork } from '../artwork';
+  import ArtistLinks from './ArtistLinks.svelte';
 
   let showVolumeSlider = $state(false);
   let isLoading = $derived(playerState.isLoading || Boolean(playerState.playback.is_buffering));
@@ -34,9 +36,15 @@
       >
         {#if playerState.currentTrack.cover_art}
           <img
-            src={playerState.currentTrack.cover_art}
+            src={getHighResArtwork(playerState.currentTrack.cover_art, playerState.currentTrack.id)}
             class="w-full h-full object-cover group-hover:scale-105 transition duration-300"
             alt="Artwork"
+            onerror={(e) => {
+              const target = e.currentTarget as HTMLImageElement;
+              if (target.src.includes('maxresdefault.jpg')) {
+                target.src = target.src.replace('maxresdefault.jpg', 'hqdefault.jpg');
+              }
+            }}
           />
         {:else}
           <div class="w-full h-full bg-[var(--md-sys-surface-container)] flex items-center justify-center">
@@ -60,13 +68,11 @@
           {#if isLoading}
             <span class="text-[10px] font-medium text-[var(--md-sys-primary)] animate-pulse">Loading stream...</span>
           {:else}
-            <button
-              onclick={() =>
-                playerState.openArtist(sanitizeArtist(playerState.currentTrack?.artist || ''))}
-              class="hover:underline hover:text-white transition text-left truncate cursor-pointer"
-            >
-              {sanitizeArtist(playerState.currentTrack.artist)}
-            </button>
+            <ArtistLinks
+              artist={playerState.currentTrack.artist}
+              class="max-w-full"
+              buttonClass="hover:underline hover:text-white transition text-left truncate cursor-pointer"
+            />
           {/if}
         </div>
       </div>

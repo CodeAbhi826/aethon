@@ -1,6 +1,8 @@
 <script lang="ts">
   import { playerState } from '../state.svelte';
   import type { Track, Playlist } from '../types';
+  import { getHighResArtwork } from '../artwork';
+  import ArtistLinks from '../components/ArtistLinks.svelte';
 
   type SubTab = 'tracks' | 'artists' | 'albums' | 'playlists' | 'favorites' | 'downloaded';
   let activeTab = $state<SubTab>('tracks');
@@ -201,7 +203,19 @@
           >
             <div class="flex items-center gap-3 min-w-0 flex-1">
               {#if track.cover_art}
-                <img loading="lazy" decoding="async" src={track.cover_art} alt={track.title} class="w-10 h-10 rounded-lg object-cover flex-shrink-0" />
+                <img
+                  loading="lazy"
+                  decoding="async"
+                  src={getHighResArtwork(track.cover_art, track.id)}
+                  alt={track.title}
+                  class="w-10 h-10 rounded-lg object-cover flex-shrink-0"
+                  onerror={(e) => {
+                    const target = e.currentTarget as HTMLImageElement;
+                    if (target.src.includes('maxresdefault.jpg')) {
+                      target.src = target.src.replace('maxresdefault.jpg', 'hqdefault.jpg');
+                    }
+                  }}
+                />
               {:else}
                 <div class="w-10 h-10 rounded-lg bg-white/5 flex items-center justify-center flex-shrink-0 text-white/40">
                   <span class="material-symbols-rounded text-lg">music_note</span>
@@ -209,7 +223,11 @@
               {/if}
               <div class="min-w-0">
                 <p class="text-xs font-medium text-white truncate">{track.title}</p>
-                <p class="text-[11px] text-white/60 truncate">{track.artist}</p>
+                <ArtistLinks
+                  artist={track.artist}
+                  class="mt-0.5 block max-w-full"
+                  buttonClass="text-[11px] text-white/60 hover:text-white transition-colors cursor-pointer text-left"
+                />
               </div>
             </div>
 
@@ -373,7 +391,19 @@
             <div class="flex items-center gap-3.5 min-w-0 flex-1">
               <div class="relative w-12 h-12 rounded-xl overflow-hidden shrink-0 bg-white/5 border border-white/10">
                 {#if track.cover_art}
-                  <img loading="lazy" decoding="async" src={track.cover_art} alt={track.title} class="w-full h-full object-cover group-hover:scale-105 transition-transform" />
+                  <img
+                    loading="lazy"
+                    decoding="async"
+                    src={getHighResArtwork(track.cover_art, track.id)}
+                    alt={track.title}
+                    class="w-full h-full object-cover group-hover:scale-105 transition-transform"
+                    onerror={(e) => {
+                      const target = e.currentTarget as HTMLImageElement;
+                      if (target.src.includes('maxresdefault.jpg')) {
+                        target.src = target.src.replace('maxresdefault.jpg', 'hqdefault.jpg');
+                      }
+                    }}
+                  />
                 {:else}
                   <div class="w-full h-full flex items-center justify-center text-white/40">
                     <span class="material-symbols-rounded text-xl">music_note</span>
@@ -390,9 +420,14 @@
                 <h4 class="font-semibold text-xs {isCurrent ? 'text-[var(--md-sys-primary,#d0bcff)]' : 'text-white'} truncate">
                   {track.title}
                 </h4>
-                <p class="text-[11px] text-white/75 truncate mt-0.5">
-                  {track.artist} <span class="text-white/30">•</span> {track.album}
-                </p>
+                <div class="text-[11px] text-white/75 truncate mt-0.5 flex items-center gap-1">
+                  <ArtistLinks
+                    artist={track.artist}
+                    buttonClass="hover:underline hover:text-white transition-colors cursor-pointer text-left"
+                  />
+                  <span class="text-white/30">•</span>
+                  <span class="truncate">{track.album}</span>
+                </div>
               </div>
             </div>
 

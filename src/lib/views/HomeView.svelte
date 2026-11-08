@@ -3,6 +3,8 @@
   import { invoke } from '@tauri-apps/api/core';
   import { playerState } from '../state.svelte';
   import { sanitizeArtist, type Track, type YouTubeTrack } from '../types';
+  import { getHighResArtwork } from '../artwork';
+  import ArtistLinks from '../components/ArtistLinks.svelte';
 
   const moods = [
     { label: 'All', query: '' },
@@ -53,7 +55,7 @@
       album: albumLabel,
       duration: yt.duration || 0,
       file_path: yt.stream_url,
-      cover_art: yt.thumbnail,
+      cover_art: getHighResArtwork(yt.thumbnail, yt.id),
       format: 'Opus 256k',
       play_count: 0,
       favorite: false,
@@ -299,6 +301,12 @@
                 src={track.cover_art}
                 alt={track.title}
                 class="absolute inset-0 w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
+                onerror={(e) => {
+                  const target = e.currentTarget as HTMLImageElement;
+                  if (target.src.includes('maxresdefault.jpg')) {
+                    target.src = target.src.replace('maxresdefault.jpg', 'hqdefault.jpg');
+                  }
+                }}
               />
             {/if}
             <div class="absolute inset-0 bg-gradient-to-t from-black/90 via-black/30 to-black/10"></div>
@@ -323,7 +331,11 @@
             <div class="relative z-10 p-4 flex items-end justify-between gap-3">
               <div class="min-w-0 flex-1">
                 <h3 class="font-display font-bold text-base text-white line-clamp-1">{track.title}</h3>
-                <p class="text-xs text-white/70 truncate mt-0.5">{sanitizeArtist(track.artist)}</p>
+                <ArtistLinks
+                  artist={track.artist}
+                  class="mt-0.5 block max-w-full"
+                  buttonClass="text-xs text-white/70 hover:text-white transition-colors cursor-pointer text-left"
+                />
               </div>
 
               <!-- Floating Play / SVG Circular Loader / Equalizer Pill -->
@@ -405,6 +417,12 @@
                     src={track.cover_art}
                     alt={track.title}
                     class="w-full h-full object-cover"
+                    onerror={(e) => {
+                      const target = e.currentTarget as HTMLImageElement;
+                      if (target.src.includes('maxresdefault.jpg')) {
+                        target.src = target.src.replace('maxresdefault.jpg', 'hqdefault.jpg');
+                      }
+                    }}
                   />
                 {:else}
                   <div class="w-full h-full flex items-center justify-center text-white/30">
@@ -442,9 +460,11 @@
                 >
                   {track.title}
                 </p>
-                <p class="text-[11px] text-white/55 truncate mt-0.5">
-                  {sanitizeArtist(track.artist)}
-                </p>
+                <ArtistLinks
+                  artist={track.artist}
+                  class="mt-0.5 block max-w-full"
+                  buttonClass="text-[11px] text-white/55 hover:text-white transition-colors cursor-pointer text-left"
+                />
               </div>
             </div>
 
@@ -514,6 +534,12 @@
                   src={track.cover_art}
                   alt={track.title}
                   class="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
+                  onerror={(e) => {
+                    const target = e.currentTarget as HTMLImageElement;
+                    if (target.src.includes('maxresdefault.jpg')) {
+                      target.src = target.src.replace('maxresdefault.jpg', 'hqdefault.jpg');
+                    }
+                  }}
                 />
               {:else}
                 <div class="w-full h-full flex items-center justify-center text-white/30">
@@ -549,7 +575,11 @@
               <p class="text-xs font-semibold {isCurrent ? 'text-[var(--md-sys-primary)]' : 'text-white'} truncate">
                 {track.title}
               </p>
-              <p class="text-[11px] text-white/50 truncate mt-0.5">{sanitizeArtist(track.artist)}</p>
+              <ArtistLinks
+                artist={track.artist}
+                class="mt-0.5 block max-w-full"
+                buttonClass="text-[11px] text-white/50 hover:text-white transition-colors cursor-pointer text-left"
+              />
             </div>
           </div>
         {/each}
@@ -602,6 +632,12 @@
                   src={track.cover_art}
                   alt={track.title}
                   class="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
+                  onerror={(e) => {
+                    const target = e.currentTarget as HTMLImageElement;
+                    if (target.src.includes('maxresdefault.jpg')) {
+                      target.src = target.src.replace('maxresdefault.jpg', 'hqdefault.jpg');
+                    }
+                  }}
                 />
               {/if}
               <div
@@ -632,7 +668,11 @@
               <p class="text-xs font-semibold {isCurrent ? 'text-[var(--md-sys-primary)]' : 'text-white'} truncate">
                 {track.title}
               </p>
-              <p class="text-[11px] text-white/50 truncate mt-0.5">{sanitizeArtist(track.artist)}</p>
+              <ArtistLinks
+                artist={track.artist}
+                class="mt-0.5 block max-w-full"
+                buttonClass="text-[11px] text-white/50 hover:text-white transition-colors cursor-pointer text-left"
+              />
             </div>
           </div>
         {/each}
@@ -672,7 +712,19 @@
 
               <div class="relative w-11 h-11 rounded-xl overflow-hidden bg-white/5 shrink-0">
                 {#if track.cover_art}
-                  <img loading="lazy" decoding="async" src={track.cover_art} alt={track.title} class="w-full h-full object-cover" />
+                  <img
+                    loading="lazy"
+                    decoding="async"
+                    src={track.cover_art}
+                    alt={track.title}
+                    class="w-full h-full object-cover"
+                    onerror={(e) => {
+                      const target = e.currentTarget as HTMLImageElement;
+                      if (target.src.includes('maxresdefault.jpg')) {
+                        target.src = target.src.replace('maxresdefault.jpg', 'hqdefault.jpg');
+                      }
+                    }}
+                  />
                 {/if}
                 <div class="absolute inset-0 bg-black/45 {isCurrent ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'} flex items-center justify-center transition-opacity">
                   {#if isCurrent && isBuffering}
@@ -696,7 +748,11 @@
                 <p class="text-xs font-semibold {isCurrent ? 'text-[var(--md-sys-primary)]' : 'text-white'} truncate">
                   {track.title}
                 </p>
-                <p class="text-[11px] text-white/50 truncate mt-0.5">{sanitizeArtist(track.artist)}</p>
+                <ArtistLinks
+                  artist={track.artist}
+                  class="mt-0.5 block max-w-full"
+                  buttonClass="text-[11px] text-white/50 hover:text-white transition-colors cursor-pointer text-left"
+                />
               </div>
             </div>
 

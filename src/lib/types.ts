@@ -104,3 +104,51 @@ export function sanitizeArtist(raw: string): string {
     .trim();
 }
 
+export function splitArtists(raw: string): string[] {
+  if (!raw) return [];
+  const cleaned = sanitizeArtist(raw);
+  if (!cleaned) return [];
+
+  // Protect established bands/duos whose proper names contain punctuation
+  const knownBands = new Set([
+    'ac/dc',
+    'simon & garfunkel',
+    'hall & oates',
+    'earth, wind & fire',
+    'crosby, stills, nash & young',
+    'kool & the gang',
+    'broods',
+    'chvrches',
+  ]);
+  if (knownBands.has(cleaned.toLowerCase())) {
+    return [cleaned];
+  }
+
+  // Pre-normalize (feat. X) or [ft. X] inside brackets so nested artists get split cleanly
+  let text = cleaned.replace(/[\(\[\{]\s*(?:feat\.?|ft\.?|featuring|with)\s+([^\)\]\}]+)[\)\]\}]/gi, ' feat. $1 ');
+
+  // Match common collaboration separators:
+  // - comma: ,
+  // - ampersand: & (with whitespace around it)
+  // - feat / ft / featuring: (?:feat\.?|ft\.?|featuring)
+  // - x / × (as standalone word or surrounded by spaces): \s+[xX×]\s+
+  // - with: \s+with\s+
+  // - slash: \s+\/\s+ (require spaces around slash to avoid breaking band acronyms)
+  const delimiterRegex = /\s*(?:,\s*|\s+&\s+|\s+(?:feat\.?|ft\.?|featuring)\s+|\s+[xX×]\s+|\s+with\s+|\s+\/\s+)\s*/i;
+
+  const parts = text.split(delimiterRegex);
+  const seen = new Set<string>();
+  const result: string[] = [];
+
+  for (let p of parts) {
+    p = p.trim().replace(/^[\(\[\{]/, '').replace(/[\)\]\}]$/, '').trim();
+    if (p && !seen.has(p.toLowerCase())) {
+      seen.add(p.toLowerCase());
+      result.push(p);
+    }
+  }
+
+  return result.length > 0 ? result : [cleaned];
+}
+
+

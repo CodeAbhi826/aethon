@@ -5,6 +5,8 @@
   import { playerState } from '../state.svelte';
   import { settingsState } from '../settingsState.svelte';
   import { sanitizeArtist } from '../types';
+  import { getHighResArtwork } from '../artwork';
+  import ArtistLinks from './ArtistLinks.svelte';
 
   // Apple iOS / macOS sheet spring curve approximation
   function appleSheetEasing(t: number): number {
@@ -30,39 +32,8 @@
   let scrollResumeTimeout: ReturnType<typeof setTimeout> | null = null;
   let isRomanizedMode = $state(true);
   let isOffsetOpen = $state(false);
-  let isSourcePickerOpen = $state(false);
   let lastTrackId = $state<string | null>(null);
   let isBuffering = $derived(playerState.isLoading || Boolean(playerState.playback.is_buffering));
-
-  const LYRICS_SOURCES: Array<{ id: typeof settingsState.lyricsSource; label: string }> = [
-    { id: 'all', label: 'Auto' },
-    { id: 'musixmatch', label: 'Musixmatch' },
-    { id: 'apple', label: 'Apple Music' },
-    { id: 'spotify', label: 'Spotify' },
-    { id: 'ytm', label: 'YouTube Music' },
-    { id: 'lrclib', label: 'LRCLIB' },
-    { id: 'local_lrc', label: 'Local Only' },
-  ];
-
-  function cycleLyricsSource() {
-    const idx = LYRICS_SOURCES.findIndex((s) => s.id === settingsState.lyricsSource);
-    const nextIdx = (idx + 1) % LYRICS_SOURCES.length;
-    selectLyricsSource(LYRICS_SOURCES[nextIdx].id);
-  }
-
-  function selectLyricsSource(source: typeof settingsState.lyricsSource) {
-    settingsState.lyricsSource = source;
-    settingsState.scheduleSave();
-    if (playerState.currentTrack) {
-      playerState.fetchLyrics(
-        playerState.currentTrack.title,
-        playerState.currentTrack.artist,
-        playerState.currentTrack.duration,
-        playerState.currentTrack.file_path,
-        playerState.currentTrack.id
-      );
-    }
-  }
 
   let audioQualityLabel = $derived.by(() => {
     const codec = (playerState.playback.codec || playerState.currentTrack?.format || '').toLowerCase();
@@ -81,11 +52,13 @@
 
   let hiResArtwork = $derived.by(() => {
     const raw = playerState.currentTrack?.cover_art;
-    if (!raw) return '';
-    if (raw.includes('lh3.googleusercontent.com') && raw.includes('=')) {
-      return raw.replace(/=w\d+-h\d+[^&?]*/, '=w544-h544-l90-rj');
-    }
-    return raw;
+    return getHighResArtwork(
+      raw,
+      playerState.currentTrack?.id?.startsWith('yt_')
+        ? playerState.currentTrack.id.replace('yt_', '')
+        : null,
+      1080
+    );
   });
 
   let scrollAnimId: number | null = null;
@@ -446,6 +419,12 @@
                   alt={playerState.currentTrack?.title}
                   class="w-full h-full object-cover select-none"
                   draggable="false"
+                  onerror={(e) => {
+                    const target = e.currentTarget as HTMLImageElement;
+                    if (target.src.includes('maxresdefault.jpg')) {
+                      target.src = target.src.replace('maxresdefault.jpg', 'hqdefault.jpg');
+                    }
+                  }}
                 />
               {:else}
                 <div class="w-full h-full bg-gradient-to-br from-white/10 to-white/[0.02] flex items-center justify-center text-white/30">
@@ -466,20 +445,15 @@
                 <h2 class="font-display font-bold text-lg sm:text-xl text-white truncate">
                   {playerState.currentTrack?.title || 'Not Playing'}
                 </h2>
-                <button
-                  type="button"
-                  onclick={() => {
-                    if (playerState.currentTrack?.artist) {
-                      playerState.isNowPlayingOpen = false;
-                      playerState.openArtist(playerState.currentTrack.artist);
-                    }
+                <ArtistLinks
+                  artist={playerState.currentTrack ? playerState.currentTrack.artist : ''}
+                  class="mt-0.5 block max-w-full"
+                  buttonClass="text-xs sm:text-sm text-white/65 hover:text-white transition-colors cursor-pointer text-left"
+                  onArtistClick={(art) => {
+                    playerState.isNowPlayingOpen = false;
+                    playerState.openArtist(art);
                   }}
-                  class="text-xs sm:text-sm text-white/65 hover:text-white truncate mt-0.5 block text-left transition-colors cursor-pointer max-w-full"
-                >
-                  {playerState.currentTrack
-                    ? sanitizeArtist(playerState.currentTrack.artist)
-                    : 'Select a song'}
-                </button>
+                />
               </div>
 
               {#if playerState.currentTrack}
@@ -640,49 +614,7 @@
             : 'w-full max-w-3xl mx-auto'} gpu-layer"
         >
           <div class="flex items-center justify-between pb-2 mb-1 shrink-0 px-3">
-            <div class="flex items-center gap-2 relative">
-              <button
-                type="button"
-                onclick={() => (isSourcePickerOpen = !isSourcePickerOpen)}
-                class="text-[10px] font-medium px-2.5 py-0.5 rounded-full bg-white/[0.06] hover:bg-white/[0.12] text-white/70 border border-white/[0.08] hover:border-white/20 transition-all flex items-center gap-1 cursor-pointer"
-                title="Change Lyrics Source Priority"
-              >
-                <span>{playerState.lyrics.provider || 'Lyrics'}</span>
-                {#if settingsState.lyricsSource !== 'all'}
-                  <span class="text-[9px] text-amber-400 font-mono uppercase">({settingsState.lyricsSource})</span>
-                {/if}
-                <span class="material-symbols-rounded text-[11px] opacity-60">unfold_more</span>
-              </button>
-
-              {#if isSourcePickerOpen}
-                <!-- Backdrop to dismiss -->
-                <button
-                  type="button"
-                  tabindex="-1"
-                  aria-label="Close provider picker"
-                  class="fixed inset-0 z-40 bg-transparent cursor-default border-none p-0 outline-none"
-                  onclick={() => (isSourcePickerOpen = false)}
-                ></button>
-                <div class="absolute top-7 left-0 z-50 min-w-[170px] bg-[#1a1a1f] border border-white/15 rounded-xl shadow-2xl p-1.5 flex flex-col gap-0.5" style="background-color: #1a1a1f;">
-                  <div class="px-2 py-1 text-[9px] uppercase tracking-wider text-white/40 font-semibold">Lyrics Source Priority</div>
-                  {#each LYRICS_SOURCES as src}
-                    <button
-                      type="button"
-                      onclick={() => {
-                        selectLyricsSource(src.id);
-                        isSourcePickerOpen = false;
-                      }}
-                      class="px-2.5 py-1.5 rounded-lg text-left text-xs font-medium flex items-center justify-between transition-colors cursor-pointer {settingsState.lyricsSource === src.id ? 'bg-white/15 text-white font-semibold' : 'text-white/70 hover:bg-white/10 hover:text-white'}"
-                    >
-                      <span>{src.label}</span>
-                      {#if settingsState.lyricsSource === src.id}
-                        <span class="material-symbols-rounded text-sm text-[var(--md-sys-primary,#60a5fa)]">check</span>
-                      {/if}
-                    </button>
-                  {/each}
-                </div>
-              {/if}
-            </div>
+            <div></div>
 
             <div class="flex items-center gap-1.5">
               {#if userIsScrolling}

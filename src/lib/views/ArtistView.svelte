@@ -2,6 +2,8 @@
   import { invoke } from '@tauri-apps/api/core';
   import { playerState } from '../state.svelte';
   import { sanitizeArtist, type Track, type YouTubeTrack } from '../types';
+  import { getHighResArtwork } from '../artwork';
+  import ArtistLinks from '../components/ArtistLinks.svelte';
 
   let artistTracks = $state<Track[]>([]);
   let isLoadingTracks = $state(true);
@@ -39,7 +41,7 @@
           album: 'Top Songs',
           duration: yt.duration || 0,
           file_path: yt.stream_url,
-          cover_art: yt.thumbnail,
+          cover_art: getHighResArtwork(yt.thumbnail, yt.id),
           format: 'Opus 256k',
           play_count: 100 - idx * 5,
           favorite: false,
@@ -81,7 +83,17 @@
   <div class="p-6 rounded-3xl bg-white/[0.03] border border-white/[0.07] flex flex-col sm:flex-row items-center gap-6 relative overflow-hidden">
     <div class="w-28 h-28 sm:w-36 sm:h-36 rounded-full overflow-hidden shadow-xl ring-1 ring-white/15 shrink-0 bg-white/5">
       {#if artistTracks[0]?.cover_art}
-        <img src={artistTracks[0].cover_art} alt={artistName} class="w-full h-full object-cover" />
+        <img
+          src={getHighResArtwork(artistTracks[0].cover_art)}
+          alt={artistName}
+          class="w-full h-full object-cover"
+          onerror={(e) => {
+            const target = e.currentTarget as HTMLImageElement;
+            if (target.src.includes('maxresdefault.jpg')) {
+              target.src = target.src.replace('maxresdefault.jpg', 'hqdefault.jpg');
+            }
+          }}
+        />
       {:else}
         <div class="w-full h-full flex items-center justify-center">
           <span class="material-symbols-rounded text-4xl text-white/30">person</span>
@@ -145,7 +157,17 @@
                 {idx + 1}
               </span>
               <div class="relative w-10 h-10 rounded-lg overflow-hidden bg-white/5 shrink-0">
-                <img src={track.cover_art} alt={track.title} class="w-full h-full object-cover" />
+                <img
+                  src={getHighResArtwork(track.cover_art, track.id)}
+                  alt={track.title}
+                  class="w-full h-full object-cover"
+                  onerror={(e) => {
+                    const target = e.currentTarget as HTMLImageElement;
+                    if (target.src.includes('maxresdefault.jpg')) {
+                      target.src = target.src.replace('maxresdefault.jpg', 'hqdefault.jpg');
+                    }
+                  }}
+                />
                 <div class="absolute inset-0 bg-black/50 {isCurrent ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'} flex items-center justify-center transition-opacity">
                   {#if isCurrent && isBuffering}
                     <svg class="w-4 h-4 animate-spin text-[var(--md-sys-primary)]" viewBox="0 0 36 36" fill="none">
@@ -164,9 +186,11 @@
                 <div class="text-xs font-semibold {isCurrent ? 'text-[var(--md-sys-primary)]' : 'text-white'} truncate">
                   {track.title}
                 </div>
-                <div class="text-[11px] text-white/50 truncate mt-0.5">
-                  {track.artist}
-                </div>
+                <ArtistLinks
+                  artist={track.artist}
+                  class="mt-0.5 block max-w-full"
+                  buttonClass="text-[11px] text-white/50 hover:text-white transition-colors cursor-pointer text-left"
+                />
               </div>
             </div>
 

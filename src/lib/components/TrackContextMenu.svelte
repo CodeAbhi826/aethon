@@ -1,6 +1,8 @@
 <script lang="ts">
   import { playerState } from '../state.svelte';
   import { onMount } from 'svelte';
+  import { getHighResArtwork } from '../artwork';
+  import { splitArtists } from '../types';
 
   const menu = $derived(playerState.activeContextMenu);
   const track = $derived(menu?.track);
@@ -59,7 +61,17 @@
     <!-- Header Track Info -->
     <div class="px-3 py-2 border-b border-white/5 flex items-center gap-2.5">
       {#if track.cover_art}
-        <img src={track.cover_art} alt={track.title} class="w-8 h-8 rounded-lg object-cover flex-shrink-0" />
+        <img
+          src={getHighResArtwork(track.cover_art, track.id)}
+          alt={track.title}
+          class="w-8 h-8 rounded-lg object-cover flex-shrink-0"
+          onerror={(e) => {
+            const target = e.currentTarget as HTMLImageElement;
+            if (target.src.includes('maxresdefault.jpg')) {
+              target.src = target.src.replace('maxresdefault.jpg', 'hqdefault.jpg');
+            }
+          }}
+        />
       {:else}
         <div class="w-8 h-8 rounded-lg bg-white/5 flex items-center justify-center flex-shrink-0">
           <span class="material-symbols-rounded text-base text-white/40">music_note</span>
@@ -127,15 +139,17 @@
     </button>
 
     {#if track.artist}
-      <button
-        type="button"
-        class="px-3 py-2 flex items-center gap-2.5 hover:bg-white/10 transition-colors text-left text-white/90"
-        onclick={() => handleAction(() => playerState.openArtist(track.artist))}
-        role="menuitem"
-      >
-        <span class="material-symbols-rounded text-base text-white/70">person</span>
-        <span>Go to Artist</span>
-      </button>
+      {#each splitArtists(track.artist) as art}
+        <button
+          type="button"
+          class="px-3 py-2 flex items-center gap-2.5 hover:bg-white/10 transition-colors text-left text-white/90"
+          onclick={() => handleAction(() => playerState.openArtist(art))}
+          role="menuitem"
+        >
+          <span class="material-symbols-rounded text-base text-white/70">person</span>
+          <span>Go to {art}</span>
+        </button>
+      {/each}
     {/if}
 
     {#if track.album && track.album !== 'Unknown' && track.album !== 'Lossless Online Stream' && track.album !== 'YouTube Music Stream'}

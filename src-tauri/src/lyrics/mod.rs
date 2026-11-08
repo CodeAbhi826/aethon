@@ -129,9 +129,7 @@ impl LyricsService {
             return Ok(Self::enrich_romanization(cached));
         }
 
-        let mut plain_fallback: Option<LyricsResult> = None;
-
-        // Concurrent Race of Primary Providers (Musixmatch, Apple Music, Spotify, YouTube Music)
+        // Concurrent Unified Race across all 9 providers (Musixmatch, Apple Music, Spotify, InnerTube, LRCLIB, NetEase, SimpMusic, KuGou, Lyrics.ovh)
         let mm_fut = Self::fetch_musixmatch(&clean_title, &clean_artist, duration);
         let am_fut = Self::fetch_apple_music(&clean_title, &clean_artist, duration);
         let sp_fut = Self::fetch_spotify(&clean_title, &clean_artist, duration);
@@ -143,22 +141,6 @@ impl LyricsService {
             }
             None
         };
-
-        let (mm_res, am_res, sp_res, ytm_res) = tokio::join!(mm_fut, am_fut, sp_fut, ytm_fut);
-
-        for candidate in [mm_res, am_res, sp_res, ytm_res] {
-            if let Some(res) = candidate {
-                if res.synced && !res.lines.is_empty() {
-                    let enriched = Self::enrich_romanization(res);
-                    Self::write_disk_cache(&c_key, &enriched);
-                    return Ok(enriched);
-                } else if plain_fallback.is_none() && res.plain_text.is_some() {
-                    plain_fallback = Some(res);
-                }
-            }
-        }
-
-        // Concurrent Race of Secondary Providers (LRCLIB, NetEase, SimpMusic, KuGou, Lyrics.ovh)
         let lrclib_fut = Self::fetch_lrclib(&clean_title, &clean_artist, duration);
         let netease_fut = Self::fetch_netease(&clean_title, &clean_artist, duration);
         let simp_fut = async {
@@ -172,39 +154,43 @@ impl LyricsService {
         let kugou_fut = Self::fetch_kugou(&clean_title, &clean_artist, duration);
         let ovh_fut = Self::fetch_lyrics_ovh(&clean_title, &clean_artist);
 
-        let (lrclib_res, netease_res, simp_res, kugou_res, ovh_res) =
-            tokio::join!(lrclib_fut, netease_fut, simp_fut, kugou_fut, ovh_fut);
+        let (mm_res, am_res, sp_res, ytm_res, lrclib_res, netease_res, simp_res, kugou_res, ovh_res) =
+            tokio::join!(mm_fut, am_fut, sp_fut, ytm_fut, lrclib_fut, netease_fut, simp_fut, kugou_fut, ovh_fut);
 
-        if let Some(mut res) = lrclib_res {
-            if res.synced && !res.lines.is_empty() {
-                if res.lines.iter().any(|l| Self::has_cjk_characters(&l.text)) && !res.has_romanized {
-                    Self::merge_netease_roma_trans_onto(&mut res.lines, &clean_title, &clean_artist, duration).await;
-                    res.has_romanized = res.lines.iter().any(|l| l.romanized.is_some());
-                }
-                let enriched = Self::enrich_romanization(res);
-                Self::write_disk_cache(&c_key, &enriched);
-                return Ok(enriched);
-            } else if plain_fallback.is_none() && res.plain_text.is_some() {
-                plain_fallback = Some(res);
-            }
-        }
+        let all_results = [mm_res, am_res, sp_res, ytm_res, lrclib_res, netease_res, simp_res, kugou_res, ovh_res];
 
-        for candidate in [netease_res, simp_res, kugou_res] {
-            if let Some(res) = candidate {
-                if res.synced && !res.lines.is_empty() {
-                    let enriched = Self::enrich_romanization(res);
-                    Self::write_disk_cache(&c_key, &enriched);
-                    return Ok(enriched);
-                } else if plain_fallback.is_none() && res.plain_text.is_some() {
-                    plain_fallback = Some(res);
+        let mut synced_candidates: Vec<LyricsResult> = Vec::new();
+        let mut plain_fallback: Option<LyricsResult> = None;
+
+        for opt in all_results {
+            if let Some(candidate) = opt {
+                if candidate.synced && !candidate.lines.is_empty() {
+                    synced_candidates.push(candidate);
+                } else if plain_fallback.is_none() && candidate.plain_text.is_some() {
+                    plain_fallback = Some(candidate);
                 }
             }
         }
 
-        if let Some(res) = ovh_res {
-            if plain_fallback.is_none() && res.plain_text.is_some() {
-                plain_fallback = Some(res);
+        if !synced_candidates.is_empty() {
+            // Rank candidates by confidence and quality score (ArchiveTune evaluation model)
+            synced_candidates.sort_by(|a, b| {
+                let score_b = Self::score_lyrics(b, duration);
+                let score_a = Self::score_lyrics(a, duration);
+                score_b.cmp(&score_a)
+            });
+
+            let mut best = synced_candidates.remove(0);
+
+            // Merge romanization if CJK detected and missing
+            if best.lines.iter().any(|l| Self::has_cjk_characters(&l.text)) && !best.has_romanized {
+                Self::merge_netease_roma_trans_onto(&mut best.lines, &clean_title, &clean_artist, duration).await;
+                best.has_romanized = best.lines.iter().any(|l| l.romanized.is_some());
             }
+
+            let enriched = Self::enrich_romanization(best);
+            Self::write_disk_cache(&c_key, &enriched);
+            return Ok(enriched);
         }
 
         if let Some(plain) = plain_fallback {
@@ -214,6 +200,57 @@ impl LyricsService {
         }
 
         Err("No lyrics found across concurrent multi-provider engine".into())
+    }
+
+    /// Evaluates lyrics quality and duration alignment to pick the best working source
+    fn score_lyrics(candidate: &LyricsResult, duration: Option<f64>) -> i32 {
+        if !candidate.synced || candidate.lines.is_empty() {
+            return if candidate.plain_text.is_some() { 10 } else { 0 };
+        }
+
+        let mut score: i32 = 100;
+
+        match candidate.provider.as_str() {
+            "Musixmatch" => score += 50,
+            "Apple Music" => score += 50,
+            "Spotify" => score += 45,
+            "LRCLIB" => score += 40,
+            "NetEase" => score += 35,
+            "YouTube Music" => score += 30,
+            "SimpMusic" => score += 25,
+            "KuGou" => score += 20,
+            _ => score += 10,
+        }
+
+        let line_count = candidate.lines.len();
+        if line_count >= 12 {
+            score += 20;
+        } else if line_count >= 6 {
+            score += 10;
+        } else if line_count < 3 {
+            score -= 30;
+        }
+
+        if let Some(dur) = duration {
+            if dur > 10.0 {
+                if let Some(last_line) = candidate.lines.last() {
+                    let last_t = last_line.time;
+                    if last_t > dur + 25.0 {
+                        score -= 40;
+                    } else if (last_t - dur).abs() < 15.0 {
+                        score += 25;
+                    } else if last_t < dur * 0.35 && line_count < 10 {
+                        score -= 35;
+                    }
+                }
+            }
+        }
+
+        if candidate.has_romanized {
+            score += 15;
+        }
+
+        score
     }
 
     fn disk_cache_dir() -> std::path::PathBuf {

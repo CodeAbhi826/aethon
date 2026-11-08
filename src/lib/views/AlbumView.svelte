@@ -3,6 +3,8 @@
   import { invoke } from '@tauri-apps/api/core';
   import { playerState } from '../state.svelte';
   import { sanitizeArtist, type Track, type YouTubeTrack } from '../types';
+  import { getHighResArtwork } from '../artwork';
+  import ArtistLinks from '../components/ArtistLinks.svelte';
 
   let albumTracks = $state<Track[]>([]);
   let isLoading = $state(true);
@@ -41,7 +43,7 @@
           album: album.title,
           duration: yt.duration || 210,
           file_path: yt.stream_url,
-          cover_art: yt.thumbnail || album.cover,
+          cover_art: getHighResArtwork(yt.thumbnail, yt.id) || album.cover,
           format: 'Opus 256k',
           play_count: 50 + idx,
           favorite: false,
@@ -92,7 +94,17 @@
 
     <div class="w-40 h-40 md:w-52 md:h-52 rounded-2xl overflow-hidden shadow-2xl border border-white/20 shrink-0 relative bg-black/40">
       {#if album.cover || albumTracks[0]?.cover_art}
-        <img src={album.cover || albumTracks[0]?.cover_art} alt={album.title} class="w-full h-full object-cover" />
+        <img
+          src={getHighResArtwork(album.cover || albumTracks[0]?.cover_art)}
+          alt={album.title}
+          class="w-full h-full object-cover"
+          onerror={(e) => {
+            const target = e.currentTarget as HTMLImageElement;
+            if (target.src.includes('maxresdefault.jpg')) {
+              target.src = target.src.replace('maxresdefault.jpg', 'hqdefault.jpg');
+            }
+          }}
+        />
       {:else}
         <div class="w-full h-full flex items-center justify-center">
           <span class="material-symbols-rounded text-6xl text-white/40">album</span>
@@ -107,16 +119,14 @@
       <h1 class="text-2xl md:text-4xl font-extrabold text-white tracking-tight font-display truncate">
         {album.title}
       </h1>
-      <p class="text-sm text-[var(--md-sys-on-surface-variant)] flex items-center justify-center md:justify-start gap-2">
-        <button
-          onclick={() => playerState.openArtist(album.artist)}
-          class="font-semibold text-white hover:text-[var(--md-sys-primary)] hover:underline transition"
-        >
-          {album.artist}
-        </button>
+      <div class="text-sm text-[var(--md-sys-on-surface-variant)] flex items-center justify-center md:justify-start gap-2">
+        <ArtistLinks
+          artist={album.artist}
+          buttonClass="font-semibold text-white hover:text-[var(--md-sys-primary)] hover:underline transition cursor-pointer"
+        />
         <span>•</span>
         <span>{albumTracks.length} tracks</span>
-      </p>
+      </div>
 
       <div class="flex items-center justify-center md:justify-start gap-3 pt-3">
         <button
@@ -185,9 +195,11 @@
                 <div class="text-xs font-semibold {isCurrent ? 'text-[var(--md-sys-primary)]' : 'text-white'} truncate group-hover:text-[var(--md-sys-primary)] transition">
                   {track.title}
                 </div>
-                <div class="text-[11px] text-[var(--md-sys-on-surface-variant)]/75 truncate mt-0.5">
-                  {track.artist}
-                </div>
+                <ArtistLinks
+                  artist={track.artist}
+                  class="mt-0.5 block max-w-full"
+                  buttonClass="text-[11px] text-[var(--md-sys-on-surface-variant)]/75 hover:text-white transition-colors cursor-pointer text-left"
+                />
               </div>
             </div>
 
