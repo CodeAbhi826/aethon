@@ -94,7 +94,11 @@ export interface Playlist {
 
 export function sanitizeArtist(raw: string): string {
   if (!raw) return '';
-  return raw
+  const trimmed = raw.trim();
+  if (/^youtube(?:\s+music)?$/i.test(trimmed)) {
+    return '';
+  }
+  return trimmed
     .replace(/^similar\s+to\s+/i, '')
     .replace(/\s*[•·|\-]\s*\d+(\.\d+)?[kmbKMB]?\s*(views?|subscribers?|plays?|watching|listeners?).*$/gi, '')
     .replace(/\s+\d+(\.\d+)?[kmbKMB]?\s*(views?|subscribers?|plays?|watching|listeners?).*$/gi, '')

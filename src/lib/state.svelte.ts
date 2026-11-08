@@ -1002,19 +1002,28 @@ class PlayerState {
         if (res && res.length > 0) {
           const suggestions: Track[] = res
             .filter((yt) => `yt_${yt.id}` !== this.currentTrack?.id)
-            .map((yt) => ({
-              id: `yt_${yt.id}`,
-              title: yt.title,
-              artist: sanitizeArtist(yt.artist) || 'Radio',
-              album: 'Autoplay',
-              duration: yt.duration || 210,
-              file_path: yt.stream_url,
-              cover_art: yt.thumbnail,
-              format: 'Opus 256k',
-              play_count: 0,
-              favorite: false,
-              date_added: Math.floor(Date.now() / 1000),
-            }));
+            .map((yt) => {
+              let cleanArt = sanitizeArtist(yt.artist);
+              let cleanTitle = yt.title;
+              if (!cleanArt && cleanTitle.includes(' - ')) {
+                const parts = cleanTitle.split(' - ');
+                cleanArt = sanitizeArtist(parts[0]);
+                cleanTitle = parts.slice(1).join(' - ').trim();
+              }
+              return {
+                id: `yt_${yt.id}`,
+                title: cleanTitle,
+                artist: cleanArt || this.currentTrack?.artist || 'Unknown Artist',
+                album: 'Autoplay',
+                duration: yt.duration || 210,
+                file_path: yt.stream_url,
+                cover_art: getHighResArtwork(yt.thumbnail, yt.id),
+                format: 'Opus 256k',
+                play_count: 0,
+                favorite: false,
+                date_added: Math.floor(Date.now() / 1000),
+              };
+            });
 
           if (suggestions.length > 0) {
             const nextTrack = suggestions[0];

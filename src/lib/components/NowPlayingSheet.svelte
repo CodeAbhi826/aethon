@@ -628,13 +628,16 @@
             </div>
           {/if}
 
+          <!-- Top edge fade overlay (pure GPU composited, zero software alpha-masking) -->
+          <div class="absolute top-0 left-0 right-0 h-16 sm:h-20 bg-gradient-to-b from-[#08080b] to-transparent pointer-events-none z-10"></div>
+
           <div
             bind:this={lyricsContainerEl}
             onwheel={handleUserScroll}
             ontouchmove={handleUserScroll}
             role="region"
             aria-label="Lyrics"
-            class="flex-1 overflow-y-auto px-3 sm:px-6 pt-[18vh] pb-[46vh] space-y-3 scrollbar-none contain-gpu lyrics-viewport-mask"
+            class="flex-1 overflow-y-auto px-3 sm:px-6 pt-[18vh] pb-[46vh] space-y-3 scrollbar-none contain-gpu"
           >
             {#if playerState.isLoadingLyrics}
               <div class="h-full flex flex-col items-center justify-center text-center text-white/50 py-16 gap-3">
@@ -648,7 +651,7 @@
             {:else if playerState.lyrics.synced && playerState.lyrics.lines.length > 0}
               <!-- Instrumental Intro Rhythm Dots (>= 4.0s before first line) -->
               {#if playerState.lyrics.lines[0].time >= 4.0}
-                {@const isIntroActive = (playerState.playback.position + settingsState.lyricOffsetSeconds) < playerState.lyrics.lines[0].time}
+                {@const isIntroActive = activeIndex < 0}
                 <div class="py-4 px-4 flex items-center gap-2 transition-opacity duration-300 {isIntroActive ? 'opacity-85' : 'opacity-20'}">
                   <span class="w-2.5 h-2.5 rounded-full bg-white interlude-dot-1 inline-block"></span>
                   <span class="w-2.5 h-2.5 rounded-full bg-white interlude-dot-2 inline-block"></span>
@@ -656,14 +659,13 @@
                 </div>
               {/if}
 
-              {#each playerState.lyrics.lines as line, i}
+              {#each playerState.lyrics.lines as line, i (line.time)}
                 {@const dist = i - activeIndex}
                 {@const isCur = dist === 0}
                 
                 <!-- Mid-song Instrumental Break Rhythm Dots (gap >= 10.0s between lines) -->
                 {#if i > 0 && (line.time - playerState.lyrics.lines[i - 1].time) >= 10.0}
-                  {@const curPos = playerState.playback.position + settingsState.lyricOffsetSeconds}
-                  {@const isBreakActive = curPos >= playerState.lyrics.lines[i - 1].time + 2.0 && curPos < line.time}
+                  {@const isBreakActive = activeIndex === i - 1}
                   <div class="py-3 px-4 flex items-center gap-2 transition-opacity duration-300 {isBreakActive ? 'opacity-85' : 'opacity-20'}">
                     <span class="w-2 h-2 rounded-full bg-white interlude-dot-1 inline-block"></span>
                     <span class="w-2 h-2 rounded-full bg-white interlude-dot-2 inline-block"></span>
@@ -727,6 +729,9 @@
               </div>
             {/if}
           </div>
+
+          <!-- Bottom edge fade overlay (pure GPU composited, zero software alpha-masking) -->
+          <div class="absolute bottom-0 left-0 right-0 h-24 sm:h-32 bg-gradient-to-t from-[#08080b] to-transparent pointer-events-none z-10"></div>
         </div>
       {/if}
     </div>
@@ -763,10 +768,7 @@
     animation: shimmerBar 1.25s cubic-bezier(0.4, 0, 0.2, 1) infinite;
   }
 
-  .lyrics-viewport-mask {
-    mask-image: linear-gradient(to bottom, transparent 0%, black 12%, black 86%, transparent 100%);
-    -webkit-mask-image: linear-gradient(to bottom, transparent 0%, black 12%, black 86%, transparent 100%);
-  }
+
 
   .contain-gpu {
     contain: layout style;

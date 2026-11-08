@@ -6,13 +6,17 @@ const itunesArtCache = new Map<string, string | null>();
  * Transforms low-res YouTube Music or ytimg thumbnail URLs to ArchiveTune native edge-cached standard (544x544 / maxresdefault).
  */
 export function getHighResArtwork(url?: string | null, videoId?: string | null, size = 544): string {
-  if (!url && videoId) {
+  if (videoId && (!url || url.includes('yt3.googleusercontent.com') || url.includes('default.jpg'))) {
     return `https://i.ytimg.com/vi/${videoId}/maxresdefault.jpg`;
   }
-  if (!url) return '';
+  if (!url) return videoId ? `https://i.ytimg.com/vi/${videoId}/maxresdefault.jpg` : '';
 
-  // Google User Content & GGPHT (YouTube Music artwork & channel avatars)
+  // Google User Content & GGPHT (YouTube Music album covers)
   if (url.includes('googleusercontent.com') || url.includes('ggpht.com')) {
+    // Avoid YouTube channel profile avatars when videoId is known
+    if (url.includes('yt3.googleusercontent.com') && videoId) {
+      return `https://i.ytimg.com/vi/${videoId}/maxresdefault.jpg`;
+    }
     if (url.includes('=')) {
       return url.replace(/=.*$/i, `=w${size}-h${size}-l90-rj`);
     }
@@ -34,17 +38,26 @@ export function getHighResArtwork(url?: string | null, videoId?: string | null, 
  * Attempts to fetch crisp 1400x1400 studio album cover art from iTunes / Apple Music search API.
  */
 export async function fetchCrispAlbumArt(title: string, artist: string): Promise<string | null> {
-  const cleanTitle = title.replace(/\s*[\(\[].*?[\)\]]/g, '').trim();
-  const cleanArtist = artist.split(/[,&]/)[0].trim();
-  if (!cleanTitle) return null;
+  let cleanTitle = title.replace(/\s*[\(\[].*?[\)\]]/g, '').trim();
+  let cleanArtist = artist.split(/[,&]/)[0].trim();
+  if (/^youtube(?:\s+music)?$/i.test(cleanArtist)) {
+    cleanArtist = '';
+  }
+  if (!cleanArtist && cleanTitle.includes(' - ')) {
+    const parts = cleanTitle.split(' - ');
+    cleanArtist = parts[0].trim();
+    cleanTitle = parts[1].trim();
+  }
+  if (!cleanTitle && !cleanArtist) return null;
 
-  const cacheKey = `${cleanArtist.toLowerCase()}::${cleanTitle.toLowerCase()}`;
+  const searchQuery = cleanArtist ? `${cleanArtist} ${cleanTitle}` : cleanTitle;
+  const cacheKey = searchQuery.toLowerCase();
   if (itunesArtCache.has(cacheKey)) {
     return itunesArtCache.get(cacheKey) || null;
   }
 
   try {
-    const query = encodeURIComponent(`${cleanArtist} ${cleanTitle}`);
+    const query = encodeURIComponent(searchQuery);
     const res = await fetch(`https://itunes.apple.com/search?term=${query}&entity=song&limit=1`, {
       headers: { Accept: 'application/json' },
     });
