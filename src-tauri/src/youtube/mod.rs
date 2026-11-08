@@ -306,6 +306,8 @@ async fn run_stream_downloader(task: Arc<StreamDownloadTask>, video_id: String) 
                 }
             }
         }
+    }
+
     let mut failures = 0;
 
     while total_len == 0 || cur_pos < total_len {
