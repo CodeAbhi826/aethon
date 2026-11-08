@@ -56,6 +56,17 @@ jobs:
       - name: Build frontend
         run: pnpm build
 
+      - name: Pre-populate Tauri AppImage bundler tools
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          mkdir -p ~/.cache/tauri
+          gh api -H "Accept: application/octet-stream" /repos/tauri-apps/binary-releases/releases/assets/274691722 > ~/.cache/tauri/AppRun-x86_64
+          chmod +x ~/.cache/tauri/AppRun-x86_64
+          gh api -H "Accept: application/octet-stream" /repos/tauri-apps/binary-releases/releases/assets/576945544 > ~/.cache/tauri/linuxdeploy-07333c6-x86_64.AppImage
+          chmod +x ~/.cache/tauri/linuxdeploy-07333c6-x86_64.AppImage
+          ls -lh ~/.cache/tauri/
+
       - name: Build Desktop App Bundle (No Release)
         env:
           CFLAGS: "-march=x86-64 -mtune=generic -O2"
