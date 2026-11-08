@@ -130,7 +130,6 @@
           <div
             role="button"
             tabindex="0"
-            onmouseenter={() => playerState.prefetchStream(track.file_path, track.title, track.artist)}
             onclick={() => playerState.playTrack(track)}
             oncontextmenu={(e) => {
               e.preventDefault();

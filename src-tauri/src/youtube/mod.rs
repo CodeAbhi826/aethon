@@ -259,13 +259,26 @@ async fn run_stream_downloader(task: Arc<StreamDownloadTask>, video_id: String) 
     let dir = cache_dir();
     let part_path = dir.join(format!("{}.part", video_id));
 
-    let mut file = match OpenOptions::new()
+    let (mut file, mut cur_pos) = match OpenOptions::new()
         .create(true)
+        .read(true)
         .write(true)
-        .truncate(true)
         .open(&part_path)
     {
-        Ok(f) => f,
+        Ok(mut f) => {
+            let existing_len = f.metadata().map(|m| m.len()).unwrap_or(0);
+            let _ = f.seek(SeekFrom::Start(existing_len));
+            if existing_len > 0 {
+                task.downloaded_bytes.store(existing_len, Ordering::Release);
+                task.notify.notify_waiters();
+                crate::aethon_log!(
+                    "Downloader resumed with {} pre-buffered bytes in {}",
+                    existing_len,
+                    part_path.display()
+                );
+            }
+            (f, existing_len)
+        }
         Err(e) => {
             *task.error.lock() = Some(format!("Failed to open part file: {}", e));
             task.notify.notify_waiters();
@@ -293,9 +306,6 @@ async fn run_stream_downloader(task: Arc<StreamDownloadTask>, video_id: String) 
                 }
             }
         }
-    }
-
-    let mut cur_pos: u64 = 0;
     let mut failures = 0;
 
     while total_len == 0 || cur_pos < total_len {
@@ -551,15 +561,23 @@ async fn handle_proxy_client(mut socket: tokio::net::TcpStream) {
         return;
     };
 
-    let total_len = task.content_length.load(Ordering::Acquire);
-    if total_len == 0 || req_start >= total_len {
+    let mut total_len = task.content_length.load(Ordering::Acquire);
+    if total_len == 0 {
+        let notify = Arc::clone(&task.notify);
+        let _ = tokio::time::timeout(std::time::Duration::from_millis(1500), notify.notified()).await;
+        total_len = task.content_length.load(Ordering::Acquire);
+    }
+
+    if total_len > 0 && req_start >= total_len {
         let _ = socket
             .write_all(b"HTTP/1.1 416 Range Not Satisfiable\r\nContent-Length: 0\r\nConnection: close\r\n\r\n")
             .await;
         return;
     }
 
-    let final_end = req_end_opt.map(|e| e.min(total_len - 1)).unwrap_or(total_len - 1);
+    let final_end = req_end_opt
+        .map(|e| if total_len > 0 { e.min(total_len - 1) } else { e })
+        .unwrap_or(if total_len > 0 { total_len - 1 } else { req_start + 524_288 });
     let content_len = final_end - req_start + 1;
 
     let resp_headers = format!(
@@ -619,6 +637,51 @@ async fn handle_proxy_client(mut socket: tokio::net::TcpStream) {
 pub struct YouTubeService;
 
 impl YouTubeService {
+    pub fn extract_clen_from_url(url: &str) -> Option<u64> {
+        if let Some(idx) = url.find("clen=") {
+            let rest = &url[idx + 5..];
+            let num_str: String = rest.chars().take_while(|c| c.is_ascii_digit()).collect();
+            if let Ok(val) = num_str.parse::<u64>() {
+                return Some(val);
+            }
+        }
+        None
+    }
+
+    pub fn extract_user_agent_for_url(url: &str) -> String {
+        if url.contains("c=ANDROID_VR") {
+            "com.google.android.apps.youtube.vr.oculus/1.60.19 (Linux; U; Android 14; Quest 3)".to_string()
+        } else if url.contains("c=ANDROID_TESTSUITE") {
+            "com.google.android.apps.youtube.testsuite/1.9 (Linux; U; Android 14)".to_string()
+        } else if url.contains("c=IOS") || url.contains("c=MWEB") {
+            "com.google.ios.youtube/20.03.02 (iPhone16,2; U; CPU iOS 18_2_1 like Mac OS X;)".to_string()
+        } else if url.contains("c=TVHTML5") || url.contains("c=TV") {
+            "Mozilla/5.0 (SMART-TV; Linux; Tizen 6.0) AppleWebKit/537.36 (KHTML, like Gecko) SamsungBrowser/4.0 Chrome/76.0.3809.146 TV Safari/537.36".to_string()
+        } else {
+            "Mozilla/5.0 (X11; Linux x86_64; rv:135.0) Gecko/20100101 Firefox/135.0".to_string()
+        }
+    }
+
+    pub fn extract_mime_from_url(url: &str) -> String {
+        if let Some(idx) = url.find("mime=") {
+            let rest = &url[idx + 5..];
+            let raw: String = rest.chars().take_while(|&c| c != '&' && c != '#' && c != '?').collect();
+            if let Ok(decoded) = urlencoding::decode(&raw) {
+                let clean = decoded.split(';').next().unwrap_or("").trim().to_string();
+                if !clean.is_empty() {
+                    return clean;
+                }
+            }
+        }
+        if url.contains("audio%2Fwebm") || url.contains("audio/webm") {
+            "audio/webm".to_string()
+        } else if url.contains("audio%2Fmp4") || url.contains("audio/mp4") || url.contains("m4a") {
+            "audio/mp4".to_string()
+        } else {
+            "audio/webm".to_string()
+        }
+    }
+
     pub fn extract_video_id(uri: &str) -> Option<String> {
         if let Some(idx) = uri.find("v=") {
             let rest = &uri[idx + 2..];
@@ -970,6 +1033,45 @@ impl YouTubeService {
                                 }
                             }
 
+                            // Pre-buffer 64 KB (bytes=0-65535) directly into <video_id>.part so mpv gets audio bytes in 0 ms
+                            let prebuffer_url = if upstream_url.contains('?') {
+                                format!("{}&range=0-65535", upstream_url)
+                            } else {
+                                format!("{}?range=0-65535", upstream_url)
+                            };
+                            let prebuffer_res = http_client()
+                                .get(&prebuffer_url)
+                                .header("User-Agent", ua)
+                                .header("Range", "bytes=0-65535")
+                                .send()
+                                .await;
+
+                            let part_path = cache_dir().join(format!("{}.part", video_id));
+                            let mut prebuffered_bytes: u64 = 0;
+                            if let Ok(pre_resp) = prebuffer_res {
+                                if pre_resp.status().is_success() {
+                                    if let Ok(p_bytes) = pre_resp.bytes().await {
+                                        if !p_bytes.is_empty() {
+                                            if let Ok(mut f) = OpenOptions::new()
+                                                .create(true)
+                                                .write(true)
+                                                .truncate(true)
+                                                .open(&part_path)
+                                            {
+                                                let _ = f.write_all(&p_bytes);
+                                                let _ = f.flush();
+                                                prebuffered_bytes = p_bytes.len() as u64;
+                                                crate::aethon_log!(
+                                                    "Pre-buffered {} bytes directly into {} for 0ms startup",
+                                                    prebuffered_bytes,
+                                                    part_path.display()
+                                                );
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+
                             let port = ensure_chunk_proxy_server();
                             let playable_url =
                                 format!("http://127.0.0.1:{}/stream/{}", port, video_id);
@@ -1120,15 +1222,16 @@ impl YouTubeService {
             if !vid_owned.is_empty() && resolved.contains("googlevideo.com") {
                 let port = ensure_chunk_proxy_server();
                 let proxy_url = format!("http://127.0.0.1:{}/stream/{}", port, vid_owned);
-                let ua = "Mozilla/5.0 (X11; Linux x86_64; rv:135.0) Gecko/20100101 Firefox/135.0".to_string();
-                let mime = "audio/webm".to_string();
-                get_or_spawn_downloader(&vid_owned, &resolved, 0, &mime, &ua);
+                let ua = Self::extract_user_agent_for_url(&resolved);
+                let mime = Self::extract_mime_from_url(&resolved);
+                let clen = Self::extract_clen_from_url(&resolved).unwrap_or(0);
+                get_or_spawn_downloader(&vid_owned, &resolved, clen, &mime, &ua);
                 stream_cache().lock().insert(
                     vid_owned,
                     CachedStream {
                         playable_url: proxy_url.clone(),
                         upstream_url: resolved,
-                        content_length: None,
+                        content_length: if clen > 0 { Some(clen) } else { None },
                         mime_type: mime,
                         user_agent: ua,
                         expires_at: now_unix() + 14_400,
@@ -1463,5 +1566,27 @@ impl YouTubeService {
         }
 
         results
+    }
+}
+
+mod urlencoding {
+    pub fn decode(s: &str) -> Result<String, ()> {
+        let mut bytes = Vec::new();
+        let mut chars = s.bytes();
+        while let Some(b) = chars.next() {
+            if b == b'%' {
+                let h1 = chars.next().ok_or(())?;
+                let h2 = chars.next().ok_or(())?;
+                let hex_str = [h1, h2];
+                let hex_s = std::str::from_utf8(&hex_str).map_err(|_| ())?;
+                let val = u8::from_str_radix(hex_s, 16).map_err(|_| ())?;
+                bytes.push(val);
+            } else if b == b'+' {
+                bytes.push(b' ');
+            } else {
+                bytes.push(b);
+            }
+        }
+        String::from_utf8(bytes).map_err(|_| ())
     }
 }

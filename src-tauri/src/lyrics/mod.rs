@@ -131,21 +131,24 @@ impl LyricsService {
 
         let mut plain_fallback: Option<LyricsResult> = None;
 
-        // Tier 1: LRCLIB (Exact + Search with ±12s duration scoring)
-        for (q_title, q_artist) in [
-            (title, artist),
-            (clean_title.as_str(), clean_artist.as_str()),
-        ] {
-            if q_title.is_empty() {
-                continue;
+        // Concurrent Race of Primary Providers (Musixmatch, Apple Music, Spotify, YouTube Music)
+        let mm_fut = Self::fetch_musixmatch(&clean_title, &clean_artist, duration);
+        let am_fut = Self::fetch_apple_music(&clean_title, &clean_artist, duration);
+        let sp_fut = Self::fetch_spotify(&clean_title, &clean_artist, duration);
+        let ytm_fut = async {
+            if let Some(ref vid) = resolved_vid {
+                if !vid.is_empty() {
+                    return Self::fetch_innertube_lyrics(vid).await;
+                }
             }
-            if let Some(mut res) = Self::fetch_lrclib(q_title, q_artist, duration).await {
+            None
+        };
+
+        let (mm_res, am_res, sp_res, ytm_res) = tokio::join!(mm_fut, am_fut, sp_fut, ytm_fut);
+
+        for candidate in [mm_res, am_res, sp_res, ytm_res] {
+            if let Some(res) = candidate {
                 if res.synced && !res.lines.is_empty() {
-                    // NetEase romalrc / tlyric auto-merge when CJK/Kanji characters are detected
-                    if res.lines.iter().any(|l| Self::has_cjk_characters(&l.text)) && !res.has_romanized {
-                        Self::merge_netease_roma_trans_onto(&mut res.lines, &clean_title, &clean_artist, duration).await;
-                        res.has_romanized = res.lines.iter().any(|l| l.romanized.is_some());
-                    }
                     let enriched = Self::enrich_romanization(res);
                     Self::write_disk_cache(&c_key, &enriched);
                     return Ok(enriched);
@@ -155,9 +158,29 @@ impl LyricsService {
             }
         }
 
-        // Tier 2: NetEase Cloud Music (Official synced lrc + romalrc + tlyric)
-        if let Some(res) = Self::fetch_netease(&clean_title, &clean_artist, duration).await {
+        // Concurrent Race of Secondary Providers (LRCLIB, NetEase, SimpMusic, KuGou, Lyrics.ovh)
+        let lrclib_fut = Self::fetch_lrclib(&clean_title, &clean_artist, duration);
+        let netease_fut = Self::fetch_netease(&clean_title, &clean_artist, duration);
+        let simp_fut = async {
+            if let Some(ref vid) = resolved_vid {
+                if !vid.is_empty() {
+                    return Self::fetch_simpmusic(vid).await;
+                }
+            }
+            None
+        };
+        let kugou_fut = Self::fetch_kugou(&clean_title, &clean_artist, duration);
+        let ovh_fut = Self::fetch_lyrics_ovh(&clean_title, &clean_artist);
+
+        let (lrclib_res, netease_res, simp_res, kugou_res, ovh_res) =
+            tokio::join!(lrclib_fut, netease_fut, simp_fut, kugou_fut, ovh_fut);
+
+        if let Some(mut res) = lrclib_res {
             if res.synced && !res.lines.is_empty() {
+                if res.lines.iter().any(|l| Self::has_cjk_characters(&l.text)) && !res.has_romanized {
+                    Self::merge_netease_roma_trans_onto(&mut res.lines, &clean_title, &clean_artist, duration).await;
+                    res.has_romanized = res.lines.iter().any(|l| l.romanized.is_some());
+                }
                 let enriched = Self::enrich_romanization(res);
                 Self::write_disk_cache(&c_key, &enriched);
                 return Ok(enriched);
@@ -166,49 +189,19 @@ impl LyricsService {
             }
         }
 
-        // Tier 3: SimpMusic / YouLyPlus VideoID API
-        if let Some(ref vid) = resolved_vid {
-            if !vid.is_empty() {
-                if let Some(res) = Self::fetch_simpmusic(vid).await {
-                    if res.synced && !res.lines.is_empty() {
-                        let enriched = Self::enrich_romanization(res);
-                        Self::write_disk_cache(&c_key, &enriched);
-                        return Ok(enriched);
-                    } else if plain_fallback.is_none() && res.plain_text.is_some() {
-                        plain_fallback = Some(res);
-                    }
+        for candidate in [netease_res, simp_res, kugou_res] {
+            if let Some(res) = candidate {
+                if res.synced && !res.lines.is_empty() {
+                    let enriched = Self::enrich_romanization(res);
+                    Self::write_disk_cache(&c_key, &enriched);
+                    return Ok(enriched);
+                } else if plain_fallback.is_none() && res.plain_text.is_some() {
+                    plain_fallback = Some(res);
                 }
             }
         }
 
-        // Tier 4: KuGou Synced LRC
-        if let Some(res) = Self::fetch_kugou(&clean_title, &clean_artist, duration).await {
-            if res.synced && !res.lines.is_empty() {
-                let enriched = Self::enrich_romanization(res);
-                Self::write_disk_cache(&c_key, &enriched);
-                return Ok(enriched);
-            } else if plain_fallback.is_none() && res.plain_text.is_some() {
-                plain_fallback = Some(res);
-            }
-        }
-
-        // Tier 5: YouTube Music Native InnerTube (timedLyricsData synced & musicDescriptionShelfRenderer plain)
-        if let Some(ref vid) = resolved_vid {
-            if !vid.is_empty() {
-                if let Some(res) = Self::fetch_innertube_lyrics(vid).await {
-                    if res.synced && !res.lines.is_empty() {
-                        let enriched = Self::enrich_romanization(res);
-                        Self::write_disk_cache(&c_key, &enriched);
-                        return Ok(enriched);
-                    } else if plain_fallback.is_none() && res.plain_text.is_some() {
-                        plain_fallback = Some(res);
-                    }
-                }
-            }
-        }
-
-        // Tier 6: Lyrics.ovh Plain Text Fallback
-        if let Some(res) = Self::fetch_lyrics_ovh(&clean_title, &clean_artist).await {
+        if let Some(res) = ovh_res {
             if plain_fallback.is_none() && res.plain_text.is_some() {
                 plain_fallback = Some(res);
             }
@@ -220,7 +213,7 @@ impl LyricsService {
             return Ok(enriched);
         }
 
-        Err("No lyrics found across 7-provider pipeline".into())
+        Err("No lyrics found across concurrent multi-provider engine".into())
     }
 
     fn disk_cache_dir() -> std::path::PathBuf {
@@ -775,11 +768,18 @@ impl LyricsService {
         }
         let b_json: serde_json::Value = b_resp.json().await.ok()?;
 
-        if let Some(timed_arr) = b_json
+        let timed_arr_opt = b_json
             .pointer("/contents/sectionListRenderer/contents/0/musicDescriptionShelfRenderer/timedLyricsData")
             .or_else(|| b_json.pointer("/contents/elementRenderer/timedLyricsData"))
+            .or_else(|| b_json.pointer("/contents/elementRenderer/newElement/timedLyricsModel/lyricsData/timedLyricsData"))
             .and_then(|a| a.as_array())
-        {
+            .cloned()
+            .or_else(|| {
+                // Robust recursive search for "timedLyricsData" or "timedLyricsModel" in any sub-node
+                Self::find_timed_lyrics_in_json(&b_json)
+            });
+
+        if let Some(timed_arr) = timed_arr_opt {
             let mut lines = Vec::new();
             for item in timed_arr {
                 let text = item
@@ -836,6 +836,246 @@ impl LyricsService {
             }
         }
 
+        None
+    }
+
+    fn find_timed_lyrics_in_json(val: &serde_json::Value) -> Option<Vec<serde_json::Value>> {
+        match val {
+            serde_json::Value::Object(map) => {
+                if let Some(arr) = map.get("timedLyricsData").and_then(|v| v.as_array()) {
+                    return Some(arr.clone());
+                }
+                for v in map.values() {
+                    if let Some(res) = Self::find_timed_lyrics_in_json(v) {
+                        return Some(res);
+                    }
+                }
+            }
+            serde_json::Value::Array(arr) => {
+                for v in arr {
+                    if let Some(res) = Self::find_timed_lyrics_in_json(v) {
+                        return Some(res);
+                    }
+                }
+            }
+            _ => {}
+        }
+        None
+    }
+
+    async fn fetch_musixmatch(title: &str, artist: &str, duration: Option<f64>) -> Option<LyricsResult> {
+        let client = lyrics_client();
+        let query = format!("{} {}", title, artist);
+        // Musixmatch search + synchronized lyrics via public mobile token gateway
+        let search_url = format!(
+            "https://apic-desktop.musixmatch.com/ws/1.1/macro.subtitles.get?format=json&q_track={}&q_artist={}&user_language=en&app_id=web-desktop-app-v1.0",
+            urlencoding::encode(title),
+            urlencoding::encode(artist)
+        );
+        let resp = client
+            .get(&search_url)
+            .header("Cookie", "AWSELBCORS=0; AWSELB=0")
+            .send()
+            .await
+            .ok()?;
+        if !resp.status().is_success() {
+            return None;
+        }
+        let json: serde_json::Value = resp.json().await.ok()?;
+        let body = json.pointer("/message/body/macro_result_list")?;
+        
+        // Check for subtitles
+        if let Some(sub_body) = body.pointer("/subtitles_list/0/subtitle/subtitle_body").and_then(|s| s.as_str()) {
+            if let Ok(items) = serde_json::from_str::<Vec<serde_json::Value>>(sub_body) {
+                let mut lines = Vec::new();
+                for item in items {
+                    let text = item.get("text").and_then(|s| s.as_str()).unwrap_or("").trim().to_string();
+                    let total_sec = item.pointer("/time/total").and_then(|t| t.as_f64()).unwrap_or(0.0);
+                    if !text.is_empty() {
+                        lines.push(LyricLine {
+                            time: total_sec,
+                            text,
+                            romanized: None,
+                            translation: None,
+                        });
+                    }
+                }
+                if !lines.is_empty() {
+                    return Some(LyricsResult {
+                        synced: true,
+                        lines,
+                        plain_text: None,
+                        provider: "Musixmatch".to_string(),
+                        has_romanized: false,
+                    });
+                }
+            }
+        }
+
+        // Fallback to plain lyrics from Musixmatch
+        if let Some(lyrics_body) = body.pointer("/lyrics_list/0/lyrics/lyrics_body").and_then(|s| s.as_str()) {
+            let clean = lyrics_body.split("******* This Lyrics is NOT for Commercial use *******").next().unwrap_or(lyrics_body).trim();
+            if !clean.is_empty() {
+                return Some(LyricsResult {
+                    synced: false,
+                    lines: Vec::new(),
+                    plain_text: Some(clean.to_string()),
+                    provider: "Musixmatch".to_string(),
+                    has_romanized: false,
+                });
+            }
+        }
+
+        None
+    }
+
+    async fn fetch_apple_music(title: &str, artist: &str, duration: Option<f64>) -> Option<LyricsResult> {
+        let client = lyrics_client();
+        // Apple Music synchronized TTML lyrics endpoint via public WebPlayer API
+        let term = format!("{} {}", artist, title);
+        let search_url = format!(
+            "https://music.apple.com/api/v1/catalog/us/search?term={}&types=songs&limit=3",
+            urlencoding::encode(&term)
+        );
+        let resp = client
+            .get(&search_url)
+            .header("Origin", "https://music.apple.com")
+            .header("Referer", "https://music.apple.com/")
+            .send()
+            .await
+            .ok()?;
+        if !resp.status().is_success() {
+            return None;
+        }
+        let json: serde_json::Value = resp.json().await.ok()?;
+        let songs = json.pointer("/results/songs/data")?.as_array()?;
+        let first_song = songs.first()?;
+        let song_id = first_song.get("id")?.as_str()?;
+
+        // Query TTML/LRC syllables
+        let lyric_url = format!("https://amp-api.music.apple.com/v1/catalog/us/songs/{}/lyrics", song_id);
+        let l_resp = client
+            .get(&lyric_url)
+            .header("Origin", "https://music.apple.com")
+            .send()
+            .await
+            .ok()?;
+        if !l_resp.status().is_success() {
+            return None;
+        }
+        let l_json: serde_json::Value = l_resp.json().await.ok()?;
+        if let Some(ttml) = l_json.pointer("/data/0/attributes/ttml").and_then(|s| s.as_str()) {
+            let lines = Self::parse_ttml_to_lines(ttml);
+            if !lines.is_empty() {
+                return Some(LyricsResult {
+                    synced: true,
+                    lines,
+                    plain_text: None,
+                    provider: "Apple Music".to_string(),
+                    has_romanized: false,
+                });
+            }
+        }
+
+        None
+    }
+
+    fn parse_ttml_to_lines(ttml: &str) -> Vec<LyricLine> {
+        let mut lines = Vec::new();
+        for chunk in ttml.split("<p ") {
+            if let Some(begin_idx) = chunk.find("begin=\"") {
+                let rest = &chunk[begin_idx + 7..];
+                if let Some(end_quote) = rest.find('"') {
+                    let time_str = &rest[..end_quote];
+                    let seconds = Self::parse_ttml_timestamp(time_str);
+                    if let Some(text_start) = chunk.find('>') {
+                        let text_part = &chunk[text_start + 1..];
+                        if let Some(text_end) = text_part.find("</p>") {
+                            let raw_text = &text_part[..text_end];
+                            // Strip inner spans
+                            let mut clean_text = String::new();
+                            let mut in_tag = false;
+                            for c in raw_text.chars() {
+                                if c == '<' { in_tag = true; }
+                                else if c == '>' { in_tag = false; }
+                                else if !in_tag { clean_text.push(c); }
+                            }
+                            let trimmed = clean_text.trim();
+                            if !trimmed.is_empty() {
+                                lines.push(LyricLine {
+                                    time: seconds,
+                                    text: trimmed.to_string(),
+                                    romanized: None,
+                                    translation: None,
+                                });
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        lines
+    }
+
+    fn parse_ttml_timestamp(ts: &str) -> f64 {
+        let parts: Vec<&str> = ts.split(':').collect();
+        if parts.len() == 2 {
+            let m: f64 = parts[0].parse().unwrap_or(0.0);
+            let s: f64 = parts[1].parse().unwrap_or(0.0);
+            m * 60.0 + s
+        } else if parts.len() == 3 {
+            let h: f64 = parts[0].parse().unwrap_or(0.0);
+            let m: f64 = parts[1].parse().unwrap_or(0.0);
+            let s: f64 = parts[2].parse().unwrap_or(0.0);
+            h * 3600.0 + m * 60.0 + s
+        } else {
+            ts.trim_end_matches('s').parse().unwrap_or(0.0)
+        }
+    }
+
+    async fn fetch_spotify(title: &str, artist: &str, duration: Option<f64>) -> Option<LyricsResult> {
+        let client = lyrics_client();
+        // Spotify Musixmatch partner sync proxy endpoint
+        let q = format!("{} {}", title, artist);
+        let url = format!(
+            "https://spotify-lyric-api.herokuapp.com/?track_name={}&artist_name={}",
+            urlencoding::encode(title),
+            urlencoding::encode(artist)
+        );
+        let resp = client.get(&url).send().await.ok()?;
+        if !resp.status().is_success() {
+            return None;
+        }
+        let json: serde_json::Value = resp.json().await.ok()?;
+        if let Some(lines_arr) = json.get("lines").and_then(|l| l.as_array()) {
+            let mut lines = Vec::new();
+            for item in lines_arr {
+                let words = item.get("words").and_then(|w| w.as_str()).unwrap_or("").trim().to_string();
+                let start_ms = item.get("startTimeMs")
+                    .and_then(|s| s.as_str())
+                    .and_then(|s| s.parse::<f64>().ok())
+                    .or_else(|| item.get("startTimeMs").and_then(|v| v.as_f64()))
+                    .unwrap_or(0.0);
+                if !words.is_empty() && words != "♪" {
+                    lines.push(LyricLine {
+                        time: start_ms / 1000.0,
+                        text: words,
+                        romanized: None,
+                        translation: None,
+                    });
+                }
+            }
+            if !lines.is_empty() {
+                let sync_type = json.get("syncType").and_then(|s| s.as_str()).unwrap_or("LINE_SYNCED");
+                return Some(LyricsResult {
+                    synced: sync_type == "LINE_SYNCED" || sync_type == "SYLLABLE_SYNCED",
+                    lines,
+                    plain_text: None,
+                    provider: "Spotify".to_string(),
+                    has_romanized: false,
+                });
+            }
+        }
         None
     }
 

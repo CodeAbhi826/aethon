@@ -164,6 +164,12 @@ pub fn run() {
                 .build(app)?;
 
             app.manage(AppState { mpv, db, mpris });
+
+            if let Some(window) = app.get_webview_window("main") {
+                let _ = window.show();
+                let _ = window.set_focus();
+            }
+
             Ok(())
         })
         .on_window_event(|window, event| {

@@ -123,8 +123,16 @@
           title={isLoading ? 'Buffering stream...' : playerState.playback.is_playing ? 'Pause' : 'Play'}
         >
           {#if isLoading}
-            <svg class="w-5 h-5 animate-spin archivetune-spinner-svg text-current" viewBox="0 0 36 36" fill="none">
-              <circle cx="18" cy="18" r="14" stroke="currentColor" stroke-opacity="0.25" stroke-width="3" />
+            <svg class="w-5 h-5 archivetune-spinner-svg text-current" viewBox="0 0 36 36" fill="none">
+              <circle cx="18" cy="18" r="14" stroke="currentColor" stroke-opacity="0.2" stroke-width="3" />
+              <circle
+                class="archivetune-spinner-arc-secondary"
+                cx="18"
+                cy="18"
+                r="14"
+                stroke="currentColor"
+                stroke-width="3"
+              />
               <circle
                 class="archivetune-spinner-arc"
                 cx="18"

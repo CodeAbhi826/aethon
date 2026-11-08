@@ -121,7 +121,7 @@ impl MpvEngine {
             .arg("--cache-on-disk=no")
             .arg("--cache-pause=yes")
             .arg("--cache-pause-wait=0.15")
-            .arg("--cache-pause-initial=yes")
+            .arg("--cache-pause-initial=no")
             .arg("--demuxer-max-bytes=33554432")
             .arg("--demuxer-max-back-bytes=8388608")
             .arg("--demuxer-readahead-secs=20")
@@ -138,8 +138,8 @@ impl MpvEngine {
 
         let mut connected = false;
         let mut stream = None;
-        for _ in 0..40 {
-            tokio::time::sleep(Duration::from_millis(60)).await;
+        for _ in 0..200 {
+            tokio::time::sleep(Duration::from_millis(12)).await;
             if let Ok(s) = UnixStream::connect(&socket_path).await {
                 stream = Some(s);
                 connected = true;
@@ -374,42 +374,22 @@ impl MpvEngine {
             app_handle: app,
         };
 
-        engine
-            .send_cmd(r#"{"command": ["observe_property", 1, "time-pos"]}"#)
-            .await?;
-        engine
-            .send_cmd(r#"{"command": ["observe_property", 2, "duration"]}"#)
-            .await?;
-        engine
-            .send_cmd(r#"{"command": ["observe_property", 3, "pause"]}"#)
-            .await?;
-        engine
-            .send_cmd(r#"{"command": ["observe_property", 4, "volume"]}"#)
-            .await?;
-        engine
-            .send_cmd(r#"{"command": ["observe_property", 5, "audio-codec-name"]}"#)
-            .await?;
-        engine
-            .send_cmd(r#"{"command": ["observe_property", 6, "audio-params"]}"#)
-            .await?;
-        engine
-            .send_cmd(r#"{"command": ["observe_property", 7, "audio-bitrate"]}"#)
-            .await?;
-        engine
-            .send_cmd(r#"{"command": ["observe_property", 8, "core-idle"]}"#)
-            .await?;
-        engine
-            .send_cmd(r#"{"command": ["observe_property", 9, "paused-for-cache"]}"#)
-            .await?;
-        engine
-            .send_cmd(r#"{"command": ["observe_property", 10, "path"]}"#)
-            .await?;
-        engine
-            .send_cmd(r#"{"command": ["observe_property", 11, "media-title"]}"#)
-            .await?;
-        engine
-            .send_cmd(r#"{"command": ["observe_property", 12, "eof-reached"]}"#)
-            .await?;
+        let pipeline_cmds = [
+            r#"{"command": ["observe_property", 1, "time-pos"]}"#,
+            r#"{"command": ["observe_property", 2, "duration"]}"#,
+            r#"{"command": ["observe_property", 3, "pause"]}"#,
+            r#"{"command": ["observe_property", 4, "volume"]}"#,
+            r#"{"command": ["observe_property", 5, "audio-codec-name"]}"#,
+            r#"{"command": ["observe_property", 6, "audio-params"]}"#,
+            r#"{"command": ["observe_property", 7, "audio-bitrate"]}"#,
+            r#"{"command": ["observe_property", 8, "core-idle"]}"#,
+            r#"{"command": ["observe_property", 9, "paused-for-cache"]}"#,
+            r#"{"command": ["observe_property", 10, "path"]}"#,
+            r#"{"command": ["observe_property", 11, "media-title"]}"#,
+            r#"{"command": ["observe_property", 12, "eof-reached"]}"#,
+        ].join("\n");
+
+        engine.send_cmd(&pipeline_cmds).await?;
 
         Ok(engine)
     }

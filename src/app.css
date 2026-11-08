@@ -125,14 +125,56 @@ input[type=range] {
   transition-timing-function: cubic-bezier(0.2, 0, 0, 1);
 }
 
-/* Single ArchiveTune / Apple Music Variable-Arc Circular Loading Spinner */
+/* Apple Music Dual-Harmonic Variable-Sweep Morphing Loader */
+@keyframes appleSpinnerDash {
+  0% {
+    stroke-dasharray: 4 100;
+    stroke-dashoffset: 0;
+  }
+  50% {
+    stroke-dasharray: 78 100;
+    stroke-dashoffset: -25;
+  }
+  100% {
+    stroke-dasharray: 4 100;
+    stroke-dashoffset: -100;
+  }
+}
+
+@keyframes appleSpinnerSecondaryDash {
+  0% {
+    stroke-dasharray: 2 100;
+    stroke-dashoffset: -40;
+    opacity: 0.25;
+  }
+  50% {
+    stroke-dasharray: 35 100;
+    stroke-dashoffset: -65;
+    opacity: 0.65;
+  }
+  100% {
+    stroke-dasharray: 2 100;
+    stroke-dashoffset: -140;
+    opacity: 0.25;
+  }
+}
+
 .archivetune-spinner-svg {
   display: block;
   transform-origin: center;
+  animation: spin 1.2s cubic-bezier(0.4, 0, 0.2, 1) infinite;
 }
+
 .archivetune-spinner-arc {
-  stroke-dasharray: 48 100;
   stroke-linecap: round;
+  transform-origin: center;
+  animation: appleSpinnerDash 1.6s ease-in-out infinite;
+}
+
+.archivetune-spinner-arc-secondary {
+  stroke-linecap: round;
+  transform-origin: center;
+  animation: appleSpinnerSecondaryDash 1.6s ease-in-out infinite;
 }
 
 /* Apple Music Instrumental Rhythm Pulse Dots */

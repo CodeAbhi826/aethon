@@ -158,13 +158,6 @@
         if (!customMoodQuery) {
           playerState.homeQuickPickFeed = tracks;
         }
-        if (quickPickFeed[0]) {
-          playerState.prefetchStream(
-            quickPickFeed[0].file_path,
-            quickPickFeed[0].title,
-            quickPickFeed[0].artist
-          );
-        }
       }
 
       if (chartRes && chartRes.length > 0) {
@@ -290,8 +283,6 @@
           <div
             role="button"
             tabindex="0"
-            onmouseenter={() =>
-              playerState.prefetchStream(track.file_path, track.title, track.artist)}
             onclick={() => playerState.playTrack(track)}
             oncontextmenu={(e) => {
               e.preventDefault();
@@ -393,8 +384,6 @@
           <div
             role="button"
             tabindex="0"
-            onmouseenter={() =>
-              playerState.prefetchStream(track.file_path, track.title, track.artist)}
             onclick={() => playerState.playTrack(track)}
             oncontextmenu={(e) => {
               e.preventDefault();
@@ -507,8 +496,6 @@
           <div
             role="button"
             tabindex="0"
-            onmouseenter={() =>
-              playerState.prefetchStream(track.file_path, track.title, track.artist)}
             onclick={() => playerState.playTrack(track)}
             oncontextmenu={(e) => {
               e.preventDefault();
@@ -597,8 +584,6 @@
           <div
             role="button"
             tabindex="0"
-            onmouseenter={() =>
-              playerState.prefetchStream(track.file_path, track.title, track.artist)}
             onclick={() => playerState.playTrack(track)}
             oncontextmenu={(e) => {
               e.preventDefault();
@@ -668,8 +653,6 @@
           <div
             role="button"
             tabindex="0"
-            onmouseenter={() =>
-              playerState.prefetchStream(track.file_path, track.title, track.artist)}
             onclick={() => playerState.playTrack(track)}
             oncontextmenu={(e) => {
               e.preventDefault();

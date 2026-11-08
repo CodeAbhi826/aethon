@@ -232,8 +232,6 @@
             <div
               role="button"
               tabindex="0"
-              onmouseenter={() =>
-                playerState.prefetchStream(topResult.stream_url, topResult.title, topResult.artist)}
               onclick={() => playerState.playYouTube(topResult)}
               oncontextmenu={(e) => {
                 e.preventDefault();
@@ -343,7 +341,6 @@
               <div
                 role="button"
                 tabindex="0"
-                onmouseenter={() => playerState.prefetchStream(yt.stream_url, yt.title, yt.artist)}
                 onclick={() => playerState.playYouTube(yt)}
                 oncontextmenu={(e) => {
                   e.preventDefault();
@@ -454,7 +451,6 @@
             <div
               role="button"
               tabindex="0"
-              onmouseenter={() => playerState.prefetchStream(yt.stream_url, yt.title, yt.artist)}
               onclick={() => playerState.playYouTube(yt)}
               oncontextmenu={(e) => {
                 e.preventDefault();

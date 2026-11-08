@@ -911,9 +911,6 @@ class PlayerState {
     try {
       const res = await invoke<YouTubeTrack[]>('search_youtube', { query, limit: 25 });
       this.youtubeResults = res;
-      if (res.length > 0) {
-        this.prefetchStream(res[0].stream_url, res[0].title, res[0].artist);
-      }
     } catch (e) {
       console.error('YouTube search error:', e);
     } finally {

@@ -44,7 +44,7 @@ class SettingsState {
   showAudioQualityBadge = $state(true);
 
   // 4. Lyrics
-  lyricsSource = $state<'lrclib' | 'local_lrc' | 'musixmatch'>('lrclib');
+  lyricsSource = $state<'all' | 'musixmatch' | 'apple' | 'spotify' | 'ytm' | 'lrclib' | 'local_lrc'>('all');
   karaokeAnimation = $state(true);
   wordByWordTracking = $state(true);
   lyricOffsetSeconds = $state(0.0);
@@ -119,10 +119,10 @@ class SettingsState {
 
     // Apply saved audio engine settings to MPV on startup
     if (this.replayGain) {
-      invoke('set_replaygain', { enabled: this.replayGain, mode: this.replayGainMode }).catch(() => {});
+      invoke('set_replaygain', { mode: this.replayGainMode }).catch(() => {});
     }
     if (this.crossfadeDuration > 0) {
-      invoke('set_crossfade', { duration: this.crossfadeDuration }).catch(() => {});
+      invoke('set_crossfade', { seconds: this.crossfadeDuration }).catch(() => {});
     }
 
     try {
@@ -622,7 +622,7 @@ class SettingsState {
     this.equalizerPreset = 'flat';
     this.showAudioQualityBadge = true;
 
-    this.lyricsSource = 'lrclib';
+    this.lyricsSource = 'all';
     this.karaokeAnimation = true;
     this.wordByWordTracking = true;
     this.lyricOffsetSeconds = 0.0;

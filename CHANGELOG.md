@@ -4,6 +4,42 @@ All notable changes, architectural upgrades, and performance fixes in **Aethon**
 
 ---
 
+## [v0.0.40] — 2026-11-08
+
+### 🚀 Audio Streaming & Proxy Architecture Overhaul
+- **Playback HTTP 416 & Zero-Byte Range Deadlock Fix (`src-tauri/src/youtube/mod.rs`)**:
+  - Resolved race condition where MPV requested byte ranges before background streaming workers established `content-length` from YouTube CDN headers.
+  - Implemented `extract_clen_from_url()`, `extract_user_agent_for_url()`, and `extract_mime_from_url()` on yt-dlp fallback resolution to immediately populate metadata.
+  - Added async condition variable notification (`task.notify.notified()`) with timeout in `handle_proxy_client()` when `total_len == 0`, eliminating spurious HTTP 416 range errors.
+  - Added synchronous 64 KB pre-buffer verification (`bytes=0-65535`) directly into `<video_id>.part` cache before exposing local proxy URLs, ensuring MPV demuxer starts instantly without stalls.
+  - Optimized download worker to resume appending onto pre-buffered bytes without file truncation.
+
+### ⚡ MPV IPC & Linux WebKitGTK Rendering Reliability
+- **WebKitGTK DMABUF Renderer Workaround (`src-tauri/src/main.rs`)**:
+  - Added `WEBKIT_DISABLE_DMABUF_RENDERER=1` while preserving 100% hardware-accelerated GPU compositing, eliminating black window flashes, blank webview stalls, and Mesa/Wayland compositor synchronization hangs.
+  - Explicitly called `window.show()` and `window.set_focus()` on application startup in `src-tauri/src/lib.rs`.
+- **Atomic MPV Socket & IPC Optimization (`src-tauri/src/player/mpv.rs`)**:
+  - Replaced `--cache-pause-initial=yes` with `--cache-pause-initial=no` to prevent unneeded pause latching.
+  - Reduced socket connection retry interval from 60 ms to 12 ms with 200 max iterations for ultra-fast MPV handshake.
+  - Pipelined all 12 initial `observe_property` IPC commands into a single atomic newline-delimited batch write.
+
+### 🎨 60fps GPU Mesh & Apple Music Morphing Loader
+- **Zero-CPU NowPlayingSheet Backdrop & Word Transforms (`NowPlayingSheet.svelte`)**:
+  - Replaced heavy `blur-[120px]` and `blur-[130px]` overlays with a pure GPU dual radial gradient mesh.
+  - Replaced CPU-costly `-webkit-background-clip: text` gradients on active lyrics with pure hardware-accelerated `opacity` and `transform: translate3d(0, -1.5px, 0)` with `will-change-transform`.
+- **Apple Music Dual-Harmonic Variable-Sweep Morphing Loader (`app.css`, `BottomPlayer.svelte`, `NowPlayingSheet.svelte`)**:
+  - Implemented dual-harmonic morphing arc loader (`@keyframes appleSpinnerDash` and `@keyframes appleSpinnerSecondaryDash`) for silky-smooth, native-feeling buffering states.
+
+### 🎵 Concurrent Multi-Provider Lyrics Engine & Source Priority
+- **Recursive InnerTube & Multi-Provider Scraping (`src-tauri/src/lyrics/mod.rs`)**:
+  - Implemented recursive JSON timed lyrics parser (`find_timed_lyrics_in_json`) supporting YouTube Music `elementRenderer -> newElement -> timedLyricsModel -> lyricsData -> timedLyricsData`.
+  - Added native direct fetchers for Musixmatch, Apple Music, and Spotify lyrics.
+  - Re-architected `fetch_lyrics` into concurrent races: Primary Race (`Musixmatch`, `Apple Music`, `Spotify`, `YouTube Music`) and Secondary Race (`LRCLIB`, `NetEase`, `SimpMusic`, `KuGou`, `Lyrics.ovh`).
+- **Interactive Lyrics Source Priority Selector**:
+  - Added interactive provider switcher and priority selector in `NowPlayingSheet.svelte` and `SettingsView.svelte`.
+
+---
+
 ## [v0.0.39] — 2026-11-06
 
 ### 🚀 Zero-CPU Readback Pipeline & True 60fps WebKitGTK Compositor
