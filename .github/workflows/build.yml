@@ -37,7 +37,8 @@ jobs:
             libxdo-dev \
             libssl-dev \
             libayatana-appindicator3-dev \
-            librsvg2-dev
+            librsvg2-dev \
+            libfuse2
 
       - name: Install pnpm
         uses: pnpm/action-setup@v3
@@ -63,16 +64,24 @@ jobs:
           mkdir -p ~/.cache/tauri
           gh api -H "Accept: application/octet-stream" /repos/tauri-apps/binary-releases/releases/assets/274691722 > ~/.cache/tauri/AppRun-x86_64
           chmod +x ~/.cache/tauri/AppRun-x86_64
+          cp ~/.cache/tauri/AppRun-x86_64 ~/.cache/tauri/AppRun || true
+
           gh api -H "Accept: application/octet-stream" /repos/tauri-apps/binary-releases/releases/assets/576945544 > ~/.cache/tauri/linuxdeploy-07333c6-x86_64.AppImage
           chmod +x ~/.cache/tauri/linuxdeploy-07333c6-x86_64.AppImage
-          gh api -H "Accept: application/octet-stream" /repos/linuxdeploy/linuxdeploy-plugin-appimage/releases/assets/602435573 > ~/.cache/tauri/linuxdeploy-plugin-appimage-x86_64.AppImage
-          chmod +x ~/.cache/tauri/linuxdeploy-plugin-appimage-x86_64.AppImage
-          sudo cp ~/.cache/tauri/linuxdeploy-plugin-appimage-x86_64.AppImage /usr/local/bin/linuxdeploy-plugin-appimage
-          sudo chmod +x /usr/local/bin/linuxdeploy-plugin-appimage
-          ls -lh ~/.cache/tauri/ /usr/local/bin/linuxdeploy-plugin-appimage
+          cp ~/.cache/tauri/linuxdeploy-07333c6-x86_64.AppImage ~/.cache/tauri/linuxdeploy-x86_64.AppImage || true
+
+          gh api -H "Accept: application/octet-stream" /repos/linuxdeploy/linuxdeploy-plugin-appimage/releases/assets/602435573 > ~/.cache/tauri/linuxdeploy-plugin-appimage.AppImage
+          chmod +x ~/.cache/tauri/linuxdeploy-plugin-appimage.AppImage
+          cp ~/.cache/tauri/linuxdeploy-plugin-appimage.AppImage ~/.cache/tauri/linuxdeploy-plugin-appimage-x86_64.AppImage || true
+
+          sudo cp ~/.cache/tauri/linuxdeploy-plugin-appimage.AppImage /usr/local/bin/linuxdeploy-plugin-appimage
+          sudo cp ~/.cache/tauri/linuxdeploy-plugin-appimage.AppImage /usr/bin/linuxdeploy-plugin-appimage || true
+          sudo chmod +x /usr/local/bin/linuxdeploy-plugin-appimage /usr/bin/linuxdeploy-plugin-appimage || true
+          ls -lh ~/.cache/tauri/
 
       - name: Build Desktop App Bundle (No Release)
         env:
+          APPIMAGE_EXTRACT_AND_RUN: 1
           CFLAGS: "-march=x86-64 -mtune=generic -O2"
           CXXFLAGS: "-march=x86-64 -mtune=generic -O2"
           RUSTFLAGS: "-C target-cpu=generic"
