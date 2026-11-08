@@ -65,7 +65,11 @@ jobs:
           chmod +x ~/.cache/tauri/AppRun-x86_64
           gh api -H "Accept: application/octet-stream" /repos/tauri-apps/binary-releases/releases/assets/576945544 > ~/.cache/tauri/linuxdeploy-07333c6-x86_64.AppImage
           chmod +x ~/.cache/tauri/linuxdeploy-07333c6-x86_64.AppImage
-          ls -lh ~/.cache/tauri/
+          gh api -H "Accept: application/octet-stream" /repos/linuxdeploy/linuxdeploy-plugin-appimage/releases/assets/602435573 > ~/.cache/tauri/linuxdeploy-plugin-appimage-x86_64.AppImage
+          chmod +x ~/.cache/tauri/linuxdeploy-plugin-appimage-x86_64.AppImage
+          sudo cp ~/.cache/tauri/linuxdeploy-plugin-appimage-x86_64.AppImage /usr/local/bin/linuxdeploy-plugin-appimage
+          sudo chmod +x /usr/local/bin/linuxdeploy-plugin-appimage
+          ls -lh ~/.cache/tauri/ /usr/local/bin/linuxdeploy-plugin-appimage
 
       - name: Build Desktop App Bundle (No Release)
         env:
