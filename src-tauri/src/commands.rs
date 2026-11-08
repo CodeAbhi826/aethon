@@ -5,7 +5,7 @@ use crate::youtube::{HomeShelf, YouTubeService, YouTubeTrack};
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
-use tauri::{Emitter, State};
+use tauri::State;
 
 pub struct AppState {
     pub mpv: Arc<MpvEngine>,
@@ -192,6 +192,7 @@ pub async fn get_lyrics(
     duration: Option<f64>,
     file_path: Option<String>,
     video_id: Option<String>,
+    provider: Option<String>,
 ) -> Result<LyricsResult, String> {
     crate::aethon_log!("get_lyrics: title='{}', artist='{}'", title, artist);
     LyricsService::fetch_lyrics(
@@ -200,6 +201,7 @@ pub async fn get_lyrics(
         duration,
         file_path.as_deref(),
         video_id.as_deref(),
+        provider.as_deref(),
     )
     .await
     .map_err(|e| e.to_string())

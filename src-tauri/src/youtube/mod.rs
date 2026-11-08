@@ -740,11 +740,16 @@ async fn handle_proxy_client(mut socket: tokio::net::TcpStream) {
         if let Ok(f) = File::open(&part_path) {
             break f;
         }
+        let mut found = None;
         for ext in &["webm", "m4a", "opus"] {
             let done_p = dir.join(format!("{}.{}", video_id, ext));
             if let Ok(f) = File::open(&done_p) {
-                break f;
+                found = Some(f);
+                break;
             }
+        }
+        if let Some(f) = found {
+            break f;
         }
         if task.error.lock().is_some() {
             return;
@@ -926,7 +931,8 @@ impl YouTubeService {
         match val {
             serde_json::Value::Object(map) => {
                 if let Some(tok) = map
-                    .pointer("/nextContinuationData/continuation")
+                    .get("nextContinuationData")
+                    .and_then(|n| n.get("continuation"))
                     .and_then(|v| v.as_str())
                 {
                     if !tok.is_empty() {

@@ -263,7 +263,7 @@ impl LyricsService {
 
         // Pass 2: If raw title differed from clean_title, try exact LRCLIB with raw title
         if title != clean_title {
-            if let Some(mut res) = Self::fetch_lrclib(title, artist, duration).await {
+            if let Some(res) = Self::fetch_lrclib(title, artist, duration).await {
                 if res.synced && !res.lines.is_empty() {
                     let enriched = Self::enrich_romanization(res);
                     Self::write_disk_cache(&c_key, &enriched);
