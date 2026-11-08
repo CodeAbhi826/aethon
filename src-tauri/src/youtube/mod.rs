@@ -879,6 +879,13 @@ impl YouTubeService {
             }
             return trimmed.to_string();
         }
+        // If it's a ytimg URL with hqdefault.jpg, replace with clean mqdefault.jpg to eliminate YouTube's embedded black bars
+        if trimmed.contains("i.ytimg.com") && trimmed.contains("hqdefault.jpg") {
+            if !video_id.is_empty() {
+                return format!("https://i.ytimg.com/vi/{}/mqdefault.jpg", video_id);
+            }
+            return trimmed.replace("hqdefault.jpg", "mqdefault.jpg").split('?').next().unwrap_or(trimmed).to_string();
+        }
         // Preserve signed ?sqp= and valid i.ytimg.com URLs; only fallback to mqdefault.jpg (which never 404s) when empty or bare /default.jpg
         if !trimmed.is_empty() && !trimmed.ends_with("/default.jpg") {
             return trimmed.to_string();
@@ -1958,7 +1965,7 @@ impl YouTubeService {
                     .to_string();
 
                 let mut title = String::new();
-                let mut artist = String::from("YouTube Music");
+                let mut artist = String::new();
                 let mut duration = 0.0;
 
                 if let Some(flex_cols) = item.get("flexColumns").and_then(|c| c.as_array()) {
@@ -2049,6 +2056,19 @@ impl YouTubeService {
                 }
 
                 if !video_id.is_empty() && !title.is_empty() {
+                    if artist.trim().is_empty() {
+                        if let Some((art_cand, song_cand)) = title.split_once(" - ") {
+                            if !art_cand.trim().is_empty() && !song_cand.trim().is_empty() {
+                                artist = art_cand.trim().to_string();
+                                title = song_cand.trim().to_string();
+                            } else {
+                                artist = String::from("Various Artists");
+                            }
+                        } else {
+                            artist = String::from("Various Artists");
+                        }
+                    }
+
                     let raw_thumb = item
                         .pointer("/thumbnail/musicThumbnailRenderer/thumbnail/thumbnails")
                         .and_then(|th| th.as_array())
@@ -2081,14 +2101,14 @@ impl YouTubeService {
                     .unwrap_or("")
                     .to_string();
 
-                let title = two_row
+                let mut title = two_row
                     .pointer("/title/runs/0/text")
                     .and_then(|v| v.as_str())
                     .unwrap_or("")
                     .trim()
                     .to_string();
 
-                let mut artist = String::from("YouTube Music");
+                let mut artist = String::new();
                 if let Some(sub_runs) = two_row.pointer("/subtitle/runs").and_then(|r| r.as_array()) {
                     let mut artist_names = Vec::new();
                     for r in sub_runs {
@@ -2110,6 +2130,19 @@ impl YouTubeService {
                     }
                     if !artist_names.is_empty() {
                         artist = artist_names.join(", ");
+                    }
+                }
+
+                if artist.trim().is_empty() {
+                    if let Some((art_cand, song_cand)) = title.split_once(" - ") {
+                        if !art_cand.trim().is_empty() && !song_cand.trim().is_empty() {
+                            artist = art_cand.trim().to_string();
+                            title = song_cand.trim().to_string();
+                        } else {
+                            artist = String::from("Various Artists");
+                        }
+                    } else {
+                        artist = String::from("Various Artists");
                     }
                 }
 

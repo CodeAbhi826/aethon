@@ -20,9 +20,19 @@ export function getHighResArtwork(url?: string | null, videoId?: string | null, 
     return `${trimmed}=w${size}-h${size}-l90-rj`;
   }
 
-  // Keep signed ytimg URLs intact; if a stale maxresdefault.jpg URL was cached, use mqdefault.jpg which never 404s
-  if (trimmed.includes('i.ytimg.com') && trimmed.includes('maxresdefault.jpg')) {
-    return trimmed.replace('maxresdefault.jpg', 'mqdefault.jpg');
+  // YouTube video thumbnails (ytimg)
+  if (trimmed.includes('i.ytimg.com')) {
+    // If it's hqdefault.jpg, YouTube embeds black letterbox bars! Replace with mqdefault.jpg to eliminate black bars
+    if (trimmed.includes('hqdefault.jpg')) {
+      const vid = cleanVid || trimmed.match(/\/vi\/([^\/]+)/)?.[1];
+      if (vid) {
+        return `https://i.ytimg.com/vi/${vid}/mqdefault.jpg`;
+      }
+      return trimmed.replace('hqdefault.jpg', 'mqdefault.jpg').split('?')[0];
+    }
+    if (trimmed.includes('maxresdefault.jpg')) {
+      return trimmed.replace('maxresdefault.jpg', 'mqdefault.jpg');
+    }
   }
 
   return trimmed;

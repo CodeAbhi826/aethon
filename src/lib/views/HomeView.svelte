@@ -73,7 +73,7 @@
     return {
       id: `yt_${yt.id}`,
       title: yt.title,
-      artist: sanitizeArtist(yt.artist),
+      artist: sanitizeArtist(yt.artist) || 'Unknown Artist',
       album: albumLabel,
       duration: yt.duration || 0,
       file_path: yt.stream_url,
