@@ -870,7 +870,7 @@ impl YouTubeService {
 
     pub fn upgrade_thumbnail_url(url: &str, video_id: &str) -> String {
         let trimmed = url.trim();
-        if trimmed.contains("lh3.googleusercontent.com") || trimmed.contains("yt3.ggpht.com") {
+        if trimmed.contains("googleusercontent.com") || trimmed.contains("ggpht.com") {
             if let Some(eq_idx) = trimmed.rfind('=') {
                 let suffix = &trimmed[eq_idx + 1..];
                 if suffix.starts_with('w') || suffix.starts_with('s') {

@@ -108,16 +108,13 @@ impl MpvEngine {
         crate::aethon_log!("Spawning MPV engine: {} (socket: {})", mpv_bin, socket_path);
 
         let mut cmd = Command::new(mpv_bin);
-        let ytdl_raw =
-            "no-config=,no-playlist=,no-check-certificates=,socket-timeout=5,extractor-args=youtube:player_client=android_vr,tv,mweb,web_safari".to_string();
-
-        cmd.arg("--idle=yes")
+        cmd.arg("--no-config")
+            .arg("--idle=yes")
             .arg("--no-video")
             .arg("--no-terminal")
             .arg(format!("--input-ipc-server={}", socket_path))
             .arg("--ytdl=yes")
             .arg("--ytdl-format=251/140/bestaudio[ext=webm]/bestaudio/best")
-            .arg(format!("--ytdl-raw-options={}", ytdl_raw))
             .arg("--keep-open=no")
             .arg("--gapless-audio=yes")
             .arg("--cache=yes")
@@ -141,8 +138,8 @@ impl MpvEngine {
 
         let mut connected = false;
         let mut stream = None;
-        for _ in 0..80 {
-            tokio::time::sleep(Duration::from_millis(12)).await;
+        for _ in 0..100 {
+            tokio::time::sleep(Duration::from_millis(30)).await;
             if let Ok(s) = UnixStream::connect(&socket_path).await {
                 stream = Some(s);
                 connected = true;
