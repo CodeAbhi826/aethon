@@ -1,6 +1,6 @@
 [package]
 name = "aethon"
-version = "0.0.40"
+version = "0.0.42"
 description = "Aethon — Modern Lossless Music Player for Arch Linux"
 authors = ["Abhinav"]
 edition = "2021"

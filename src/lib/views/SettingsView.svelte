@@ -87,6 +87,8 @@
       const summary = await settingsState.syncYtmLibrary();
       await playerState.loadLibrary();
       await playerState.loadPlaylists();
+      await playerState.loadPlayHistory();
+      playerState.homeFeedLoaded = false;
       ytmSyncMsg = `Synced ${summary.liked_songs_count} liked songs, ${summary.playlists_count} cloud playlists, and ${summary.history_count} history items!`;
     } catch (e: any) {
       ytmErrorMsg = `Sync failed: ${e}`;
@@ -406,33 +408,7 @@
     {:else if activeCategory === 'lyrics'}
       <div class="space-y-6">
         <div class="m3-acrylic-card rounded-3xl p-5 border border-white/[0.07] space-y-4">
-          <CupertinoSelect
-            bind:value={settingsState.lyricsSource}
-            options={[
-              { value: 'all', label: 'Automatic (Concurrent Multi-Provider Race)' },
-              { value: 'musixmatch', label: 'Musixmatch (Synced & Timed)' },
-              { value: 'apple', label: 'Apple Music (Synced & Syllable)' },
-              { value: 'spotify', label: 'Spotify (Canvas & Synced)' },
-              { value: 'ytm', label: 'YouTube Music (InnerTube Timed)' },
-              { value: 'lrclib', label: 'LRCLIB (Community Synced)' },
-              { value: 'local_lrc', label: 'Local LRC & Embedded Tags Only' },
-            ]}
-            label="Lyrics Source Priority"
-            description="Select primary lyrics provider or auto-race all sources"
-            icon="lyrics"
-            onchange={() => {
-              settingsState.scheduleSave();
-              if (playerState.currentTrack) {
-                playerState.fetchLyrics(
-                  playerState.currentTrack.title,
-                  playerState.currentTrack.artist,
-                  playerState.currentTrack.duration,
-                  playerState.currentTrack.file_path,
-                  playerState.currentTrack.id
-                );
-              }
-            }}
-          />
+
           <CupertinoSwitch
             bind:checked={settingsState.wordByWordTracking}
             label="Word-by-Word Karaoke Fill"

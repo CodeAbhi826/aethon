@@ -14,7 +14,7 @@
     artist,
     class: className = '',
     buttonClass = 'hover:underline hover:text-white transition-colors cursor-pointer text-left',
-    separatorClass = 'text-white/40 font-normal select-none',
+    separatorClass = 'text-white/45 font-normal select-none',
     onArtistClick,
   }: Props = $props();
 
@@ -30,26 +30,24 @@
   }
 </script>
 
+<!-- ArchiveTune Single-Line Truncated Artist Links: Zero space before comma ("Artist 1, Artist 2") and never wraps to 2 lines -->
 {#if artists.length <= 1}
   <button
     type="button"
     onclick={(e) => handleClick(e, artists[0] || artist)}
-    class="{className} {buttonClass} truncate"
+    class="block truncate max-w-full {className} {buttonClass}"
     title={artists[0] || artist}
   >
     {artists[0] || artist || 'Unknown Artist'}
   </button>
 {:else}
-  <span class="inline-flex flex-wrap items-center gap-x-1 {className} truncate">
+  <div class="block truncate whitespace-nowrap overflow-hidden max-w-full {className}" title={artists.join(', ')}>
     {#each artists as art, idx}
       <button
         type="button"
         onclick={(e) => handleClick(e, art)}
-        class="{buttonClass} truncate"
-        title={art}
-      >
-        {art}
-      </button>{#if idx < artists.length - 1}<span class="{separatorClass}">,</span>{/if}
+        class="inline {buttonClass}"
+      >{art}</button>{#if idx < artists.length - 1}<span class="{separatorClass}">, </span>{/if}
     {/each}
-  </span>
+  </div>
 {/if}

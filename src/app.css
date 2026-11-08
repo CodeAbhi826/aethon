@@ -66,30 +66,31 @@ body {
   font-variation-settings: 'FILL' 1, 'wght' 400, 'GRAD' 0, 'opsz' 24;
 }
 
-/* Ambient Static Gradient Mesh Background */
+/* Ambient Static Gradient Mesh Background — 100% GPU Composited Layer (Zero CPU Gradient Transition) */
 .ambient-mesh {
   position: fixed;
   inset: 0;
   pointer-events: none;
   z-index: 0;
+  transform: translate3d(0, 0, 0);
+  will-change: transform, opacity;
   background: 
     radial-gradient(circle at 15% 15%, var(--md-sys-mesh-1) 0%, transparent 60%),
     radial-gradient(circle at 85% 25%, var(--md-sys-mesh-2) 0%, transparent 60%),
     radial-gradient(circle at 50% 85%, var(--md-sys-mesh-3, var(--md-sys-mesh-1)) 0%, transparent 55%);
-  transition: background 0.8s ease-in-out;
 }
 
 /* Material 3 Acrylic Glassmorphism - 100% GPU Accelerated Alpha Frost (Zero CPU Readback) */
 .m3-acrylic {
-  background: var(--md-sys-acrylic, rgba(28, 22, 36, 0.94));
+  background: var(--md-sys-acrylic, rgba(28, 22, 36, 0.95));
   box-shadow: 0 4px 20px rgba(0, 0, 0, 0.4), inset 0 1px 0 rgba(255, 255, 255, 0.07);
 }
 .m3-acrylic-card {
-  background: var(--md-sys-acrylic-card, rgba(38, 30, 48, 0.88));
+  background: var(--md-sys-acrylic-card, rgba(38, 30, 48, 0.90));
   box-shadow: 0 4px 16px rgba(0, 0, 0, 0.35), inset 0 1px 0 rgba(255, 255, 255, 0.06);
 }
 .m3-acrylic-dock {
-  background: var(--md-sys-acrylic-dock, rgba(16, 13, 20, 0.96));
+  background: var(--md-sys-acrylic-dock, rgba(16, 13, 20, 0.97));
   border-top: 1px solid rgba(255, 255, 255, 0.08);
   box-shadow: 0 -4px 24px rgba(0, 0, 0, 0.65), inset 0 1px 0 rgba(255, 255, 255, 0.05);
 }
@@ -125,75 +126,61 @@ input[type=range] {
   transition-timing-function: cubic-bezier(0.2, 0, 0, 1);
 }
 
-/* Apple Music Dual-Harmonic Variable-Sweep Morphing Loader */
-@keyframes appleSpinnerDash {
+/* Authentic Apple Music / ArchiveTune Variable-Sweep Morphing Circular Loader */
+@keyframes appleSpinnerRotate {
   0% {
-    stroke-dasharray: 4 100;
-    stroke-dashoffset: 0;
-  }
-  50% {
-    stroke-dasharray: 78 100;
-    stroke-dashoffset: -25;
+    transform: rotate(0deg);
   }
   100% {
-    stroke-dasharray: 4 100;
-    stroke-dashoffset: -100;
+    transform: rotate(360deg);
   }
 }
 
-@keyframes appleSpinnerSecondaryDash {
+@keyframes appleSpinnerDash {
   0% {
-    stroke-dasharray: 2 100;
-    stroke-dashoffset: -40;
-    opacity: 0.25;
+    stroke-dasharray: 8, 88;
+    stroke-dashoffset: 0;
   }
   50% {
-    stroke-dasharray: 35 100;
-    stroke-dashoffset: -65;
-    opacity: 0.65;
+    stroke-dasharray: 56, 88;
+    stroke-dashoffset: -22px;
   }
   100% {
-    stroke-dasharray: 2 100;
-    stroke-dashoffset: -140;
-    opacity: 0.25;
+    stroke-dasharray: 8, 88;
+    stroke-dashoffset: -86px;
   }
 }
 
 .archivetune-spinner-svg {
   display: block;
   transform-origin: center;
-  animation: spin 1.2s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+  animation: appleSpinnerRotate 1.05s linear infinite;
+  will-change: transform;
 }
-
 .archivetune-spinner-arc {
+  stroke-dasharray: 48, 88;
+  stroke-dashoffset: 0;
   stroke-linecap: round;
-  transform-origin: center;
-  animation: appleSpinnerDash 1.6s ease-in-out infinite;
-}
-
-.archivetune-spinner-arc-secondary {
-  stroke-linecap: round;
-  transform-origin: center;
-  animation: appleSpinnerSecondaryDash 1.6s ease-in-out infinite;
+  animation: appleSpinnerDash 1.35s cubic-bezier(0.4, 0, 0.2, 1) infinite;
 }
 
 /* Apple Music Instrumental Rhythm Pulse Dots */
 @keyframes interludePulse {
   0%, 100% {
     opacity: 0.25;
-    transform: scale(0.85);
+    transform: translate3d(0, 0, 0) scale(0.85);
   }
   50% {
-    opacity: 0.95;
-    transform: scale(1.15);
+    opacity: 0.98;
+    transform: translate3d(0, -2px, 0) scale(1.18);
   }
 }
 .interlude-dot-1 {
-  animation: interludePulse 1.4s ease-in-out infinite;
+  animation: interludePulse 1.3s ease-in-out infinite;
 }
 .interlude-dot-2 {
-  animation: interludePulse 1.4s ease-in-out 0.22s infinite;
+  animation: interludePulse 1.3s ease-in-out 0.22s infinite;
 }
 .interlude-dot-3 {
-  animation: interludePulse 1.4s ease-in-out 0.44s infinite;
+  animation: interludePulse 1.3s ease-in-out 0.44s infinite;
 }

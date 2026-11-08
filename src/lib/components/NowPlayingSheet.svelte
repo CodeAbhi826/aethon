@@ -1,14 +1,14 @@
 <script lang="ts">
   import { onDestroy } from 'svelte';
-  import { fly, fade } from 'svelte/transition';
+  import { fly } from 'svelte/transition';
   import { invoke } from '@tauri-apps/api/core';
   import { playerState } from '../state.svelte';
   import { settingsState } from '../settingsState.svelte';
-  import { sanitizeArtist } from '../types';
+  import { sanitizeArtist, handleThumbnailError, handleThumbnailLoad } from '../types';
   import { getHighResArtwork } from '../artwork';
   import ArtistLinks from './ArtistLinks.svelte';
 
-  // Apple iOS / macOS sheet spring curve approximation
+  // Apple iOS / macOS sheet spring curve
   function appleSheetEasing(t: number): number {
     return 1 - Math.pow(1 - t, 3.6);
   }
@@ -29,7 +29,7 @@
     const animVariant = (i % 4) + 1;
     const duration = (0.65 + (i % 7) * 0.1).toFixed(2);
     const delay = ((i % 5) * 0.09).toFixed(2);
-    const opacity = (0.35 + centerFactor * 0.45).toFixed(2);
+    const opacity = (0.38 + centerFactor * 0.48).toFixed(2);
     return {
       id: i,
       height: `${heightPercent}%`,
@@ -41,14 +41,61 @@
   });
 
   let lyricsContainerEl = $state<HTMLDivElement>();
+  let clockRafId: number | null = null;
 
   let activeView = $state<'auto' | 'turntable' | 'lyrics'>('auto');
   let userIsScrolling = $state(false);
   let scrollResumeTimeout: ReturnType<typeof setTimeout> | null = null;
-  let isRomanizedMode = $state(true);
+  // Romanized phonetic lyrics OFF by default as requested
+  let isRomanizedMode = $state(false);
   let isOffsetOpen = $state(false);
   let lastTrackId = $state<string | null>(null);
   let isBuffering = $derived(playerState.isLoading || Boolean(playerState.playback.is_buffering));
+
+  // High-precision 60fps local clock interpolator for sub-16ms lyric sync accuracy
+  let smoothPosition = $state(0);
+  let lastAnchorPos = 0;
+  let lastAnchorTime = 0;
+
+  $effect(() => {
+    const pos = playerState.playback.position;
+    lastAnchorPos = pos;
+    lastAnchorTime = typeof performance !== 'undefined' ? performance.now() : 0;
+    smoothPosition = pos;
+  });
+
+  $effect(() => {
+    const open = playerState.isNowPlayingOpen;
+    const playing = playerState.playback.is_playing && !isBuffering;
+    if (!open || !playing) {
+      if (clockRafId !== null) {
+        cancelAnimationFrame(clockRafId);
+        clockRafId = null;
+      }
+      smoothPosition = playerState.playback.position;
+      return;
+    }
+
+    lastAnchorPos = playerState.playback.position;
+    lastAnchorTime = performance.now();
+
+    const tick = (now: number) => {
+      const elapsedSec = Math.max(0, (now - lastAnchorTime) / 1000);
+      const maxDur = playerState.playback.duration || (playerState.currentTrack?.duration ?? 0);
+      const nextPos = lastAnchorPos + Math.min(elapsedSec, 0.25);
+      smoothPosition = maxDur > 0 ? Math.min(maxDur, nextPos) : nextPos;
+      clockRafId = requestAnimationFrame(tick);
+    };
+
+    clockRafId = requestAnimationFrame(tick);
+
+    return () => {
+      if (clockRafId !== null) {
+        cancelAnimationFrame(clockRafId);
+        clockRafId = null;
+      }
+    };
+  });
 
   let audioQualityLabel = $derived.by(() => {
     const codec = (playerState.playback.codec || playerState.currentTrack?.format || '').toLowerCase();
@@ -66,12 +113,9 @@
   });
 
   let hiResArtwork = $derived.by(() => {
-    const raw = playerState.currentTrack?.cover_art;
     return getHighResArtwork(
-      raw,
-      playerState.currentTrack?.id?.startsWith('yt_')
-        ? playerState.currentTrack.id.replace('yt_', '')
-        : null,
+      playerState.currentTrack?.cover_art,
+      playerState.currentTrack?.id,
       544
     );
   });
@@ -105,10 +149,10 @@
 
     const startY = lyricsContainerEl.scrollTop;
     const distance = targetY - startY;
-    if (Math.abs(distance) < 2) return;
+    if (Math.abs(distance) < 1.5) return;
 
     const startTime = performance.now();
-    const duration = 380; // ms spring duration
+    const duration = 340;
 
     const step = (now: number) => {
       if (!lyricsContainerEl || userIsScrolling) {
@@ -117,8 +161,7 @@
       }
       const elapsed = now - startTime;
       const progress = Math.min(1, elapsed / duration);
-      // Apple exponential spring easing
-      const ease = 1 - Math.pow(1 - progress, 3.5);
+      const ease = 1 - Math.pow(1 - progress, 3.4);
       lyricsContainerEl.scrollTop = startY + distance * ease;
 
       if (progress < 1) {
@@ -164,7 +207,8 @@
 
   let activeIndex = $derived.by(() => {
     if (!playerState.lyrics.synced || playerState.lyrics.lines.length === 0) return -1;
-    const pos = playerState.playback.position + settingsState.lyricOffsetSeconds;
+    // Slight 0.08s visual lead so the lyric line illuminates right as the vocal syllable begins
+    const pos = smoothPosition + settingsState.lyricOffsetSeconds + 0.08;
     let idx = -1;
     for (let i = 0; i < playerState.lyrics.lines.length; i++) {
       if (pos >= playerState.lyrics.lines[i].time) {
@@ -176,32 +220,12 @@
     return idx;
   });
 
-  function getWordTokens(text: string): string[] {
-    return text.trim().split(/\s+/).filter(Boolean);
-  }
-
-  function getWordProgress(lineIndex: number, wordIndex: number, totalWords: number, lineStart: number): number {
-    const pos = playerState.playback.position + settingsState.lyricOffsetSeconds;
-    const lines = playerState.lyrics.lines;
-    const nextTime =
-      lineIndex + 1 < lines.length
-        ? lines[lineIndex + 1].time
-        : Math.max(lineStart + 4.0, playerState.playback.duration || lineStart + 4.0);
-    const lineDuration = Math.max(0.8, Math.min(8.0, (nextTime - lineStart) * 0.88));
-    const lineProgress = Math.max(0, Math.min(1, (pos - lineStart) / lineDuration));
-    const wordStart = wordIndex / totalWords;
-    const wordEnd = (wordIndex + 1) / totalWords;
-    if (lineProgress <= wordStart) return 0;
-    if (lineProgress >= wordEnd) return 1;
-    return (lineProgress - wordStart) / (wordEnd - wordStart);
-  }
-
   function scrollToActiveLyric() {
     if (activeIndex >= 0 && lyricsContainerEl && !userIsScrolling) {
       const activeEl = lyricsContainerEl.querySelector(`[data-lyric-index="${activeIndex}"]`) as HTMLElement | null;
       if (activeEl) {
         const containerHeight = lyricsContainerEl.clientHeight;
-        const targetScroll = Math.max(0, activeEl.offsetTop - containerHeight * 0.34 + activeEl.clientHeight / 2);
+        const targetScroll = Math.max(0, activeEl.offsetTop - containerHeight * 0.36 + activeEl.clientHeight / 2);
         animateScrollTo(targetScroll);
       }
     }
@@ -215,6 +239,8 @@
   });
 
   onDestroy(() => {
+
+    if (clockRafId !== null) cancelAnimationFrame(clockRafId);
     if (scrollAnimId !== null) cancelAnimationFrame(scrollAnimId);
     if (scrollResumeTimeout) clearTimeout(scrollResumeTimeout);
   });
@@ -225,63 +251,57 @@
     role="dialog"
     aria-modal="true"
     aria-label="Now Playing"
-    in:fly={{ y: 560, duration: 420, opacity: 0.2, easing: appleSheetEasing }}
-    out:fly={{ y: 560, duration: 340, opacity: 0, easing: appleSheetEasing }}
-    class="fixed inset-0 z-50 flex flex-col justify-between px-4 sm:px-8 py-3 sm:py-5 overflow-hidden select-none will-change-transform"
-    style="background-color: #08080c; --artwork-glow: {playerState.accentColor || '#d0bcff'};"
+    in:fly={{ y: 480, duration: 320, opacity: 0, easing: appleSheetEasing }}
+    out:fly={{ y: 480, duration: 250, opacity: 0, easing: appleSheetEasing }}
+    class="fixed inset-0 z-50 bg-[#08080b] flex flex-col justify-between px-5 sm:px-8 py-3.5 sm:py-5 overflow-hidden select-none will-change-transform"
+    style="background-color: #08080b; --artwork-glow: {playerState.accentColor || 'var(--md-sys-primary)'};"
   >
-    <!-- Hardware GPU Composited Dual Radial Gradient Mesh Backdrop -->
-    <div class="absolute inset-0 pointer-events-none overflow-hidden z-0">
-      <!-- 100% Solid Deep Base ensuring underlying app is completely hidden -->
-      <div class="absolute inset-0 bg-[#08080c]"></div>
-      <div
-        class="absolute -top-[15%] -left-[10%] w-[75vw] h-[75vw] max-w-[720px] max-h-[720px] rounded-full transition-colors duration-1000 gpu-layer opacity-40"
-        style="background: radial-gradient(circle, var(--artwork-glow, #d0bcff) 0%, transparent 70%);"
-      ></div>
-      <div
-        class="absolute -bottom-[20%] -right-[10%] w-[70vw] h-[70vw] max-w-[680px] max-h-[680px] rounded-full transition-colors duration-1000 gpu-layer opacity-30"
-        style="background: radial-gradient(circle, var(--md-sys-mesh-2, rgba(41, 128, 185, 0.4)) 0%, transparent 70%);"
-      ></div>
-      <div class="absolute inset-0 bg-gradient-to-b from-[#08080c]/60 via-transparent to-[#08080c]"></div>
-    </div>
+    <!-- Pure Zero-Blur GPU Radial Gradient Mesh Backdrop Blending Across Full Sheet -->
+    <div
+      class="absolute inset-0 pointer-events-none overflow-hidden z-0"
+      style="background:
+        radial-gradient(circle at 22% 32%, color-mix(in srgb, var(--artwork-glow, #d0bcff) 32%, transparent) 0%, transparent 58%),
+        radial-gradient(circle at 76% 68%, color-mix(in srgb, var(--artwork-glow, #d0bcff) 20%, transparent) 0%, transparent 62%),
+        #08080b;"
+    ></div>
 
     <!-- Top Bar -->
     <header class="flex items-center justify-between z-20 shrink-0 pb-1">
       <div class="flex items-center gap-2.5 flex-1 min-w-0">
         <button
           onclick={() => (playerState.isNowPlayingOpen = false)}
-          class="w-8 h-8 rounded-full bg-white/[0.07] hover:bg-white/[0.14] active:scale-90 flex items-center justify-center text-white/70 hover:text-white transition-all cursor-pointer shrink-0"
+          class="w-8 h-8 rounded-full bg-white/10 hover:bg-white/15 active:scale-90 flex items-center justify-center text-white/75 hover:text-white transition-transform cursor-pointer shrink-0"
           title="Collapse Now Playing"
         >
           <span class="material-symbols-rounded text-[20px]">keyboard_arrow_down</span>
         </button>
 
-        <!-- Clean Mode Switcher: Split | Artwork | Lyrics -->
-        <div class="flex items-center bg-white/[0.06] border border-white/[0.08] rounded-full p-0.5 shrink-0">
+        <!-- Dynamic Theme-Tinted Mode Switcher: Split | Artwork | Lyrics -->
+        <div class="flex items-center bg-white/[0.06] border border-white/10 rounded-full p-0.5 shrink-0">
           <button
             type="button"
             onclick={() => (activeView = 'auto')}
-            class="px-3 py-1 rounded-full text-[11px] font-medium transition-all cursor-pointer {activeView === 'auto'
-              ? 'bg-white/15 text-white shadow-sm font-semibold'
-              : 'text-white/55 hover:text-white'}"
+            class="px-3 py-1 rounded-full text-[11px] font-medium transition-colors cursor-pointer {activeView === 'auto'
+              ? 'bg-[var(--md-sys-primary)] text-[var(--md-sys-on-primary)] shadow-sm font-semibold'
+              : 'text-white/60 hover:text-white'}"
           >
             Split
           </button>
           <button
             type="button"
             onclick={() => (activeView = 'turntable')}
-            class="px-3 py-1 rounded-full text-[11px] font-medium transition-all cursor-pointer {activeView === 'turntable'
-              ? 'bg-white/15 text-white shadow-sm font-semibold'
-              : 'text-white/55 hover:text-white'}"
+            class="px-3 py-1 rounded-full text-[11px] font-medium transition-colors cursor-pointer {activeView === 'turntable'
+              ? 'bg-[var(--md-sys-primary)] text-[var(--md-sys-on-primary)] shadow-sm font-semibold'
+              : 'text-white/60 hover:text-white'}"
           >
             Artwork
           </button>
           <button
             type="button"
             onclick={() => (activeView = 'lyrics')}
-            class="px-3 py-1 rounded-full text-[11px] font-medium transition-all cursor-pointer {activeView === 'lyrics'
-              ? 'bg-white/15 text-white shadow-sm font-semibold'
-              : 'text-white/55 hover:text-white'}"
+            class="px-3 py-1 rounded-full text-[11px] font-medium transition-colors cursor-pointer {activeView === 'lyrics'
+              ? 'bg-[var(--md-sys-primary)] text-[var(--md-sys-on-primary)] shadow-sm font-semibold'
+              : 'text-white/60 hover:text-white'}"
           >
             Lyrics
           </button>
@@ -293,14 +313,14 @@
       <!-- Right Actions + Window Controls -->
       <div class="flex items-center gap-1.5 shrink-0">
         {#if settingsState.showAudioQualityBadge && playerState.currentTrack}
-          <span class="bg-white/[0.07] border border-white/10 text-white/70 text-[10px] tracking-wider uppercase px-2.5 py-0.5 rounded-full font-semibold hidden sm:inline-block">
+          <span class="bg-white/10 border border-white/10 text-[var(--md-sys-primary)] text-[10px] tracking-wider uppercase px-2.5 py-0.5 rounded-full font-semibold hidden sm:inline-block">
             {audioQualityLabel}
           </span>
         {/if}
 
         <button
           onclick={() => (playerState.isQueueOpen = !playerState.isQueueOpen)}
-          class="w-8 h-8 rounded-full bg-white/[0.06] hover:bg-white/[0.12] flex items-center justify-center text-white/70 hover:text-white transition-colors cursor-pointer"
+          class="w-8 h-8 rounded-full bg-white/5 hover:bg-white/15 flex items-center justify-center text-white/70 hover:text-white transition-colors cursor-pointer"
           title="Playing Next"
         >
           <span class="material-symbols-rounded text-[18px]">queue_music</span>
@@ -308,7 +328,7 @@
 
         <button
           onclick={() => (playerState.isEqualizerOpen = true)}
-          class="w-8 h-8 rounded-full bg-white/[0.06] hover:bg-white/[0.12] flex items-center justify-center text-white/70 hover:text-white transition-colors cursor-pointer"
+          class="w-8 h-8 rounded-full bg-white/5 hover:bg-white/15 flex items-center justify-center text-white/70 hover:text-white transition-colors cursor-pointer"
           title="Equalizer"
         >
           <span class="material-symbols-rounded text-[18px]">tune</span>
@@ -320,14 +340,14 @@
           <button
             onclick={handleMinimize}
             aria-label="Minimize Window"
-            class="w-7 h-7 rounded-md flex items-center justify-center text-white/60 hover:text-white hover:bg-white/[0.08] transition-colors cursor-pointer"
+            class="w-7 h-7 rounded-md flex items-center justify-center text-white/60 hover:text-white hover:bg-white/10 transition-colors cursor-pointer"
           >
             <span class="material-symbols-rounded text-[15px]">remove</span>
           </button>
           <button
             onclick={handleMaximize}
             aria-label="Maximize Window"
-            class="w-7 h-7 rounded-md flex items-center justify-center text-white/60 hover:text-white hover:bg-white/[0.08] transition-colors cursor-pointer"
+            class="w-7 h-7 rounded-md flex items-center justify-center text-white/60 hover:text-white hover:bg-white/10 transition-colors cursor-pointer"
           >
             <span class="material-symbols-rounded text-[14px]">crop_square</span>
           </button>
@@ -343,47 +363,43 @@
     </header>
 
     <!-- Main Content Area -->
-    <div class="flex-1 flex overflow-hidden z-10 min-h-0 py-2 sm:py-4 gap-6 lg:gap-12 items-center">
-      <!-- Left Column: Apple Music / ArchiveTune V10 Editorial Floating Artwork + Transport -->
+    <div class="flex-1 flex overflow-hidden z-10 min-h-0 py-2 gap-6 lg:gap-12 items-center">
+      <!-- Left Column: Editorial Floating Artwork + Dynamic Theme-Tinted Transport -->
       {#if activeView === 'auto' || activeView === 'turntable'}
         <div
-          class="flex flex-col items-center justify-between h-full min-h-0 {activeView === 'auto'
-            ? 'w-full md:w-[46%] lg:w-[42%] shrink-0'
+          class="flex flex-col items-center justify-center gap-4 h-full min-h-0 {activeView === 'auto'
+            ? 'w-full md:w-[44%] lg:w-[42%] shrink-0'
             : 'w-full max-w-md mx-auto'} py-2 px-2 sm:px-4"
         >
           <!-- Editorial Floating Squircle Artwork Showcase -->
-          <div class="flex-1 flex items-center justify-center w-full min-h-0 my-1">
+          <div class="flex items-center justify-center w-full min-h-0">
             <div
-              class="editorial-artwork-frame relative rounded-[28px] overflow-hidden ring-1 ring-white/15 transition-all duration-500 [transition-timing-function:cubic-bezier(0.22,1,0.36,1)] {playerState.playback.is_playing
+              class="editorial-artwork-frame relative rounded-[28px] overflow-hidden ring-1 ring-white/15 transition-transform duration-500 [transition-timing-function:cubic-bezier(0.22,1,0.36,1)] {playerState.playback.is_playing
                 ? 'scale-100 translate-y-0 artwork-shadow-playing'
-                : 'scale-[0.86] translate-y-1 opacity-90 artwork-shadow-paused'}"
+                : 'scale-[0.88] translate-y-1 opacity-90 artwork-shadow-paused'}"
             >
               {#if hiResArtwork}
                 <img
                   src={hiResArtwork}
                   alt={playerState.currentTrack?.title}
+                  onload={(e) => handleThumbnailLoad(e, playerState.currentTrack?.id)}
+                  onerror={(e) => handleThumbnailError(e, playerState.currentTrack?.id)}
                   class="w-full h-full object-cover select-none"
                   draggable="false"
-                  onerror={(e) => {
-                    const target = e.currentTarget as HTMLImageElement;
-                    if (target.src.includes('maxresdefault.jpg')) {
-                      target.src = target.src.replace('maxresdefault.jpg', 'hqdefault.jpg');
-                    }
-                  }}
                 />
               {:else}
-                <div class="w-full h-full bg-gradient-to-br from-white/10 to-white/[0.02] flex items-center justify-center text-white/30">
+                <div class="w-full h-full bg-gradient-to-br from-white/10 to-white/5 flex items-center justify-center text-white/30">
                   <span class="material-symbols-rounded text-6xl">music_note</span>
                 </div>
               {/if}
 
               <!-- Subtle top glass specular highlight -->
-              <div class="absolute inset-0 bg-gradient-to-tr from-transparent via-transparent to-white/[0.07] pointer-events-none"></div>
+              <div class="absolute inset-0 bg-gradient-to-tr from-transparent via-transparent to-white/10 pointer-events-none"></div>
             </div>
           </div>
 
-          <!-- Track Metadata, Visualizer & Scrubber -->
-          <div class="w-full max-w-sm flex flex-col shrink-0 space-y-3 pt-2">
+          <!-- Track Metadata, Visualizer & Dynamic Theme Scrubber -->
+          <div class="w-full max-w-[340px] flex flex-col shrink-0 space-y-2.5 pt-1">
             <!-- Title, Artist & Favorite Button -->
             <div class="flex items-center justify-between gap-3 w-full">
               <div class="min-w-0 flex-1">
@@ -392,8 +408,8 @@
                 </h2>
                 <ArtistLinks
                   artist={playerState.currentTrack ? playerState.currentTrack.artist : ''}
-                  class="mt-0.5 block max-w-full"
-                  buttonClass="text-xs sm:text-sm text-white/65 hover:text-white transition-colors cursor-pointer text-left"
+                  class="mt-0.5 text-xs sm:text-sm text-[var(--md-sys-primary)]/90"
+                  buttonClass="hover:underline hover:text-white transition-colors cursor-pointer text-left"
                   onArtistClick={(art) => {
                     playerState.isNowPlayingOpen = false;
                     playerState.openArtist(art);
@@ -402,14 +418,14 @@
               </div>
 
               {#if playerState.currentTrack}
-                <div class="flex items-center gap-1 shrink-0">
+                <div class="flex items-center gap-1.5 shrink-0">
                   <button
                     type="button"
                     onclick={() =>
                       playerState.currentTrack &&
                       playerState.toggleFavorite(playerState.currentTrack.id)}
-                    class="w-9 h-9 rounded-full bg-white/[0.06] hover:bg-white/[0.12] flex items-center justify-center transition-colors cursor-pointer {playerState.currentTrack.favorite
-                      ? 'text-rose-400'
+                    class="w-9 h-9 rounded-full bg-white/5 hover:bg-white/15 flex items-center justify-center transition-colors cursor-pointer {playerState.currentTrack.favorite
+                      ? 'text-[var(--md-sys-primary)]'
                       : 'text-white/60 hover:text-white'}"
                     title={playerState.currentTrack.favorite ? 'Remove from Favorites' : 'Add to Favorites'}
                   >
@@ -422,7 +438,7 @@
                     onclick={(e) =>
                       playerState.currentTrack &&
                       playerState.openContextMenu(playerState.currentTrack, e.clientX, e.clientY)}
-                    class="w-9 h-9 rounded-full bg-white/[0.06] hover:bg-white/[0.12] flex items-center justify-center text-white/60 hover:text-white transition-colors cursor-pointer"
+                    class="w-9 h-9 rounded-full bg-white/5 hover:bg-white/15 flex items-center justify-center text-white/60 hover:text-white transition-colors cursor-pointer"
                     title="More Options"
                   >
                     <span class="material-symbols-rounded text-[19px]">more_horiz</span>
@@ -451,17 +467,13 @@
               </div>
             {/if}
 
-            <!-- Fluid Scrubber with Buffering Shimmer -->
+            <!-- Fluid Scrubber with Dynamic Song Theme Accent Fill -->
             <div class="w-full space-y-1.5">
-              <div class="relative w-full h-1.5 bg-white/[0.12] hover:h-2 rounded-full overflow-hidden cursor-pointer transition-all">
-                {#if isBuffering}
-                  <div class="absolute inset-0 bg-gradient-to-r from-transparent via-white/80 to-transparent animate-shimmer-bar"></div>
-                {:else}
-                  <div
-                    class="absolute inset-0 bg-white rounded-full origin-left will-change-transform"
-                    style="transform: scaleX({playerState.progressPercent / 100});"
-                  ></div>
-                {/if}
+              <div class="relative w-full h-1.5 bg-white/15 hover:h-2.5 rounded-full overflow-hidden cursor-pointer transition-[height]">
+                <div
+                  class="absolute inset-0 bg-[var(--md-sys-primary)] rounded-full origin-left will-change-transform"
+                  style="transform: scaleX({playerState.progressPercent / 100}); box-shadow: 0 0 12px var(--artwork-glow);"
+                ></div>
                 <input
                   type="range"
                   min="0"
@@ -471,18 +483,18 @@
                   class="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
                 />
               </div>
-              <div class="flex justify-between text-[11px] font-mono text-white/50">
-                <span>{playerState.formattedTime.current}</span>
+              <div class="flex justify-between text-[11px] font-mono text-white/55">
+                <span class="text-[var(--md-sys-primary)] font-semibold">{playerState.formattedTime.current}</span>
                 <span>{isBuffering ? 'Loading...' : playerState.formattedTime.total}</span>
               </div>
             </div>
 
-            <!-- Transport Controls with Single ArchiveTune Circular Spinner -->
-            <div class="flex items-center justify-between px-2 pt-1">
+            <!-- Transport Controls with Dynamic Song Theme Accent Button -->
+            <div class="flex items-center justify-between px-2 pt-0.5">
               <button
                 onclick={() => playerState.toggleShuffle()}
                 class="p-2 rounded-full transition-colors cursor-pointer {playerState.shuffleMode
-                  ? 'text-[var(--md-sys-primary)] bg-white/10'
+                  ? 'text-[var(--md-sys-primary)] bg-[var(--md-sys-primary-container)]/50'
                   : 'text-white/45 hover:text-white'}"
                 title="Shuffle"
               >
@@ -492,7 +504,7 @@
               <div class="flex items-center gap-6">
                 <button
                   onclick={() => playerState.playPrevious()}
-                  class="text-white/80 hover:text-white active:scale-90 transition-all cursor-pointer"
+                  class="text-white/85 hover:text-[var(--md-sys-primary)] active:scale-90 transition-all cursor-pointer"
                   title="Previous"
                 >
                   <span class="material-symbols-rounded text-[30px] filled">skip_previous</span>
@@ -501,7 +513,8 @@
                 <div class="relative flex items-center justify-center">
                   <button
                     onclick={() => playerState.togglePlay()}
-                    class="sheet-squircle-btn w-14 h-14 {playerState.playback.is_playing ? 'is-playing' : ''} bg-white text-black flex items-center justify-center active:scale-90 hover:scale-105 cursor-pointer shadow-xl shadow-black/40"
+                    class="sheet-squircle-btn w-14 h-14 {playerState.playback.is_playing ? 'is-playing' : ''} bg-[var(--md-sys-primary)] text-[var(--md-sys-on-primary)] flex items-center justify-center active:scale-90 hover:scale-105 cursor-pointer shadow-xl"
+                    style="box-shadow: 0 10px 28px -6px color-mix(in srgb, var(--artwork-glow, #d0bcff) 55%, transparent);"
                     title={isBuffering
                       ? 'Buffering...'
                       : playerState.playback.is_playing
@@ -509,15 +522,18 @@
                         : 'Play'}
                   >
                     {#if isBuffering}
-                      <svg class="w-7 h-7 archivetune-spinner-svg text-black" viewBox="0 0 36 36" fill="none">
-                        <circle cx="18" cy="18" r="14" stroke="currentColor" stroke-opacity="0.2" stroke-width="3" />
+                      <svg class="w-7 h-7 archivetune-spinner-svg text-current" viewBox="0 0 36 36" fill="none">
+                        <circle cx="18" cy="18" r="14" stroke="currentColor" stroke-opacity="0.2" stroke-width="3.2" />
                         <circle
-                          class="archivetune-spinner-arc-secondary"
                           cx="18"
                           cy="18"
                           r="14"
                           stroke="currentColor"
-                          stroke-width="3"
+                          stroke-opacity="0.38"
+                          stroke-width="3.2"
+                          stroke-dasharray="18 70"
+                          stroke-dashoffset="-12"
+                          stroke-linecap="round"
                         />
                         <circle
                           class="archivetune-spinner-arc"
@@ -525,7 +541,8 @@
                           cy="18"
                           r="14"
                           stroke="currentColor"
-                          stroke-width="3"
+                          stroke-width="3.4"
+                          stroke-linecap="round"
                         />
                       </svg>
                     {:else if playerState.playback.is_playing}
@@ -542,7 +559,7 @@
 
                 <button
                   onclick={() => playerState.playNext()}
-                  class="text-white/80 hover:text-white active:scale-90 transition-all cursor-pointer"
+                  class="text-white/85 hover:text-[var(--md-sys-primary)] active:scale-90 transition-all cursor-pointer"
                   title="Next"
                 >
                   <span class="material-symbols-rounded text-[30px] filled">skip_next</span>
@@ -552,7 +569,7 @@
               <button
                 onclick={() => playerState.toggleRepeat()}
                 class="p-2 rounded-full transition-colors cursor-pointer {playerState.repeatMode !== 'off'
-                  ? 'text-[var(--md-sys-primary)] bg-white/10'
+                  ? 'text-[var(--md-sys-primary)] bg-[var(--md-sys-primary-container)]/50'
                   : 'text-white/45 hover:text-white'}"
                 title="Repeat"
               >
@@ -565,55 +582,53 @@
         </div>
       {/if}
 
-      <!-- Right Column: Apple Music / ArchiveTune Synced Lyrics + Romanization -->
+      <!-- Right Column: Seamless Borderless Apple Music / ArchiveTune Synced Lyrics (100% Automatic Best Synced) -->
       {#if activeView === 'auto' || activeView === 'lyrics'}
         <div
           class="flex-1 flex flex-col h-full overflow-hidden min-h-0 relative {activeView === 'auto'
             ? 'w-full md:flex-1'
             : 'w-full max-w-3xl mx-auto'} gpu-layer"
         >
-          <div class="flex items-center justify-between pb-2 mb-1 shrink-0 px-3">
-            <div></div>
+          <div class="flex items-center justify-end pb-1 shrink-0 px-3 relative z-30 gap-1.5">
+            {#if userIsScrolling}
+              <button
+                type="button"
+                onclick={resumeSync}
+                class="text-[11px] font-semibold px-3 py-1 rounded-full bg-[var(--md-sys-primary)] text-[var(--md-sys-on-primary)] flex items-center gap-1 cursor-pointer shadow-sm"
+              >
+                <span class="material-symbols-rounded text-[13px]">my_location</span>
+                <span>Sync</span>
+              </button>
+            {/if}
 
-            <div class="flex items-center gap-1.5">
-              {#if userIsScrolling}
-                <button
-                  type="button"
-                  onclick={resumeSync}
-                  class="text-[11px] font-semibold px-3 py-1 rounded-full bg-white text-black flex items-center gap-1 cursor-pointer shadow-sm"
-                >
-                  <span class="material-symbols-rounded text-[13px]">my_location</span>
-                  <span>Sync</span>
-                </button>
-              {/if}
-
+            {#if playerState.lyrics.has_romanized}
               <button
                 type="button"
                 onclick={() => (isRomanizedMode = !isRomanizedMode)}
-                class="px-2.5 py-1 rounded-full text-[11px] font-semibold flex items-center gap-1 border transition-all cursor-pointer {isRomanizedMode
-                  ? 'bg-white/15 text-white border-white/25'
-                  : 'bg-white/[0.04] text-white/50 hover:text-white border-white/10'}"
+                class="px-2.5 py-1 rounded-full text-[11px] font-semibold flex items-center gap-1 border transition-colors cursor-pointer {isRomanizedMode
+                  ? 'bg-[var(--md-sys-primary)] text-[var(--md-sys-on-primary)] border-transparent'
+                  : 'bg-white/5 text-white/55 hover:text-white border-white/10'}"
                 title="Toggle Romanized Phonetic Lyrics"
               >
                 <span class="font-sans text-[11px] font-bold">Aあ</span>
                 <span>Romanized</span>
               </button>
+            {/if}
 
-              <button
-                type="button"
-                onclick={() => (isOffsetOpen = !isOffsetOpen)}
-                class="px-2.5 py-1 rounded-full text-[11px] font-mono flex items-center gap-1 border transition-all cursor-pointer {Math.abs(settingsState.lyricOffsetSeconds) > 0.05
-                  ? 'bg-amber-500/20 text-amber-300 border-amber-500/30'
-                  : 'bg-white/[0.04] text-white/50 hover:text-white border-white/10'}"
-                title="Timing Offset"
-              >
-                <span>{settingsState.lyricOffsetSeconds > 0 ? '+' : ''}{settingsState.lyricOffsetSeconds.toFixed(1)}s</span>
-              </button>
-            </div>
+            <button
+              type="button"
+              onclick={() => (isOffsetOpen = !isOffsetOpen)}
+              class="px-2.5 py-1 rounded-full text-[11px] font-mono flex items-center gap-1 border transition-colors cursor-pointer {Math.abs(settingsState.lyricOffsetSeconds) > 0.05
+                ? 'bg-amber-500/20 text-amber-300 border-amber-500/30'
+                : 'bg-white/5 text-white/50 hover:text-white border-white/10'}"
+              title="Timing Offset"
+            >
+              <span>{settingsState.lyricOffsetSeconds > 0 ? '+' : ''}{settingsState.lyricOffsetSeconds.toFixed(1)}s</span>
+            </button>
           </div>
 
           {#if isOffsetOpen}
-            <div class="flex items-center justify-between bg-black/50 border border-white/10 rounded-2xl px-3.5 py-2 mx-3 mb-2 text-xs text-white/80">
+            <div class="flex items-center justify-between bg-black/45 border border-white/10 rounded-2xl px-3.5 py-2 mx-3 mb-2 text-xs text-white/80">
               <span class="text-[11px] text-white/60 font-medium">Timing Offset</span>
               <div class="flex items-center gap-2">
                 <button onclick={() => adjustOffset(-0.5)} class="px-2 py-0.5 rounded bg-white/10 hover:bg-white/20 text-[10px] font-mono cursor-pointer">-0.5s</button>
@@ -628,48 +643,58 @@
             </div>
           {/if}
 
-          <!-- Top edge fade overlay (pure GPU composited, zero software alpha-masking) -->
-          <div class="absolute top-0 left-0 right-0 h-16 sm:h-20 bg-gradient-to-b from-[#08080b] to-transparent pointer-events-none z-10"></div>
-
           <div
             bind:this={lyricsContainerEl}
             onwheel={handleUserScroll}
             ontouchmove={handleUserScroll}
             role="region"
             aria-label="Lyrics"
-            class="flex-1 overflow-y-auto px-3 sm:px-6 pt-[18vh] pb-[46vh] space-y-3 scrollbar-none contain-gpu"
+            class="flex-1 overflow-y-auto px-3 sm:px-6 pt-[18vh] pb-[46vh] space-y-3 scrollbar-none lyrics-viewport-mask"
           >
             {#if playerState.isLoadingLyrics}
-              <div class="h-full flex flex-col items-center justify-center text-center text-white/50 py-16 gap-3">
-                <svg class="w-8 h-8 archivetune-spinner-svg text-white/60" viewBox="0 0 24 24" fill="none">
-                  <circle class="opacity-15" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="2.5" />
-                  <circle class="archivetune-spinner-arc-secondary" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="2.5" />
-                  <circle class="archivetune-spinner-arc" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="2.5" />
+              <div class="h-full flex flex-col items-center justify-center text-center text-white/50 py-16 gap-3.5">
+                <svg class="w-8 h-8 archivetune-spinner-svg text-[var(--md-sys-primary)]" viewBox="0 0 36 36" fill="none">
+                  <circle cx="18" cy="18" r="14" stroke="currentColor" stroke-opacity="0.16" stroke-width="3" />
+                  <circle
+                    cx="18"
+                    cy="18"
+                    r="14"
+                    stroke="currentColor"
+                    stroke-opacity="0.34"
+                    stroke-width="3"
+                    stroke-dasharray="18 70"
+                    stroke-dashoffset="-12"
+                    stroke-linecap="round"
+                  />
+                  <circle class="archivetune-spinner-arc" cx="18" cy="18" r="14" stroke="currentColor" stroke-width="3.2" stroke-linecap="round" />
                 </svg>
-                <p class="text-xs font-medium tracking-wide text-white/45 uppercase">Loading Lyrics...</p>
+                <p class="text-xs font-medium tracking-wide text-white/55">
+                  Loading synced lyrics...
+                </p>
               </div>
             {:else if playerState.lyrics.synced && playerState.lyrics.lines.length > 0}
               <!-- Instrumental Intro Rhythm Dots (>= 4.0s before first line) -->
               {#if playerState.lyrics.lines[0].time >= 4.0}
-                {@const isIntroActive = activeIndex < 0}
-                <div class="py-4 px-4 flex items-center gap-2 transition-opacity duration-300 {isIntroActive ? 'opacity-85' : 'opacity-20'}">
-                  <span class="w-2.5 h-2.5 rounded-full bg-white interlude-dot-1 inline-block"></span>
-                  <span class="w-2.5 h-2.5 rounded-full bg-white interlude-dot-2 inline-block"></span>
-                  <span class="w-2.5 h-2.5 rounded-full bg-white interlude-dot-3 inline-block"></span>
+                {@const isIntroActive = (smoothPosition + settingsState.lyricOffsetSeconds + 0.08) < playerState.lyrics.lines[0].time}
+                <div class="py-4 px-2 flex items-center gap-2 transition-opacity duration-300 {isIntroActive ? 'opacity-95' : 'opacity-20'}">
+                  <span class="w-2.5 h-2.5 rounded-full bg-[var(--md-sys-primary)] interlude-dot-1 inline-block"></span>
+                  <span class="w-2.5 h-2.5 rounded-full bg-[var(--md-sys-primary)] interlude-dot-2 inline-block"></span>
+                  <span class="w-2.5 h-2.5 rounded-full bg-[var(--md-sys-primary)] interlude-dot-3 inline-block"></span>
                 </div>
               {/if}
 
-              {#each playerState.lyrics.lines as line, i (line.time)}
+              {#each playerState.lyrics.lines as line, i}
                 {@const dist = i - activeIndex}
                 {@const isCur = dist === 0}
-                
+
                 <!-- Mid-song Instrumental Break Rhythm Dots (gap >= 10.0s between lines) -->
                 {#if i > 0 && (line.time - playerState.lyrics.lines[i - 1].time) >= 10.0}
-                  {@const isBreakActive = activeIndex === i - 1}
-                  <div class="py-3 px-4 flex items-center gap-2 transition-opacity duration-300 {isBreakActive ? 'opacity-85' : 'opacity-20'}">
-                    <span class="w-2 h-2 rounded-full bg-white interlude-dot-1 inline-block"></span>
-                    <span class="w-2 h-2 rounded-full bg-white interlude-dot-2 inline-block"></span>
-                    <span class="w-2 h-2 rounded-full bg-white interlude-dot-3 inline-block"></span>
+                  {@const curPos = smoothPosition + settingsState.lyricOffsetSeconds + 0.08}
+                  {@const isBreakActive = curPos >= playerState.lyrics.lines[i - 1].time + 2.0 && curPos < line.time}
+                  <div class="py-3 px-2 flex items-center gap-2 transition-opacity duration-300 {isBreakActive ? 'opacity-95' : 'opacity-20'}">
+                    <span class="w-2 h-2 rounded-full bg-[var(--md-sys-primary)] interlude-dot-1 inline-block"></span>
+                    <span class="w-2 h-2 rounded-full bg-[var(--md-sys-primary)] interlude-dot-2 inline-block"></span>
+                    <span class="w-2 h-2 rounded-full bg-[var(--md-sys-primary)] interlude-dot-3 inline-block"></span>
                   </div>
                 {/if}
 
@@ -680,7 +705,7 @@
                     playerState.seek(line.time - settingsState.lyricOffsetSeconds);
                     resumeSync();
                   }}
-                  class="w-full text-left font-display font-bold tracking-tight py-2.5 px-4 rounded-2xl block text-xl sm:text-2xl md:text-[28px] leading-snug cursor-pointer select-none gpu-lyric cascade-lyric {isCur
+                  class="w-full text-left font-display font-bold tracking-tight py-2 px-2 block text-xl sm:text-2xl md:text-[28px] leading-snug cursor-pointer select-none gpu-lyric cascade-lyric {isCur
                     ? 'active-lyric'
                     : dist === 1
                       ? 'cascade-dist-1'
@@ -695,12 +720,12 @@
                     ? `--lyric-glow: ${playerState.accentColor || 'var(--md-sys-primary)'};`
                     : ''}
                 >
-                  <span class="block transition-colors duration-200 {isCur ? 'text-white' : ''}">{line.text}</span>
+                  <span class="block">{line.text}</span>
 
                   {#if isRomanizedMode && line.romanized && line.romanized !== line.text}
                     <span
                       class="block text-sm sm:text-base font-sans font-medium tracking-normal mt-1 {isCur
-                        ? 'text-white/80'
+                        ? 'text-[var(--md-sys-primary)]'
                         : 'text-white/45'}"
                     >
                       {line.romanized}
@@ -710,7 +735,7 @@
                   {#if isRomanizedMode && line.translation}
                     <span
                       class="block text-xs sm:text-sm font-sans font-normal tracking-normal mt-0.5 {isCur
-                        ? 'text-white/60'
+                        ? 'text-white/70'
                         : 'text-white/35'}"
                     >
                       {line.translation}
@@ -719,19 +744,16 @@
                 </button>
               {/each}
             {:else if playerState.lyrics.plain_text}
-              <div class="text-white/75 whitespace-pre-line text-base sm:text-lg font-medium leading-relaxed px-4 py-2">
+              <div class="text-white/80 whitespace-pre-line text-base sm:text-lg font-medium leading-relaxed px-2 py-2">
                 {playerState.lyrics.plain_text}
               </div>
             {:else}
-              <div class="h-full flex flex-col items-center justify-center text-center text-white/35 py-16">
-                <span class="material-symbols-rounded text-[44px] mb-2 opacity-40">lyrics</span>
-                <p class="text-sm font-medium text-white/55">Lyrics aren't available for this song</p>
+              <div class="h-full flex flex-col items-center justify-center text-center text-white/35 py-16 gap-3">
+                <span class="material-symbols-rounded text-[44px] opacity-40">lyrics</span>
+                <p class="text-sm font-medium text-white/55">No lyrics found for this track</p>
               </div>
             {/if}
           </div>
-
-          <!-- Bottom edge fade overlay (pure GPU composited, zero software alpha-masking) -->
-          <div class="absolute bottom-0 left-0 right-0 h-24 sm:h-32 bg-gradient-to-t from-[#08080b] to-transparent pointer-events-none z-10"></div>
         </div>
       {/if}
     </div>
@@ -740,15 +762,15 @@
 
 <style>
   .editorial-artwork-frame {
-    width: min(340px, 40vh);
-    height: min(340px, 40vh);
+    width: min(310px, 38vh);
+    height: min(310px, 38vh);
     aspect-ratio: 1 / 1;
-    will-change: transform, box-shadow;
+    will-change: transform;
   }
 
   .artwork-shadow-playing {
     box-shadow:
-      0 32px 80px -12px color-mix(in srgb, var(--artwork-glow, #d0bcff) 48%, transparent),
+      0 28px 68px -12px color-mix(in srgb, var(--artwork-glow, #d0bcff) 48%, transparent),
       0 18px 40px -10px rgba(0, 0, 0, 0.85);
   }
 
@@ -756,99 +778,94 @@
     box-shadow: 0 16px 36px -12px rgba(0, 0, 0, 0.75);
   }
 
-  @keyframes shimmerBar {
-    0% {
-      transform: translateX(-100%);
-    }
-    100% {
-      transform: translateX(300%);
-    }
-  }
-  .animate-shimmer-bar {
-    animation: shimmerBar 1.25s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+  .lyrics-viewport-mask {
+    mask-image: linear-gradient(to bottom, transparent 0%, black 12%, black 86%, transparent 100%);
+    -webkit-mask-image: linear-gradient(to bottom, transparent 0%, black 12%, black 86%, transparent 100%);
   }
 
-
-
-  .contain-gpu {
-    contain: layout style;
-  }
   .gpu-layer {
     will-change: transform, opacity;
     transform: translate3d(0, 0, 0);
   }
   .gpu-lyric {
-    contain: layout style;
     will-change: transform, opacity;
     transform: translate3d(0, 0, 0);
+    background: transparent;
   }
 
-  /* Distance-Graded GPU Spring Cascade (zero CPU filter passes) */
   .cascade-lyric {
     transform-origin: left center;
-    transition: opacity 0.32s cubic-bezier(0.16, 1, 0.3, 1), transform 0.32s cubic-bezier(0.16, 1, 0.3, 1), color 0.25s ease;
+    transition:
+      transform 0.34s cubic-bezier(0.22, 1, 0.36, 1),
+      opacity 0.34s cubic-bezier(0.22, 1, 0.36, 1),
+      color 0.25s ease;
   }
 
+  /* Seamless Borderless Apple Music / ArchiveTune Active Lyric (Zero Box Corners!) */
   .active-lyric {
     opacity: 1;
-    transform: translate3d(0, 0, 0) scale(1.025);
+    transform: translate3d(0, 0, 0) scale(1.03);
     color: #ffffff;
-    text-shadow: 0 0 28px color-mix(in srgb, var(--lyric-glow, #d0bcff) 55%, transparent);
-    background: rgba(255, 255, 255, 0.055);
+    text-shadow: 0 0 28px color-mix(in srgb, var(--lyric-glow, #d0bcff) 60%, transparent);
+    background: transparent;
   }
 
   .cascade-dist-1 {
-    opacity: 0.54;
-    transform: translate3d(0, 0, 0) scale(0.985);
-    color: rgba(255, 255, 255, 0.88);
+    opacity: 0.48;
+    transform: translate3d(0, 0, 0) scale(0.98);
+    color: rgba(255, 255, 255, 0.9);
   }
 
   .cascade-dist-2 {
-    opacity: 0.34;
-    transform: translate3d(0, 0, 0) scale(0.97);
-    color: rgba(255, 255, 255, 0.8);
+    opacity: 0.30;
+    transform: translate3d(0, 0, 0) scale(0.965);
+    color: rgba(255, 255, 255, 0.82);
   }
 
   .cascade-dist-far {
-    opacity: 0.20;
-    transform: translate3d(0, 0, 0) scale(0.955);
-    color: rgba(255, 255, 255, 0.7);
+    opacity: 0.18;
+    transform: translate3d(0, 0, 0) scale(0.95);
+    color: rgba(255, 255, 255, 0.75);
   }
 
   .cascade-dist-past-1 {
-    opacity: 0.26;
-    transform: translate3d(0, 0, 0) scale(0.97);
-    color: rgba(255, 255, 255, 0.7);
+    opacity: 0.22;
+    transform: translate3d(0, 0, 0) scale(0.965);
+    color: rgba(255, 255, 255, 0.75);
   }
 
   .cascade-dist-past-far {
-    opacity: 0.16;
-    transform: translate3d(0, 0, 0) scale(0.955);
+    opacity: 0.12;
+    transform: translate3d(0, 0, 0) scale(0.95);
     color: rgba(255, 255, 255, 0.65);
   }
 
+  .cascade-lyric:hover {
+    opacity: 0.92;
+    transform: translate3d(0, 0, 0) scale(1);
+    color: #ffffff;
+  }
 
   .sheet-squircle-btn {
     border-radius: 50%;
-    transition: border-radius 260ms cubic-bezier(0.2, 0, 0, 1), transform 150ms cubic-bezier(0.2, 0, 0, 1);
+    transition: border-radius 240ms cubic-bezier(0.2, 0, 0, 1), transform 140ms cubic-bezier(0.2, 0, 0, 1);
     will-change: border-radius, transform;
   }
   .sheet-squircle-btn.is-playing {
     border-radius: 28%;
   }
 
-  /* GPU-Accelerated Hardware Visualizer (zero CPU rasterization) */
+  /* 100% Hardware GPU Composited Visualizer Bars (Zero 2D Canvas CPU Rasterization) */
   .spectrum-bar {
     flex: 1;
     max-width: 6px;
     min-width: 2px;
-    background-color: var(--artwork-glow, #d0bcff);
+    background-color: var(--artwork-glow, var(--md-sys-primary));
     transform-origin: center;
     will-change: transform;
     transform: scaleY(0.2) translate3d(0, 0, 0);
     transition: transform 0.35s cubic-bezier(0.2, 0.8, 0.2, 1);
   }
-
   .spectrum-bar.playing.anim-spectrum-1 {
     animation: spectrumBounce1 infinite ease-in-out alternate;
   }
@@ -861,46 +878,23 @@
   .spectrum-bar.playing.anim-spectrum-4 {
     animation: spectrumBounce4 infinite ease-in-out alternate;
   }
-
   @keyframes spectrumBounce1 {
-    0% {
-      transform: scaleY(0.18) translate3d(0, 0, 0);
-    }
-    100% {
-      transform: scaleY(1) translate3d(0, 0, 0);
-    }
+    0% { transform: scaleY(0.18) translate3d(0, 0, 0); }
+    100% { transform: scaleY(1) translate3d(0, 0, 0); }
   }
   @keyframes spectrumBounce2 {
-    0% {
-      transform: scaleY(0.26) translate3d(0, 0, 0);
-    }
-    50% {
-      transform: scaleY(0.58) translate3d(0, 0, 0);
-    }
-    100% {
-      transform: scaleY(0.92) translate3d(0, 0, 0);
-    }
+    0% { transform: scaleY(0.26) translate3d(0, 0, 0); }
+    50% { transform: scaleY(0.58) translate3d(0, 0, 0); }
+    100% { transform: scaleY(0.92) translate3d(0, 0, 0); }
   }
   @keyframes spectrumBounce3 {
-    0% {
-      transform: scaleY(0.15) translate3d(0, 0, 0);
-    }
-    40% {
-      transform: scaleY(0.85) translate3d(0, 0, 0);
-    }
-    100% {
-      transform: scaleY(0.38) translate3d(0, 0, 0);
-    }
+    0% { transform: scaleY(0.15) translate3d(0, 0, 0); }
+    40% { transform: scaleY(0.85) translate3d(0, 0, 0); }
+    100% { transform: scaleY(0.38) translate3d(0, 0, 0); }
   }
   @keyframes spectrumBounce4 {
-    0% {
-      transform: scaleY(0.22) translate3d(0, 0, 0);
-    }
-    60% {
-      transform: scaleY(0.96) translate3d(0, 0, 0);
-    }
-    100% {
-      transform: scaleY(0.28) translate3d(0, 0, 0);
-    }
+    0% { transform: scaleY(0.22) translate3d(0, 0, 0); }
+    60% { transform: scaleY(0.96) translate3d(0, 0, 0); }
+    100% { transform: scaleY(0.28) translate3d(0, 0, 0); }
   }
 </style>

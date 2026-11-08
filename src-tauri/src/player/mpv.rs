@@ -1,6 +1,7 @@
 use parking_lot::RwLock;
 use serde::{Deserialize, Serialize};
 use std::process::{Child, Command, Stdio};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 use tauri::{AppHandle, Emitter};
@@ -46,6 +47,7 @@ pub struct MpvEngine {
     cmd_tx: mpsc::Sender<String>,
     pub socket_path: String,
     pub state: Arc<RwLock<PlaybackState>>,
+    pub is_resolving: Arc<AtomicBool>,
     pub app_handle: Option<AppHandle>,
 }
 
@@ -73,6 +75,7 @@ impl MpvEngine {
             cmd_tx,
             socket_path: String::new(),
             state: Arc::new(RwLock::new(PlaybackState::default())),
+            is_resolving: Arc::new(AtomicBool::new(false)),
             app_handle: None,
         }
     }
@@ -104,28 +107,28 @@ impl MpvEngine {
 
         crate::aethon_log!("Spawning MPV engine: {} (socket: {})", mpv_bin, socket_path);
 
-        // Low-latency RAM-buffered MPV configuration for <1s stream startup
         let mut cmd = Command::new(mpv_bin);
-        let ytdl_raw = "no-config=,no-playlist=,no-check-certificates=,socket-timeout=6".to_string();
+        let ytdl_raw =
+            "no-config=,no-playlist=,no-check-certificates=,socket-timeout=5,extractor-args=youtube:player_client=android_vr,tv,mweb,web_safari".to_string();
 
         cmd.arg("--idle=yes")
             .arg("--no-video")
             .arg("--no-terminal")
             .arg(format!("--input-ipc-server={}", socket_path))
             .arg("--ytdl=yes")
-            .arg("--ytdl-format=251/140/bestaudio/best")
+            .arg("--ytdl-format=251/140/bestaudio[ext=webm]/bestaudio/best")
             .arg(format!("--ytdl-raw-options={}", ytdl_raw))
             .arg("--keep-open=no")
             .arg("--gapless-audio=yes")
             .arg("--cache=yes")
             .arg("--cache-on-disk=no")
             .arg("--cache-pause=yes")
-            .arg("--cache-pause-wait=0.15")
+            .arg("--cache-pause-wait=0.05")
             .arg("--cache-pause-initial=no")
             .arg("--demuxer-max-bytes=33554432")
             .arg("--demuxer-max-back-bytes=8388608")
-            .arg("--demuxer-readahead-secs=20")
-            .arg("--audio-buffer=0.15")
+            .arg("--demuxer-readahead-secs=12")
+            .arg("--audio-buffer=0.10")
             .arg("--demuxer-lavf-o=http_persistent=1,reconnect=1,reconnect_streamed=1,reconnect_delay_max=2")
             .arg("--ao=pipewire,pulse,alsa")
             .stdin(Stdio::null())
@@ -138,7 +141,7 @@ impl MpvEngine {
 
         let mut connected = false;
         let mut stream = None;
-        for _ in 0..200 {
+        for _ in 0..80 {
             tokio::time::sleep(Duration::from_millis(12)).await;
             if let Ok(s) = UnixStream::connect(&socket_path).await {
                 stream = Some(s);
@@ -153,10 +156,28 @@ impl MpvEngine {
 
         let stream = stream.unwrap();
         let (reader, mut writer) = stream.into_split();
-        let (cmd_tx, mut cmd_rx) = mpsc::channel::<String>(64);
+        let (cmd_tx, mut cmd_rx) = mpsc::channel::<String>(128);
+
+        let init_observers = concat!(
+            "{\"command\": [\"observe_property\", 1, \"time-pos\"]}\n",
+            "{\"command\": [\"observe_property\", 2, \"duration\"]}\n",
+            "{\"command\": [\"observe_property\", 3, \"pause\"]}\n",
+            "{\"command\": [\"observe_property\", 4, \"volume\"]}\n",
+            "{\"command\": [\"observe_property\", 5, \"audio-codec-name\"]}\n",
+            "{\"command\": [\"observe_property\", 6, \"audio-params\"]}\n",
+            "{\"command\": [\"observe_property\", 7, \"audio-bitrate\"]}\n",
+            "{\"command\": [\"observe_property\", 8, \"core-idle\"]}\n",
+            "{\"command\": [\"observe_property\", 9, \"paused-for-cache\"]}\n",
+            "{\"command\": [\"observe_property\", 10, \"path\"]}\n",
+            "{\"command\": [\"observe_property\", 11, \"media-title\"]}\n",
+            "{\"command\": [\"observe_property\", 12, \"eof-reached\"]}\n"
+        );
+        let _ = writer.write_all(init_observers.as_bytes()).await;
 
         let state = Arc::new(RwLock::new(PlaybackState::default()));
         let state_clone = Arc::clone(&state);
+        let is_resolving = Arc::new(AtomicBool::new(false));
+        let resolving_clone = Arc::clone(&is_resolving);
 
         tokio::spawn(async move {
             while let Some(cmd) = cmd_rx.recv().await {
@@ -198,24 +219,34 @@ impl MpvEngine {
                                 }
                             }
                             "file-loaded" | "playback-restart" => {
-                                mpv_core_idle = false;
-                                mpv_paused_for_cache = false;
-                                let mut s = state_clone.write();
-                                s.is_buffering = false;
-                                s.is_playing = s.current_uri.is_some() && !mpv_paused;
-                                if let Some(ref handle) = app_handle {
-                                    let _ = handle.emit("player-state", &*s);
+                                if !resolving_clone.load(Ordering::Acquire) {
+                                    mpv_core_idle = false;
+                                    mpv_paused_for_cache = false;
+                                    let mut s = state_clone.write();
+                                    s.is_buffering = false;
+                                    s.is_playing = s.current_uri.is_some() && !mpv_paused;
+                                    if let Some(ref handle) = app_handle {
+                                        let _ = handle.emit("player-state", &*s);
+                                    }
                                 }
                             }
                             "property-change" => {
                                 if let Some(name) = val.get("name").and_then(|n| n.as_str()) {
+                                    // Ignore stale property changes from a stopped track while resolving the next track
+                                    if resolving_clone.load(Ordering::Acquire)
+                                        && matches!(name, "time-pos" | "duration" | "core-idle" | "pause" | "paused-for-cache")
+                                    {
+                                        line.clear();
+                                        continue;
+                                    }
+
                                     let mut s = state_clone.write();
                                     let data = val.get("data");
                                     match name {
                                         "time-pos" => {
                                             if let Some(t) = data.and_then(|d| d.as_f64()) {
                                                 s.position = t;
-                                                if t > 0.03 && !mpv_paused {
+                                                if t > 0.02 && !mpv_paused {
                                                     s.is_buffering = false;
                                                     s.is_playing = true;
                                                 }
@@ -260,7 +291,9 @@ impl MpvEngine {
                                         }
                                         "path" => {
                                             if let Some(p) = data.and_then(|d| d.as_str()) {
-                                                if s.current_uri.is_none() && !p.contains("googlevideo.com") {
+                                                if s.current_uri.is_none()
+                                                    && !p.contains("googlevideo.com")
+                                                {
                                                     s.current_uri = Some(p.to_string());
                                                 }
                                             }
@@ -274,7 +307,7 @@ impl MpvEngine {
                                         }
                                         "eof-reached" => {
                                             if let Some(eof) = data.and_then(|d| d.as_bool()) {
-                                                if eof {
+                                                if eof && !resolving_clone.load(Ordering::Acquire) {
                                                     s.is_playing = false;
                                                     s.is_buffering = false;
                                                     s.position = 0.0;
@@ -312,7 +345,9 @@ impl MpvEngine {
 
                                     let _ = mpv_paused_for_cache;
                                     let should_emit = if name == "time-pos" {
-                                        if last_time_pos_emit.elapsed() >= std::time::Duration::from_millis(100) {
+                                        if last_time_pos_emit.elapsed()
+                                            >= std::time::Duration::from_millis(60)
+                                        {
                                             last_time_pos_emit = std::time::Instant::now();
                                             true
                                         } else {
@@ -334,7 +369,7 @@ impl MpvEngine {
                                 let reason =
                                     val.get("reason").and_then(|r| r.as_str()).unwrap_or("");
                                 crate::aethon_log!("MPV end-file event received: reason={}", reason);
-                                if reason == "eof" {
+                                if reason == "eof" && !resolving_clone.load(Ordering::Acquire) {
                                     let mut s = state_clone.write();
                                     s.is_playing = false;
                                     s.is_buffering = false;
@@ -343,7 +378,7 @@ impl MpvEngine {
                                         let _ = handle.emit("player-state", &*s);
                                         let _ = handle.emit("track-ended", ());
                                     }
-                                } else if reason == "error" {
+                                } else if reason == "error" && !resolving_clone.load(Ordering::Acquire) {
                                     let failed_uri = {
                                         let mut s = state_clone.write();
                                         s.is_playing = false;
@@ -371,25 +406,9 @@ impl MpvEngine {
             cmd_tx,
             socket_path,
             state,
+            is_resolving,
             app_handle: app,
         };
-
-        let pipeline_cmds = [
-            r#"{"command": ["observe_property", 1, "time-pos"]}"#,
-            r#"{"command": ["observe_property", 2, "duration"]}"#,
-            r#"{"command": ["observe_property", 3, "pause"]}"#,
-            r#"{"command": ["observe_property", 4, "volume"]}"#,
-            r#"{"command": ["observe_property", 5, "audio-codec-name"]}"#,
-            r#"{"command": ["observe_property", 6, "audio-params"]}"#,
-            r#"{"command": ["observe_property", 7, "audio-bitrate"]}"#,
-            r#"{"command": ["observe_property", 8, "core-idle"]}"#,
-            r#"{"command": ["observe_property", 9, "paused-for-cache"]}"#,
-            r#"{"command": ["observe_property", 10, "path"]}"#,
-            r#"{"command": ["observe_property", 11, "media-title"]}"#,
-            r#"{"command": ["observe_property", 12, "eof-reached"]}"#,
-        ].join("\n");
-
-        engine.send_cmd(&pipeline_cmds).await?;
 
         Ok(engine)
     }
@@ -403,12 +422,33 @@ impl MpvEngine {
         Ok(())
     }
 
+    /// Immediately stop the currently playing audio buffer (<1ms) when switching songs
+    pub async fn stop_for_new_track(&self, new_uri: &str, title: Option<&str>) {
+        self.is_resolving.store(true, Ordering::Release);
+        {
+            let mut s = self.state.write();
+            s.current_uri = Some(new_uri.to_string());
+            s.media_title = title.map(String::from);
+            s.position = 0.0;
+            s.is_buffering = true;
+            s.is_playing = false;
+            if let Some(ref handle) = self.app_handle {
+                let _ = handle.emit("player-state", &*s);
+            }
+        }
+        let stop_msg = serde_json::json!({
+            "command": ["stop"]
+        });
+        let _ = self.send_cmd(&stop_msg.to_string()).await;
+    }
+
     pub async fn load_file_with_canonical(
         &self,
         playable_uri: &str,
         canonical_uri: Option<&str>,
         title: Option<&str>,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        self.is_resolving.store(false, Ordering::Release);
         {
             let mut s = self.state.write();
             s.current_uri = Some(canonical_uri.unwrap_or(playable_uri).to_string());
@@ -422,8 +462,6 @@ impl MpvEngine {
                 let _ = handle.emit("player-state", &*s);
             }
         }
-        // Silence previous audio stream immediately so old tracks don't continue or overlap
-        let _ = self.send_cmd(r#"{"command": ["stop"]}"#).await;
         let msg = serde_json::json!({
             "command": ["loadfile", playable_uri, "replace"]
         });

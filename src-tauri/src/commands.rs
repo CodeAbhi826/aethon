@@ -1,7 +1,7 @@
 use crate::library::{Database, Playlist, Scanner, Track};
 use crate::lyrics::{LyricsResult, LyricsService};
 use crate::player::{MpvEngine, PlaybackState};
-use crate::youtube::{YouTubeService, YouTubeTrack};
+use crate::youtube::{HomeShelf, YouTubeService, YouTubeTrack};
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -44,18 +44,14 @@ pub async fn play_track(
         YouTubeService::invalidate_cached_stream(&full_uri);
     }
 
-    // Mark engine as buffering new track before stream resolution so no stale player-state event clears isLoading
-    {
-        let mut s = state.mpv.state.write();
-        s.current_uri = Some(full_uri.clone());
-        s.media_title = if t_title.is_empty() { None } else { Some(t_title.clone()) };
-        s.position = 0.0;
-        s.is_buffering = true;
-        s.is_playing = false;
-        if let Some(ref handle) = state.mpv.app_handle {
-            let _ = handle.emit("player-state", &*s);
-        }
-    }
+    // Immediately stop the previous song in MPV (< 1ms) and mark engine as resolving the new track
+    state
+        .mpv
+        .stop_for_new_track(
+            &full_uri,
+            if t_title.is_empty() { None } else { Some(&t_title) },
+        )
+        .await;
 
     let playable_uri =
         YouTubeService::resolve_playable_stream_async(&full_uri, &t_title, &t_artist).await;
@@ -223,7 +219,63 @@ pub async fn search_youtube(
         .flatten()
         .or_else(|| state.db.get_setting("ytmRegion").ok().flatten())
         .unwrap_or_else(|| "IN".to_string());
-    Ok(YouTubeService::search(&query, limit.unwrap_or(15), &gl).await)
+    Ok(YouTubeService::search(&query, limit.unwrap_or(55), &gl).await)
+}
+
+#[tauri::command]
+pub async fn get_home_shelves(
+    cookie: Option<String>,
+    state: State<'_, AppState>,
+) -> Result<Vec<HomeShelf>, String> {
+    let gl = state
+        .db
+        .get_setting("regionCode")
+        .ok()
+        .flatten()
+        .or_else(|| state.db.get_setting("ytmRegion").ok().flatten())
+        .unwrap_or_else(|| "IN".to_string());
+    let resolved_cookie = cookie
+        .filter(|c| !c.trim().is_empty())
+        .or_else(|| state.db.get_setting("ytmCookie").ok().flatten());
+    Ok(YouTubeService::fetch_home_shelves(resolved_cookie.as_deref(), &gl).await)
+}
+
+#[tauri::command]
+pub async fn get_automix_queue(
+    video_id: String,
+    cookie: Option<String>,
+    state: State<'_, AppState>,
+) -> Result<Vec<YouTubeTrack>, String> {
+    let gl = state
+        .db
+        .get_setting("regionCode")
+        .ok()
+        .flatten()
+        .or_else(|| state.db.get_setting("ytmRegion").ok().flatten())
+        .unwrap_or_else(|| "IN".to_string());
+    let resolved_cookie = cookie
+        .filter(|c| !c.trim().is_empty())
+        .or_else(|| state.db.get_setting("ytmCookie").ok().flatten());
+    Ok(YouTubeService::fetch_automix_queue(&video_id, resolved_cookie.as_deref(), &gl).await)
+}
+
+#[tauri::command]
+pub async fn get_cloud_playlist_tracks(
+    browse_id: String,
+    cookie: Option<String>,
+    state: State<'_, AppState>,
+) -> Result<Vec<YouTubeTrack>, String> {
+    let gl = state
+        .db
+        .get_setting("regionCode")
+        .ok()
+        .flatten()
+        .or_else(|| state.db.get_setting("ytmRegion").ok().flatten())
+        .unwrap_or_else(|| "IN".to_string());
+    let resolved_cookie = cookie
+        .filter(|c| !c.trim().is_empty())
+        .or_else(|| state.db.get_setting("ytmCookie").ok().flatten());
+    Ok(YouTubeService::fetch_cloud_playlist_tracks(&browse_id, resolved_cookie.as_deref(), &gl).await)
 }
 
 #[tauri::command]

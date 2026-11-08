@@ -91,7 +91,6 @@ export function generateThemeFromHex(seedHex: string, options?: ThemeOptions): T
     surfaceContainer = '#111114';
     surfaceContainerHigh = '#1a1a1f';
   } else if (options?.dynamicBg === false) {
-    // Standard sleek dark background
     surface = '#100d14';
     surfaceDim = '#0b090e';
     surfaceContainerLow = '#19151f';
@@ -115,9 +114,9 @@ export function generateThemeFromHex(seedHex: string, options?: ThemeOptions): T
   const mesh2 = hexToRgba(secondary, m2Alpha);
   const mesh3 = hexToRgba(tertiary, m3Alpha);
 
-  const acrylic = hexToRgba(surfaceContainer, 0.72);
-  const acrylicCard = hexToRgba(surfaceContainerHigh, 0.55);
-  const acrylicDock = hexToRgba(surface, 0.88);
+  const acrylic = hexToRgba(surfaceContainer, 0.95);
+  const acrylicCard = hexToRgba(surfaceContainerHigh, 0.90);
+  const acrylicDock = hexToRgba(surface, 0.97);
 
   return {
     primary,
@@ -181,17 +180,37 @@ export function applyThemeTokens(colors: ThemeColors) {
   root.style.setProperty('--md-sys-acrylic-card', colors.acrylicCard);
   root.style.setProperty('--md-sys-acrylic-dock', colors.acrylicDock);
 
-  // Accent compatibility variables
   root.style.setProperty('--at-accent', colors.primary);
   root.style.setProperty('--at-accent-container', colors.primaryContainer);
   root.style.setProperty('--at-on-accent-container', colors.onPrimaryContainer);
 }
 
-// In-memory RAM cache for instant 0 ms theme retrieval on repeated tracks
 const extractedHexCache = new Map<string, string>();
 
+const FALLBACK_VIBRANT_SEEDS = [
+  '#ff7eb6',
+  '#78a9ff',
+  '#42be65',
+  '#ffab40',
+  '#be95ff',
+  '#3ddbd9',
+  '#ff8389',
+  '#82cfff',
+  '#f1c21b',
+  '#d4bbff',
+];
+
+function deterministicSeedFromUrl(url: string): string {
+  let h = 2166136261;
+  for (let i = 0; i < url.length; i++) {
+    h ^= url.charCodeAt(i);
+    h = Math.imul(h, 16777619);
+  }
+  return FALLBACK_VIBRANT_SEEDS[Math.abs(h) % FALLBACK_VIBRANT_SEEDS.length];
+}
+
 /**
- * Fast Downsampled 24x24 Canvas (< 0.3 ms) + RAM Cache Monet Artwork Extraction
+ * Fast Downsampled 24x24 Canvas (< 0.3 ms) + CORS-Safe Monet Artwork Extraction
  */
 export async function extractAndApplyThemeFromImage(
   imageUrl: string,
@@ -199,7 +218,6 @@ export async function extractAndApplyThemeFromImage(
 ): Promise<string> {
   if (!imageUrl) return '#d0bcff';
 
-  // Instant RAM cache hit (0 ms)
   const cached = extractedHexCache.get(imageUrl);
   if (cached) {
     const tokens = generateThemeFromHex(cached, options);
@@ -210,28 +228,42 @@ export async function extractAndApplyThemeFromImage(
   return new Promise((resolve) => {
     const img = new Image();
     img.crossOrigin = 'anonymous';
-    const isRemoteOrData =
-      imageUrl.startsWith('http://') ||
-      imageUrl.startsWith('https://') ||
-      imageUrl.startsWith('data:') ||
-      imageUrl.startsWith('blob:');
-    img.src = isRemoteOrData ? imageUrl : convertFileSrc(imageUrl);
+    const isRemote = imageUrl.startsWith('http://') || imageUrl.startsWith('https://');
+    const isDataOrBlob = imageUrl.startsWith('data:') || imageUrl.startsWith('blob:');
+    // Add a CORS-specific query key on remote URLs so WebKitGTK doesn't reuse a non-CORS cached response from <img> tags
+    const corsSafeUrl = isRemote
+      ? `${imageUrl}${imageUrl.includes('?') ? '&' : '?'}cors=1`
+      : isDataOrBlob
+        ? imageUrl
+        : convertFileSrc(imageUrl);
+
+    img.src = corsSafeUrl;
+
+    const finishWithSeed = (seedHex: string) => {
+      const tokens = generateThemeFromHex(seedHex, options);
+      extractedHexCache.set(imageUrl, tokens.primary);
+      applyThemeTokens(tokens);
+      resolve(tokens.primary);
+    };
 
     img.onload = () => {
       try {
+        // Ignore YouTube's 120x90 gray placeholder when extracting color
+        if (img.naturalWidth === 120 && img.naturalHeight === 90) {
+          return finishWithSeed(deterministicSeedFromUrl(imageUrl));
+        }
         const canvas = document.createElement('canvas');
         canvas.width = 24;
         canvas.height = 24;
         const ctx = canvas.getContext('2d', { willReadFrequently: true });
         if (!ctx) {
-          extractedHexCache.set(imageUrl, '#d0bcff');
-          return resolve('#d0bcff');
+          return finishWithSeed(deterministicSeedFromUrl(imageUrl));
         }
 
         ctx.drawImage(img, 0, 0, 24, 24);
         const data = ctx.getImageData(0, 0, 24, 24).data;
 
-        let bestHex = '#d0bcff';
+        let bestHex = '';
         let maxScore = -1;
         let avgR = 0, avgG = 0, avgB = 0, totalValid = 0;
 
@@ -253,10 +285,8 @@ export async function extractAndApplyThemeFromImage(
           const chroma = max - min;
           const lightness = (max + min) / 2;
 
-          // Reject pure black, pure white, and low-chroma muddy grays
           if (lightness < 22 || lightness > 232 || chroma < 18) continue;
 
-          // Chroma-weighted dominant vibrance scoring
           const score = chroma * 1.6 + (1 - Math.abs(lightness - 130) / 130) * 45;
           if (score > maxScore) {
             maxScore = score;
@@ -264,25 +294,21 @@ export async function extractAndApplyThemeFromImage(
           }
         }
 
-        // If no high-vibrance pixel found, fall back to average valid color
-        if (maxScore < 0 && totalValid > 0) {
+        if (!bestHex && totalValid > 0) {
           const r = Math.round(avgR / totalValid);
           const g = Math.round(avgG / totalValid);
           const b = Math.round(avgB / totalValid);
           bestHex = `#${((1 << 24) + (r << 16) + (g << 8) + b).toString(16).slice(1)}`;
         }
 
-        extractedHexCache.set(imageUrl, bestHex);
-        const tokens = generateThemeFromHex(bestHex, options);
-        applyThemeTokens(tokens);
-        resolve(bestHex);
+        finishWithSeed(bestHex || deterministicSeedFromUrl(imageUrl));
       } catch {
-        resolve('#d0bcff');
+        finishWithSeed(deterministicSeedFromUrl(imageUrl));
       }
     };
 
     img.onerror = () => {
-      resolve('#d0bcff');
+      finishWithSeed(deterministicSeedFromUrl(imageUrl));
     };
   });
 }

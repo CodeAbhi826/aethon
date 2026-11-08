@@ -1,14 +1,23 @@
 <script lang="ts">
   import { onDestroy } from 'svelte';
+  import { invoke } from '@tauri-apps/api/core';
   import { playerState } from '../state.svelte';
-  import { sanitizeArtist, type Track, type YouTubeTrack } from '../types';
+  import {
+    sanitizeArtist,
+    handleThumbnailError,
+    handleThumbnailLoad,
+    type Track,
+    type YouTubeTrack,
+  } from '../types';
   import { getHighResArtwork } from '../artwork';
   import ArtistLinks from '../components/ArtistLinks.svelte';
 
   let searchQuery = $state('');
-  let activeFilter = $state<'all' | 'songs' | 'artists'>('all');
+  let activeFilter = $state<'all' | 'songs' | 'videos' | 'albums' | 'artists'>('all');
   let debounceTimer: ReturnType<typeof setTimeout> | null = null;
   let searchSeq = 0;
+  let isLoadingMore = $state(false);
+  let currentPage = $state(1);
 
   let isBuffering = $derived(playerState.isLoading || Boolean(playerState.playback.is_buffering));
 
@@ -18,12 +27,14 @@
     if (!q) {
       playerState.youtubeResults = [];
       playerState.isSearching = false;
+      currentPage = 1;
       return;
     }
     const seq = ++searchSeq;
     debounceTimer = setTimeout(async () => {
       if (seq === searchSeq) {
-        await playerState.searchYouTube(q);
+        currentPage = 1;
+        await playerState.searchYouTube(q, 55);
       }
     }, 240);
   }
@@ -36,13 +47,43 @@
     e.preventDefault();
     if (debounceTimer) clearTimeout(debounceTimer);
     if (searchQuery.trim()) {
-      playerState.searchYouTube(searchQuery.trim());
+      currentPage = 1;
+      playerState.searchYouTube(searchQuery.trim(), 55);
+    }
+  }
+
+  async function loadMoreResults() {
+    const q = searchQuery.trim();
+    if (!q || isLoadingMore || playerState.isSearching) return;
+    isLoadingMore = true;
+    try {
+      currentPage += 1;
+      const suffix =
+        currentPage === 2
+          ? 'official audio songs'
+          : currentPage === 3
+            ? 'full album tracks'
+            : `popular tracks ${currentPage}`;
+      const more = await invoke<YouTubeTrack[]>('search_youtube', {
+        query: `${q} ${suffix}`,
+        limit: 45,
+      }).catch(() => []);
+      if (more && more.length > 0) {
+        const seen = new Set(playerState.youtubeResults.map((r) => r.id));
+        const unique = more.filter((r) => !seen.has(r.id));
+        if (unique.length > 0) {
+          playerState.youtubeResults = [...playerState.youtubeResults, ...unique];
+        }
+      }
+    } finally {
+      isLoadingMore = false;
     }
   }
 
   function runQuickSearch(label: string, query: string) {
     searchQuery = label;
-    playerState.searchYouTube(query);
+    currentPage = 1;
+    playerState.searchYouTube(query, 55);
   }
 
   function ytToTrack(yt: YouTubeTrack): Track {
@@ -70,7 +111,7 @@
 
   const quickTags = [
     { label: 'Trending', query: 'global trending songs' },
-    { label: 'New Releases', query: 'new music releases hits' },
+    { label: 'New releases', query: 'new music releases hits' },
     { label: 'Chill', query: 'chill lofi acoustic vibes' },
     { label: 'Phonk', query: 'drift phonk gym hits' },
     { label: 'Synthwave', query: 'synthwave retrowave night drive' },
@@ -80,11 +121,11 @@
   ];
 
   const browseCategories = [
-    { label: 'Top Charts', sub: 'Global 100', query: 'global top hits songs', color: 'from-rose-500/30 to-orange-600/15' },
-    { label: 'Chill & Lo-Fi', sub: 'Study & Relax', query: 'lofi chill beats study', color: 'from-indigo-500/30 to-purple-600/15' },
+    { label: 'Charts', sub: 'Global 100', query: 'global top hits songs', color: 'from-rose-500/30 to-orange-600/15' },
+    { label: 'Chill', sub: 'Study & Relax', query: 'lofi chill beats study', color: 'from-indigo-500/30 to-purple-600/15' },
     { label: 'Hip-Hop', sub: 'Rap & Trap', query: 'hip hop rap essentials', color: 'from-amber-500/30 to-yellow-600/15' },
     { label: 'Electronic', sub: 'House & Techno', query: 'electronic house melodic', color: 'from-cyan-500/30 to-blue-600/15' },
-    { label: 'Pop Essentials', sub: 'Hitmakers', query: 'pop hits essentials', color: 'from-pink-500/30 to-rose-600/15' },
+    { label: 'Pop', sub: 'Hitmakers', query: 'pop hits essentials', color: 'from-pink-500/30 to-rose-600/15' },
     { label: 'Rock & Alt', sub: 'Anthems', query: 'alternative rock classics', color: 'from-emerald-500/30 to-teal-600/15' },
     { label: 'R&B & Soul', sub: 'Late Night', query: 'rnb soul smooth hits', color: 'from-violet-500/30 to-fuchsia-600/15' },
     { label: 'Workout', sub: 'High Energy', query: 'workout gym energy songs', color: 'from-red-500/30 to-rose-600/15' },
@@ -96,12 +137,12 @@
 
   let derivedArtists = $derived.by(() => {
     const seen = new Set<string>();
-    const list: { name: string; avatar: string }[] = [];
+    const list: { name: string; avatar: string; id: string }[] = [];
     for (const yt of playerState.youtubeResults) {
-      const cleanName = sanitizeArtist(yt.artist);
+      const cleanName = sanitizeArtist(yt.artist).split(',')[0].trim();
       if (cleanName && !seen.has(cleanName.toLowerCase())) {
         seen.add(cleanName.toLowerCase());
-        list.push({ name: cleanName, avatar: yt.thumbnail });
+        list.push({ name: cleanName, avatar: yt.thumbnail, id: yt.id });
       }
       if (list.length >= 6) break;
     }
@@ -110,10 +151,8 @@
 </script>
 
 <div class="px-6 py-5 max-w-6xl mx-auto space-y-6 pb-28 select-none">
-  <!-- Search Header & Input Bar with Live SVG Circular Progress Ring -->
+  <!-- ArchiveTune Search Bar ("Search YouTube Music") -->
   <div class="space-y-3.5">
-    <h1 class="font-display font-bold text-2xl sm:text-3xl text-white tracking-tight">Search</h1>
-
     <form onsubmit={handleSearch} class="relative max-w-2xl">
       <span class="material-symbols-rounded absolute left-4 top-1/2 -translate-y-1/2 text-white/45 text-xl pointer-events-none">
         search
@@ -122,15 +161,15 @@
         type="text"
         bind:value={searchQuery}
         oninput={onSearchInput}
-        placeholder="Search Apple Music & YouTube Music catalog..."
-        class="w-full pl-11 pr-12 py-3 rounded-2xl bg-white/[0.06] border border-white/[0.08] text-white placeholder-white/35 focus:outline-none focus:border-white/25 focus:bg-white/[0.09] transition-all text-sm"
+        placeholder="Search YouTube Music"
+        class="w-full pl-11 pr-12 py-3 rounded-2xl bg-white/[0.06] border border-white/[0.08] text-white placeholder-white/40 focus:outline-none focus:border-[var(--md-sys-primary)]/50 focus:bg-white/[0.09] transition-all text-sm"
       />
 
       <div class="absolute right-3 top-1/2 -translate-y-1/2 flex items-center gap-1">
         {#if playerState.isSearching}
-          <svg class="w-5 h-5 animate-spin text-[var(--md-sys-primary)] mr-1" viewBox="0 0 36 36" fill="none">
-            <circle cx="18" cy="18" r="13" stroke="currentColor" stroke-opacity="0.2" stroke-width="3.2" />
-            <circle cx="18" cy="18" r="13" stroke="currentColor" stroke-width="3.2" stroke-dasharray="52 100" stroke-linecap="round" />
+          <svg class="w-5 h-5 archivetune-spinner-svg text-[var(--md-sys-primary)] mr-1" viewBox="0 0 36 36" fill="none">
+            <circle cx="18" cy="18" r="14" stroke="currentColor" stroke-opacity="0.2" stroke-width="3.2" />
+            <circle class="archivetune-spinner-arc" cx="18" cy="18" r="14" stroke="currentColor" stroke-width="3.2" stroke-linecap="round" />
           </svg>
         {/if}
         {#if searchQuery}
@@ -150,18 +189,21 @@
     </form>
 
     {#if searchQuery.trim().length > 0 || playerState.youtubeResults.length > 0}
-      <div class="flex items-center gap-1.5">
+      <!-- ArchiveTune Search Filter Chips -->
+      <div class="flex items-center gap-1.5 overflow-x-auto scrollbar-none">
         {#each [
-          { id: 'all', label: 'Top Results' },
+          { id: 'all', label: 'All' },
           { id: 'songs', label: 'Songs' },
+          { id: 'videos', label: 'Videos' },
+          { id: 'albums', label: 'Albums' },
           { id: 'artists', label: 'Artists' },
         ] as filter}
           <button
             type="button"
             onclick={() => (activeFilter = filter.id as any)}
-            class="px-4 py-1.5 rounded-full text-xs font-medium transition-all cursor-pointer {activeFilter ===
+            class="px-4 py-1.5 rounded-xl text-xs font-medium transition-all cursor-pointer shrink-0 {activeFilter ===
             filter.id
-              ? 'bg-white text-black font-semibold shadow-sm'
+              ? 'bg-[var(--md-sys-primary)] text-[var(--md-sys-on-primary)] font-semibold shadow-sm'
               : 'bg-white/[0.05] text-white/65 hover:text-white hover:bg-white/10'}"
           >
             {filter.label}
@@ -169,13 +211,12 @@
         {/each}
       </div>
     {:else}
-      <!-- Quick Suggestion Chips -->
       <div class="flex items-center gap-2 overflow-x-auto scrollbar-none pb-0.5">
         {#each quickTags as tag}
           <button
             type="button"
             onclick={() => runQuickSearch(tag.label, tag.query)}
-            class="px-3.5 py-1.5 rounded-full text-xs font-medium bg-white/[0.05] hover:bg-white/[0.1] text-white/75 hover:text-white whitespace-nowrap transition-colors cursor-pointer"
+            class="px-3.5 py-1.5 rounded-xl text-xs font-medium bg-white/[0.05] hover:bg-white/[0.1] text-white/75 hover:text-white whitespace-nowrap transition-colors cursor-pointer"
           >
             {tag.label}
           </button>
@@ -184,10 +225,10 @@
     {/if}
   </div>
 
-  <!-- Browse Categories (When Search Input is Empty) -->
+  <!-- Moods & Genres Browse Grid (When Search Input is Empty) -->
   {#if !searchQuery.trim() && playerState.youtubeResults.length === 0 && !playerState.isSearching}
     <div class="space-y-3 pt-1">
-      <h2 class="font-display font-bold text-base text-white/90">Browse Categories</h2>
+      <h2 class="font-display font-bold text-base text-white/90">Moods & genres</h2>
       <div class="grid grid-cols-2 sm:grid-cols-4 gap-3.5">
         {#each browseCategories as cat}
           <button
@@ -217,20 +258,20 @@
     <div class="grid grid-cols-1 lg:grid-cols-12 gap-6 pt-2">
       <div class="lg:col-span-5 h-52 rounded-3xl bg-white/[0.04] animate-pulse"></div>
       <div class="lg:col-span-7 space-y-2.5">
-        {#each Array(4) as _}
-          <div class="h-12 rounded-2xl bg-white/[0.04] animate-pulse"></div>
+        {#each Array(6) as _}
+          <div class="h-14 rounded-2xl bg-white/[0.04] animate-pulse"></div>
         {/each}
       </div>
     </div>
   {:else if playerState.youtubeResults.length > 0}
     {#if activeFilter === 'all'}
       <div class="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
-        <!-- Left Column: Apple Music / ArchiveTune "Top Result" Hero Card -->
+        <!-- Left Column: Top Result Hero Card -->
         {#if topResult}
           {@const topTrack = ytToTrack(topResult)}
           {@const isTopCurrent = playerState.currentTrack?.id === topTrack.id}
           <div class="lg:col-span-5 space-y-2.5">
-            <h3 class="text-xs font-semibold uppercase tracking-wider text-white/45 px-1">Top Result</h3>
+            <h3 class="text-xs font-semibold uppercase tracking-wider text-white/45 px-1">Top result</h3>
             <div
               role="button"
               tabindex="0"
@@ -247,15 +288,11 @@
               <div class="flex items-center gap-4">
                 <div class="relative w-24 h-24 rounded-2xl overflow-hidden shadow-lg shrink-0 bg-white/5">
                   <img
-                    src={getHighResArtwork(topResult.thumbnail, topResult.id)}
+                    src={topResult.thumbnail}
                     alt={topResult.title}
+                    onload={(e) => handleThumbnailLoad(e, topResult.id)}
+                    onerror={(e) => handleThumbnailError(e, topResult.id)}
                     class="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
-                    onerror={(e) => {
-                      const target = e.currentTarget as HTMLImageElement;
-                      if (target.src.includes('maxresdefault.jpg')) {
-                        target.src = target.src.replace('maxresdefault.jpg', 'hqdefault.jpg');
-                      }
-                    }}
                   />
                   {#if isTopCurrent && (isBuffering || playerState.playback.is_playing)}
                     <div class="absolute inset-0 bg-black/45 flex items-center justify-center">
@@ -275,20 +312,16 @@
                   {/if}
                 </div>
 
-                <div class="min-w-0 flex-1">
-                  <h4 class="font-display font-bold text-base sm:text-lg {isTopCurrent ? 'text-[var(--md-sys-primary)]' : 'text-white'} truncate">
+                <div class="min-w-0 flex-1 overflow-hidden">
+                  <h4 class="font-display font-bold text-base sm:text-lg {isTopCurrent ? 'text-[var(--md-sys-primary)]' : 'text-white'} truncate block w-full">
                     {topResult.title}
                   </h4>
-                  <div class="text-xs text-white/60 truncate mt-1 flex items-center gap-1">
-                    <span>Song •</span>
-                    <ArtistLinks
-                      artist={topResult.artist}
-                      buttonClass="hover:underline hover:text-white transition-colors cursor-pointer text-left"
-                    />
+                  <p class="text-xs text-white/60 truncate block w-full mt-1">
+                    Song • {sanitizeArtist(topResult.artist)}
                     {#if topResult.duration > 0}
-                      <span>• {formatDuration(topResult.duration)}</span>
+                      <span> • {formatDuration(topResult.duration)}</span>
                     {/if}
-                  </div>
+                  </p>
                 </div>
               </div>
 
@@ -299,10 +332,10 @@
                     e.stopPropagation();
                     playerState.playYouTube(topResult);
                   }}
-                  class="px-5 py-2 rounded-full bg-white text-black font-semibold text-xs flex items-center gap-1.5 hover:scale-105 active:scale-95 transition-transform cursor-pointer"
+                  class="px-5 py-2 rounded-full bg-[var(--md-sys-primary)] text-[var(--md-sys-on-primary)] font-semibold text-xs flex items-center gap-1.5 hover:scale-105 active:scale-95 transition-transform cursor-pointer"
                 >
                   {#if isTopCurrent && isBuffering}
-                    <svg class="w-4 h-4 animate-spin text-black" viewBox="0 0 36 36" fill="none">
+                    <svg class="w-4 h-4 animate-spin text-current" viewBox="0 0 36 36" fill="none">
                       <circle cx="18" cy="18" r="13" stroke="currentColor" stroke-opacity="0.25" stroke-width="3.4" />
                       <circle cx="18" cy="18" r="13" stroke="currentColor" stroke-width="3.4" stroke-dasharray="52 100" stroke-linecap="round" />
                     </svg>
@@ -336,14 +369,14 @@
                   class="ml-auto w-8 h-8 rounded-full bg-white/[0.06] hover:bg-white/[0.14] text-white/65 hover:text-white flex items-center justify-center transition-colors cursor-pointer"
                   aria-label="More options"
                 >
-                  <span class="material-symbols-rounded text-base">more_horiz</span>
+                  <span class="material-symbols-rounded text-base">more_vert</span>
                 </button>
               </div>
             </div>
           </div>
         {/if}
 
-        <!-- Right Column: 4-Song Stack (Apple Music / YT Music Desktop Layout) -->
+        <!-- Right Column: Top Songs Stack -->
         <div class="lg:col-span-7 space-y-2.5">
           <h3 class="text-xs font-semibold uppercase tracking-wider text-white/45 px-1">Songs</h3>
           <div class="divide-y divide-white/[0.04] rounded-2xl bg-white/[0.02] border border-white/[0.05] overflow-hidden">
@@ -361,49 +394,25 @@
                 onkeydown={(e) => {
                   if (e.key === 'Enter') playerState.playYouTube(yt);
                 }}
-                class="flex items-center justify-between px-3 py-2.5 {isCurrent ? 'bg-white/[0.08]' : 'hover:bg-white/[0.05]'} transition-colors cursor-pointer group"
+                class="h-14 flex items-center justify-between px-3 {isCurrent ? 'bg-white/[0.08]' : 'hover:bg-white/[0.05]'} transition-colors cursor-pointer group overflow-hidden"
               >
                 <div class="flex items-center gap-3 min-w-0 flex-1 pr-3">
-                  <div class="relative w-11 h-11 rounded-xl overflow-hidden bg-white/5 shrink-0">
+                  <div class="relative w-10 h-10 rounded-xl overflow-hidden bg-white/5 shrink-0">
                     <img
                       loading="lazy"
                       decoding="async"
-                      src={getHighResArtwork(yt.thumbnail, yt.id)}
+                      src={yt.thumbnail}
                       alt={yt.title}
+                      onload={(e) => handleThumbnailLoad(e, yt.id)}
+                      onerror={(e) => handleThumbnailError(e, yt.id)}
                       class="w-full h-full object-cover"
-                      onerror={(e) => {
-                        const target = e.currentTarget as HTMLImageElement;
-                        if (target.src.includes('maxresdefault.jpg')) {
-                          target.src = target.src.replace('maxresdefault.jpg', 'hqdefault.jpg');
-                        }
-                      }}
                     />
-                    <div class="absolute inset-0 bg-black/50 {isCurrent ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'} flex items-center justify-center transition-opacity">
-                      {#if isCurrent && isBuffering}
-                        <svg class="w-5 h-5 animate-spin archivetune-spinner-svg text-[var(--md-sys-primary)]" viewBox="0 0 24 24" fill="none">
-                          <circle class="opacity-15" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="2.5" />
-                          <circle class="archivetune-spinner-arc" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="2.5" />
-                        </svg>
-                      {:else if isCurrent && playerState.playback.is_playing}
-                        <div class="flex items-end gap-[2.5px] h-3.5">
-                          <span class="w-[3px] h-full bg-[var(--md-sys-primary)] rounded-full animate-eq-1"></span>
-                          <span class="w-[3px] h-full bg-[var(--md-sys-primary)] rounded-full animate-eq-2"></span>
-                          <span class="w-[3px] h-full bg-[var(--md-sys-primary)] rounded-full animate-eq-3"></span>
-                        </div>
-                      {:else}
-                        <span class="material-symbols-rounded text-white text-lg filled">play_arrow</span>
-                      {/if}
-                    </div>
                   </div>
-                  <div class="min-w-0 flex-1">
-                    <p class="text-xs font-semibold {isCurrent ? 'text-[var(--md-sys-primary)]' : 'text-white'} truncate">
+                  <div class="min-w-0 flex-1 overflow-hidden">
+                    <p class="text-xs font-semibold {isCurrent ? 'text-[var(--md-sys-primary)]' : 'text-white'} truncate block w-full">
                       {yt.title}
                     </p>
-                    <ArtistLinks
-                      artist={yt.artist}
-                      class="mt-0.5 block max-w-full"
-                      buttonClass="text-[11px] text-white/55 hover:text-white transition-colors cursor-pointer text-left"
-                    />
+                    <ArtistLinks artist={yt.artist} class="text-[11px] text-white/55 mt-0.5" buttonClass="hover:underline hover:text-white transition-colors cursor-pointer text-left" />
                   </div>
                 </div>
 
@@ -415,23 +424,12 @@
                     type="button"
                     onclick={(e) => {
                       e.stopPropagation();
-                      playerState.addToQueue(track);
-                    }}
-                    class="w-7 h-7 rounded-full flex items-center justify-center text-white/45 hover:text-white hover:bg-white/10 opacity-0 group-hover:opacity-100 transition-opacity"
-                    title="Add to Queue"
-                  >
-                    <span class="material-symbols-rounded text-base">playlist_add</span>
-                  </button>
-                  <button
-                    type="button"
-                    onclick={(e) => {
-                      e.stopPropagation();
                       playerState.openContextMenu(track, e.clientX, e.clientY);
                     }}
                     class="w-7 h-7 rounded-full flex items-center justify-center text-white/45 hover:text-white hover:bg-white/10 opacity-0 group-hover:opacity-100 transition-opacity"
                     title="More options"
                   >
-                    <span class="material-symbols-rounded text-base">more_horiz</span>
+                    <span class="material-symbols-rounded text-base">more_vert</span>
                   </button>
                 </div>
               </div>
@@ -457,6 +455,8 @@
                 decoding="async"
                 src={artist.avatar}
                 alt={artist.name}
+                onload={(e) => handleThumbnailLoad(e, artist.id)}
+                onerror={(e) => handleThumbnailError(e, artist.id)}
                 class="w-16 h-16 rounded-full object-cover shadow-md group-hover:scale-105 transition-transform"
               />
               <span class="text-xs font-semibold text-white truncate w-full">{artist.name}</span>
@@ -466,14 +466,22 @@
       </div>
     {/if}
 
-    <!-- Full Songs Catalog List -->
-    {#if activeFilter === 'all' || activeFilter === 'songs'}
-      <div class="space-y-2.5 pt-2">
-        <h3 class="text-xs font-semibold uppercase tracking-wider text-white/45 px-1">
-          {activeFilter === 'songs' ? 'All Songs' : 'More Songs'}
-        </h3>
+    <!-- Full Songs / Videos / Albums List + Load More -->
+    {#if activeFilter !== 'artists'}
+      <div class="space-y-3 pt-2">
+        <div class="flex items-center justify-between px-1">
+          <h3 class="text-xs font-semibold uppercase tracking-wider text-white/45">
+            {activeFilter === 'songs'
+              ? `Songs (${playerState.youtubeResults.length})`
+              : activeFilter === 'videos'
+                ? 'Music Videos'
+                : activeFilter === 'albums'
+                  ? 'Albums & Singles'
+                  : `More songs (${playerState.youtubeResults.length})`}
+          </h3>
+        </div>
         <div class="divide-y divide-white/[0.04] rounded-2xl bg-white/[0.02] border border-white/[0.05] overflow-hidden">
-          {#each activeFilter === 'songs' ? playerState.youtubeResults : playerState.youtubeResults.slice(5) as yt (yt.id)}
+          {#each activeFilter === 'all' ? playerState.youtubeResults.slice(5) : playerState.youtubeResults as yt (yt.id)}
             {@const track = ytToTrack(yt)}
             {@const isCurrent = playerState.currentTrack?.id === track.id}
             <div
@@ -487,49 +495,25 @@
               onkeydown={(e) => {
                 if (e.key === 'Enter') playerState.playYouTube(yt);
               }}
-              class="flex items-center justify-between px-3 py-2.5 {isCurrent ? 'bg-white/[0.08]' : 'hover:bg-white/[0.05]'} transition-colors cursor-pointer group"
+              class="h-14 flex items-center justify-between px-3 {isCurrent ? 'bg-white/[0.08]' : 'hover:bg-white/[0.05]'} transition-colors cursor-pointer group overflow-hidden"
             >
               <div class="flex items-center gap-3 min-w-0 flex-1 pr-3">
                 <div class="relative w-10 h-10 rounded-lg overflow-hidden bg-white/5 shrink-0">
                   <img
                     loading="lazy"
                     decoding="async"
-                    src={getHighResArtwork(yt.thumbnail, yt.id)}
+                    src={yt.thumbnail}
                     alt={yt.title}
+                    onload={(e) => handleThumbnailLoad(e, yt.id)}
+                    onerror={(e) => handleThumbnailError(e, yt.id)}
                     class="w-full h-full object-cover"
-                    onerror={(e) => {
-                      const target = e.currentTarget as HTMLImageElement;
-                      if (target.src.includes('maxresdefault.jpg')) {
-                        target.src = target.src.replace('maxresdefault.jpg', 'hqdefault.jpg');
-                      }
-                    }}
                   />
-                  <div class="absolute inset-0 bg-black/50 {isCurrent ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'} flex items-center justify-center transition-opacity">
-                    {#if isCurrent && isBuffering}
-                      <svg class="w-4 h-4 animate-spin archivetune-spinner-svg text-[var(--md-sys-primary)]" viewBox="0 0 24 24" fill="none">
-                        <circle class="opacity-15" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="2.5" />
-                        <circle class="archivetune-spinner-arc" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="2.5" />
-                      </svg>
-                    {:else if isCurrent && playerState.playback.is_playing}
-                      <div class="flex items-end gap-[2px] h-3">
-                        <span class="w-[2.5px] h-full bg-[var(--md-sys-primary)] rounded-full animate-eq-1"></span>
-                        <span class="w-[2.5px] h-full bg-[var(--md-sys-primary)] rounded-full animate-eq-2"></span>
-                        <span class="w-[2.5px] h-full bg-[var(--md-sys-primary)] rounded-full animate-eq-3"></span>
-                      </div>
-                    {:else}
-                      <span class="material-symbols-rounded text-white text-lg filled">play_arrow</span>
-                    {/if}
-                  </div>
                 </div>
-                <div class="min-w-0 flex-1">
-                  <p class="text-xs font-semibold {isCurrent ? 'text-[var(--md-sys-primary)]' : 'text-white'} truncate">
+                <div class="min-w-0 flex-1 overflow-hidden">
+                  <p class="text-xs font-semibold {isCurrent ? 'text-[var(--md-sys-primary)]' : 'text-white'} truncate block w-full">
                     {yt.title}
                   </p>
-                  <ArtistLinks
-                    artist={yt.artist}
-                    class="mt-0.5 block max-w-full"
-                    buttonClass="text-[11px] text-white/55 hover:text-white transition-colors cursor-pointer text-left"
-                  />
+                  <ArtistLinks artist={yt.artist} class="text-[11px] text-white/55 mt-0.5" buttonClass="hover:underline hover:text-white transition-colors cursor-pointer text-left" />
                 </div>
               </div>
 
@@ -557,11 +541,31 @@
                   class="w-7 h-7 rounded-full flex items-center justify-center text-white/45 hover:text-white hover:bg-white/10 opacity-0 group-hover:opacity-100 transition-opacity"
                   title="More options"
                 >
-                  <span class="material-symbols-rounded text-base">more_horiz</span>
+                  <span class="material-symbols-rounded text-base">more_vert</span>
                 </button>
               </div>
             </div>
           {/each}
+        </div>
+
+        <div class="flex justify-center pt-2">
+          <button
+            type="button"
+            onclick={loadMoreResults}
+            disabled={isLoadingMore}
+            class="px-5 py-2.5 rounded-full bg-white/[0.06] hover:bg-white/[0.12] border border-white/[0.08] text-xs font-semibold text-white/85 flex items-center gap-2 cursor-pointer transition-colors"
+          >
+            {#if isLoadingMore}
+              <svg class="w-4 h-4 archivetune-spinner-svg text-[var(--md-sys-primary)]" viewBox="0 0 36 36" fill="none">
+                <circle cx="18" cy="18" r="14" stroke="currentColor" stroke-opacity="0.2" stroke-width="3.2" />
+                <circle class="archivetune-spinner-arc" cx="18" cy="18" r="14" stroke="currentColor" stroke-width="3.2" stroke-linecap="round" />
+              </svg>
+              <span>Loading more songs...</span>
+            {:else}
+              <span class="material-symbols-rounded text-base">expand_more</span>
+              <span>Show more results</span>
+            {/if}
+          </button>
         </div>
       </div>
     {/if}

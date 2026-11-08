@@ -1,9 +1,11 @@
 use lofty::prelude::{ItemKey, TaggedFileExt};
 use lofty::probe::Probe;
+use parking_lot::Mutex;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::path::Path;
 use std::sync::OnceLock;
+use std::time::{SystemTime, UNIX_EPOCH};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LyricLine {
@@ -34,16 +36,29 @@ struct LrcLibResponse {
 }
 
 static LYRICS_HTTP: OnceLock<reqwest::Client> = OnceLock::new();
+static MXM_TOKEN_CACHE: OnceLock<Mutex<Option<(String, u64)>>> = OnceLock::new();
 
 fn lyrics_client() -> &'static reqwest::Client {
     LYRICS_HTTP.get_or_init(|| {
         reqwest::Client::builder()
             .tcp_nodelay(true)
-            .timeout(std::time::Duration::from_secs(5))
-            .user_agent("Aethon/0.0.38 (https://github.com/codeabhi826/aethon)")
+            .timeout(std::time::Duration::from_millis(3600))
+            .connect_timeout(std::time::Duration::from_millis(2000))
+            .user_agent("Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36")
             .build()
             .unwrap_or_else(|_| reqwest::Client::new())
     })
+}
+
+fn mxm_token_store() -> &'static Mutex<Option<(String, u64)>> {
+    MXM_TOKEN_CACHE.get_or_init(|| Mutex::new(None))
+}
+
+fn now_secs() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0)
 }
 
 pub struct LyricsService;
@@ -79,6 +94,12 @@ impl LyricsService {
             .split(" | ")
             .next()
             .unwrap_or(&out)
+            .split(" // ")
+            .next()
+            .unwrap_or(&out)
+            .split(" • ")
+            .next()
+            .unwrap_or(&out)
             .trim();
         if cleaned.is_empty() {
             raw.trim().to_string()
@@ -87,20 +108,23 @@ impl LyricsService {
         }
     }
 
-    /// ArchiveTune 7-Provider Lyrics Fallback Pipeline:
-    /// Tier 0: Local .lrc Sidecar + Embedded Tags + Disk Cache (~/.cache/aethon/lyrics/)
-    /// Tier 1: LRCLIB Exact + Search with ±12s duration validation
-    /// Tier 2: NetEase Cloud Music (synced lrc + romalrc + tlyric)
-    /// Tier 3: SimpMusic / YouLyPlus VideoID API
-    /// Tier 4: KuGou Music Synced LRC
-    /// Tier 5: YouTube Music Native InnerTube (timedLyricsData & musicDescriptionShelfRenderer)
-    /// Tier 6: Lyrics.ovh Plain Text Fallback
+    /// Multi-Provider Parallel Racing & Priority Fallback Engine:
+    /// Main Priority Tier:
+    ///   1. Musixmatch (Desktop Subtitles & RichSync LRC + Mirror fallback)
+    ///   2. Apple Music (Time-Synced TTML/Syllable & LRC)
+    ///   3. Spotify (Time-Synced Color-Lyrics LRC)
+    ///   4. YouTube Music (Official InnerTube `WEB_REMIX` `MPLYt_` `timedLyricsData` & plain shelf)
+    /// Secondary Fallback & CJK Enrichment Tier:
+    ///   5. LRCLIB (`lrclib.net` with duration validation)
+    ///   6. NetEase Cloud Music (`music.163.com` synced `lrc` + `romalrc` + `tlyric`)
+    ///   7. SimpMusic (`api-lyrics.simpmusic.org`) & KuGou (`lyrics.kugou.com`) & `Lyrics.ovh`
     pub async fn fetch_lyrics(
         title: &str,
         artist: &str,
         duration: Option<f64>,
         file_path: Option<&str>,
         video_id: Option<&str>,
+        preferred_provider: Option<&str>,
     ) -> Result<LyricsResult, Box<dyn std::error::Error + Send + Sync>> {
         // Tier 0a: Local .lrc sidecar or embedded audio tags first (0 ms)
         if let Some(fp) = file_path {
@@ -113,7 +137,7 @@ impl LyricsService {
 
         let clean_title = Self::clean_metadata(title);
         let clean_artist = Self::clean_metadata(artist)
-            .split(',')
+            .split(&[',', '&', '/'][..])
             .next()
             .unwrap_or(artist)
             .trim()
@@ -123,152 +147,186 @@ impl LyricsService {
             .map(|s| s.to_string())
             .or_else(|| file_path.and_then(crate::youtube::YouTubeService::extract_video_id));
 
-        // Tier 0b: Check Disk Cache (~/.cache/aethon/lyrics/)
+        let pref = preferred_provider.unwrap_or("auto").trim().to_lowercase();
+
+        // Tier 0b: Check Disk Cache (~/.cache/aethon/lyrics/) if synced
         let c_key = Self::disk_cache_key(&clean_title, &clean_artist, resolved_vid.as_deref());
-        if let Some(cached) = Self::read_disk_cache(&c_key) {
-            return Ok(Self::enrich_romanization(cached));
+        if pref == "auto" || pref.is_empty() {
+            if let Some(cached) = Self::read_disk_cache(&c_key) {
+                if cached.synced && !cached.lines.is_empty() {
+                    return Ok(Self::enrich_romanization(cached));
+                }
+            }
         }
 
-        // Concurrent Unified Race across all 9 providers (Musixmatch, Apple Music, Spotify, InnerTube, LRCLIB, NetEase, SimpMusic, KuGou, Lyrics.ovh)
-        let mm_fut = Self::fetch_musixmatch(&clean_title, &clean_artist, duration);
-        let am_fut = Self::fetch_apple_music(&clean_title, &clean_artist, duration);
+        let vid_ref = resolved_vid.as_deref().unwrap_or("");
+
+        // Launch the Main Priority Providers + Secondary Fallbacks concurrently so total latency is <= 1 round-trip!
+        let mxm_fut = Self::fetch_musixmatch(&clean_title, &clean_artist, duration);
+        let am_fut = Self::fetch_apple_music(&clean_title, &clean_artist, duration, vid_ref);
         let sp_fut = Self::fetch_spotify(&clean_title, &clean_artist, duration);
-        let ytm_fut = async {
-            if let Some(ref vid) = resolved_vid {
-                if !vid.is_empty() {
-                    return Self::fetch_innertube_lyrics(vid).await;
-                }
-            }
-            None
-        };
-        let lrclib_fut = Self::fetch_lrclib(&clean_title, &clean_artist, duration);
-        let netease_fut = Self::fetch_netease(&clean_title, &clean_artist, duration);
-        let simp_fut = async {
-            if let Some(ref vid) = resolved_vid {
-                if !vid.is_empty() {
-                    return Self::fetch_simpmusic(vid).await;
-                }
-            }
-            None
-        };
-        let kugou_fut = Self::fetch_kugou(&clean_title, &clean_artist, duration);
-        let ovh_fut = Self::fetch_lyrics_ovh(&clean_title, &clean_artist);
+        let ytm_fut = Self::fetch_youtube_music(vid_ref, &clean_title, &clean_artist);
+        let lrc_fut = Self::fetch_lrclib(&clean_title, &clean_artist, duration);
+        let ne_fut = Self::fetch_netease(&clean_title, &clean_artist, duration);
+        let simp_fut = Self::fetch_simpmusic(vid_ref);
+        let kg_fut = Self::fetch_kugou(&clean_title, &clean_artist, duration);
 
-        let (mm_res, am_res, sp_res, ytm_res, lrclib_res, netease_res, simp_res, kugou_res, ovh_res) =
-            tokio::join!(mm_fut, am_fut, sp_fut, ytm_fut, lrclib_fut, netease_fut, simp_fut, kugou_fut, ovh_fut);
+        let (mxm_res, am_res, sp_res, ytm_res, lrc_res, ne_res, simp_res, kg_res) = tokio::join!(
+            mxm_fut, am_fut, sp_fut, ytm_fut, lrc_fut, ne_fut, simp_fut, kg_fut
+        );
 
-        let all_results = [mm_res, am_res, sp_res, ytm_res, lrclib_res, netease_res, simp_res, kugou_res, ovh_res];
+        // Extract NetEase romalrc / tlyric lines if available so ANY winning provider gets official CJK/Kanji romanization
+        let netease_donor_lines: Option<Vec<LyricLine>> = ne_res
+            .as_ref()
+            .filter(|r| r.has_romanized && !r.lines.is_empty())
+            .map(|r| r.lines.clone());
 
-        let mut synced_candidates: Vec<LyricsResult> = Vec::new();
+        // Score all candidates automatically by Synced Status, Video-ID Timeline Lock, and Duration Alignment
+        // so music-video vs. album-audio timestamp mismatches are automatically rejected!
+        let raw_candidates: Vec<(&str, Option<LyricsResult>)> = vec![
+            ("simpmusic", simp_res),
+            ("youtube_music", ytm_res),
+            ("lrclib", lrc_res),
+            ("musixmatch", mxm_res),
+            ("apple_music", am_res),
+            ("spotify", sp_res),
+            ("netease", ne_res),
+            ("kugou", kg_res),
+        ];
+
+        let mut synced_candidates: Vec<(i64, LyricsResult)> = Vec::new();
         let mut plain_fallback: Option<LyricsResult> = None;
+        let target_dur = duration.unwrap_or(0.0);
+        let has_vid = !vid_ref.is_empty();
 
-        for opt in all_results {
-            if let Some(candidate) = opt {
-                if candidate.synced && !candidate.lines.is_empty() {
-                    synced_candidates.push(candidate);
-                } else if plain_fallback.is_none() && candidate.plain_text.is_some() {
-                    plain_fallback = Some(candidate);
+        for (name, opt_res) in raw_candidates {
+            if let Some(res) = opt_res {
+                if res.synced && res.lines.len() >= 3 {
+                    let mut score: i64 = match name {
+                        // Video-ID indexed providers are locked to the exact YouTube video timeline
+                        "simpmusic" if has_vid => 960,
+                        "youtube_music" if has_vid => 950,
+                        "lrclib" => 930,
+                        "musixmatch" => 920,
+                        "apple_music" => 910,
+                        "spotify" => 900,
+                        "netease" => 890,
+                        "kugou" => 870,
+                        _ => 850,
+                    };
+
+                    if let (Some(first_l), Some(last_l)) = (res.lines.first(), res.lines.last()) {
+                        let last_t = last_l.time;
+                        let span = last_t - first_l.time;
+                        if span < 12.0 {
+                            score -= 600;
+                        }
+                        if target_dur > 25.0 {
+                            // If last lyric line is > 5.5s past the actual audio track's total duration,
+                            // this lyric file belongs to a longer Music Video / Extended Version (out of sync!)
+                            if last_t > target_dur + 5.5 {
+                                score -= 700;
+                            } else if last_t >= target_dur * 0.55 && last_t <= target_dur + 2.5 {
+                                // Last line sits cleanly in the final half of the track without overrunning
+                                score += 120;
+                            } else if last_t < target_dur * 0.35 {
+                                score -= 350;
+                            }
+                        }
+                    }
+
+                    if res.has_romanized {
+                        score += 25;
+                    }
+
+                    synced_candidates.push((score, res));
+                } else if plain_fallback.is_none() && res.plain_text.is_some() {
+                    plain_fallback = Some(res);
                 }
             }
         }
 
-        if !synced_candidates.is_empty() {
-            // Rank candidates by confidence and quality score (ArchiveTune evaluation model)
-            synced_candidates.sort_by(|a, b| {
-                let score_b = Self::score_lyrics(b, duration);
-                let score_a = Self::score_lyrics(a, duration);
-                score_b.cmp(&score_a)
-            });
+        synced_candidates.sort_by(|a, b| b.0.cmp(&a.0));
 
-            let mut best = synced_candidates.remove(0);
-
-            // Merge romanization if CJK detected and missing
-            if best.lines.iter().any(|l| Self::has_cjk_characters(&l.text)) && !best.has_romanized {
-                Self::merge_netease_roma_trans_onto(&mut best.lines, &clean_title, &clean_artist, duration).await;
-                best.has_romanized = best.lines.iter().any(|l| l.romanized.is_some());
+        // Pass 1: Return the highest-scoring timeline-aligned SYNCED lyrics
+        if let Some((_, mut best_res)) = synced_candidates.into_iter().next() {
+            if let Some(ref donor) = netease_donor_lines {
+                if !best_res.has_romanized {
+                    Self::merge_donor_roma_trans(&mut best_res.lines, donor);
+                    best_res.has_romanized = best_res.lines.iter().any(|l| l.romanized.is_some());
+                }
             }
-
-            let enriched = Self::enrich_romanization(best);
+            let enriched = Self::enrich_romanization(best_res);
             Self::write_disk_cache(&c_key, &enriched);
             return Ok(enriched);
         }
 
+        // Pass 2: If raw title differed from clean_title, try exact LRCLIB with raw title
+        if title != clean_title {
+            if let Some(mut res) = Self::fetch_lrclib(title, artist, duration).await {
+                if res.synced && !res.lines.is_empty() {
+                    let enriched = Self::enrich_romanization(res);
+                    Self::write_disk_cache(&c_key, &enriched);
+                    return Ok(enriched);
+                } else if plain_fallback.is_none() && res.plain_text.is_some() {
+                    plain_fallback = Some(res);
+                }
+            }
+        }
+
+        // Pass 3: Plain lyrics fallback (from Musixmatch, YouTube Music, Apple Music, Spotify, LRCLIB, or Lyrics.ovh)
         if let Some(plain) = plain_fallback {
             let enriched = Self::enrich_romanization(plain);
             Self::write_disk_cache(&c_key, &enriched);
             return Ok(enriched);
         }
 
-        Err("No lyrics found across concurrent multi-provider engine".into())
+        if let Some(ovh) = Self::fetch_lyrics_ovh(&clean_title, &clean_artist).await {
+            let enriched = Self::enrich_romanization(ovh);
+            return Ok(enriched);
+        }
+
+        Err("No lyrics found across Musixmatch, Apple Music, Spotify, YouTube Music, LRCLIB, NetEase, SimpMusic, or KuGou".into())
     }
 
-    /// Evaluates lyrics quality and duration alignment to pick the best working source
-    fn score_lyrics(candidate: &LyricsResult, duration: Option<f64>) -> i32 {
-        if !candidate.synced || candidate.lines.is_empty() {
-            return if candidate.plain_text.is_some() { 10 } else { 0 };
-        }
-
-        let mut score: i32 = 100;
-
-        match candidate.provider.as_str() {
-            "Musixmatch" => score += 50,
-            "Apple Music" => score += 50,
-            "Spotify" => score += 45,
-            "LRCLIB" => score += 40,
-            "NetEase" => score += 35,
-            "YouTube Music" => score += 30,
-            "SimpMusic" => score += 25,
-            "KuGou" => score += 20,
-            _ => score += 10,
-        }
-
-        let line_count = candidate.lines.len();
-        if line_count >= 12 {
-            score += 20;
-        } else if line_count >= 6 {
-            score += 10;
-        } else if line_count < 3 {
-            score -= 30;
-        }
-
-        if let Some(dur) = duration {
-            if dur > 10.0 {
-                if let Some(last_line) = candidate.lines.last() {
-                    let last_t = last_line.time;
-                    if last_t > dur + 25.0 {
-                        score -= 40;
-                    } else if (last_t - dur).abs() < 15.0 {
-                        score += 25;
-                    } else if last_t < dur * 0.35 && line_count < 10 {
-                        score -= 35;
+    fn merge_donor_roma_trans(target: &mut [LyricLine], donor: &[LyricLine]) {
+        for line in target.iter_mut() {
+            if line.romanized.is_none() {
+                if let Some(closest) = donor.iter().min_by(|a, b| {
+                    (a.time - line.time)
+                        .abs()
+                        .partial_cmp(&(b.time - line.time).abs())
+                        .unwrap_or(std::cmp::Ordering::Equal)
+                }) {
+                    if (closest.time - line.time).abs() <= 1.2 {
+                        if closest.romanized.is_some() {
+                            line.romanized = closest.romanized.clone();
+                        }
+                        if line.translation.is_none() && closest.translation.is_some() {
+                            line.translation = closest.translation.clone();
+                        }
                     }
                 }
             }
         }
-
-        if candidate.has_romanized {
-            score += 15;
-        }
-
-        score
     }
 
     fn disk_cache_dir() -> std::path::PathBuf {
         dirs::cache_dir()
-            .unwrap_or_else(|| std::path::PathBuf::from("."))
+            .unwrap_or_else(|| std::path::PathBuf::from("/tmp"))
             .join("aethon")
             .join("lyrics")
     }
 
     fn disk_cache_key(title: &str, artist: &str, video_id: Option<&str>) -> String {
         if let Some(vid) = video_id.filter(|v| !v.is_empty()) {
-            format!("v40_yt_{}", vid)
+            format!("v41_yt_{}", vid)
         } else {
             use std::hash::{Hash, Hasher};
             let mut hasher = std::collections::hash_map::DefaultHasher::new();
             title.to_lowercase().hash(&mut hasher);
             artist.to_lowercase().hash(&mut hasher);
-            format!("v40_{:016x}", hasher.finish())
+            format!("v41_{:016x}", hasher.finish())
         }
     }
 
@@ -276,9 +334,10 @@ impl LyricsService {
         let path = Self::disk_cache_dir().join(format!("{}.json", key));
         if path.exists() {
             if let Ok(data) = std::fs::read_to_string(path) {
-                if let Ok(mut res) = serde_json::from_str::<LyricsResult>(&data) {
-                    res.provider = format!("Cached ({})", res.provider);
-                    return Some(res);
+                if let Ok(res) = serde_json::from_str::<LyricsResult>(&data) {
+                    if !res.lines.is_empty() || res.plain_text.is_some() {
+                        return Some(res);
+                    }
                 }
             }
         }
@@ -307,7 +366,6 @@ impl LyricsService {
             return None;
         }
 
-        // Check sidecar .lrc file first
         let lrc_path = path.with_extension("lrc");
         if lrc_path.exists() {
             if let Ok(content) = std::fs::read_to_string(&lrc_path) {
@@ -324,7 +382,6 @@ impl LyricsService {
             }
         }
 
-        // Check embedded audio tag (ID3 USLT/SYLT, Vorbis LYRICS)
         if let Ok(tagged) = Probe::open(path).and_then(|p| p.read()) {
             if let Some(tag) = tagged.primary_tag().or_else(|| tagged.first_tag()) {
                 if let Some(lyric_str) = tag.get_string(&ItemKey::Lyrics) {
@@ -353,11 +410,608 @@ impl LyricsService {
         None
     }
 
+    // =========================================================================
+    // MAIN PRIORITY PROVIDER 1: MUSIXMATCH (Desktop API + Mirror Fallback)
+    // =========================================================================
+    async fn get_musixmatch_token() -> Option<String> {
+        let now = now_secs();
+        if let Some((tok, exp)) = mxm_token_store().lock().clone() {
+            if exp > now && !tok.is_empty() {
+                return Some(tok);
+            }
+        }
+        let client = lyrics_client();
+        let url = format!(
+            "https://apic-desktop.musixmatch.com/ws/1.1/token.get?app_id=web-desktop-app-v1.0&t={}",
+            now * 1000
+        );
+        let resp = client
+            .get(&url)
+            .header("Cookie", "x-mxm-token-guid=aethon-desktop-guid")
+            .send()
+            .await
+            .ok()?;
+        let json: serde_json::Value = resp.json().await.ok()?;
+        let token = json
+            .pointer("/message/body/user_token")
+            .and_then(|v| v.as_str())?
+            .trim()
+            .to_string();
+        if token.is_empty() || token.contains("UpgradeOnly") {
+            return None;
+        }
+        *mxm_token_store().lock() = Some((token.clone(), now + 900));
+        Some(token)
+    }
+
+    async fn fetch_musixmatch(
+        title: &str,
+        artist: &str,
+        duration: Option<f64>,
+    ) -> Option<LyricsResult> {
+        let client = lyrics_client();
+
+        // 1A: Direct Musixmatch Desktop macro.subtitles.get
+        if let Some(token) = Self::get_musixmatch_token().await {
+            let mut url = format!(
+                "https://apic-desktop.musixmatch.com/ws/1.1/macro.subtitles.get?format=json&namespace=lyrics_richsynched&subtitle_format=lrc&app_id=web-desktop-app-v1.0&q_track={}&q_artist={}&usertoken={}",
+                urlencoding::encode(title),
+                urlencoding::encode(artist),
+                urlencoding::encode(&token)
+            );
+            if let Some(d) = duration.filter(|&d| d > 0.0) {
+                url.push_str(&format!(
+                    "&q_duration={:.0}&f_subtitle_length={:.0}",
+                    d, d
+                ));
+            }
+            if let Ok(resp) = client
+                .get(&url)
+                .header("Cookie", "x-mxm-token-guid=aethon-desktop-guid")
+                .send()
+                .await
+            {
+                if resp.status().is_success() {
+                    if let Ok(json) = resp.json::<serde_json::Value>().await {
+                        if let Some(sub_str) = json
+                            .pointer("/message/body/macro_calls/track.subtitles.get/message/body/subtitle_list/0/subtitle/subtitle_body")
+                            .and_then(|v| v.as_str())
+                        {
+                            let lines = Self::parse_lrc(sub_str);
+                            if !lines.is_empty() {
+                                return Some(LyricsResult {
+                                    synced: true,
+                                    lines,
+                                    plain_text: Some(sub_str.to_string()),
+                                    provider: "Musixmatch".to_string(),
+                                    has_romanized: false,
+                                });
+                            }
+                        }
+                        if let Some(plain_str) = json
+                            .pointer("/message/body/macro_calls/track.lyrics.get/message/body/lyrics/lyrics_body")
+                            .and_then(|v| v.as_str())
+                        {
+                            let clean_plain = plain_str
+                                .lines()
+                                .filter(|l| !l.contains("******* This Lyrics is NOT for Commercial use"))
+                                .collect::<Vec<_>>()
+                                .join("\n")
+                                .trim()
+                                .to_string();
+                            if !clean_plain.is_empty() {
+                                return Some(LyricsResult {
+                                    synced: false,
+                                    lines: Vec::new(),
+                                    plain_text: Some(clean_plain),
+                                    provider: "Musixmatch".to_string(),
+                                    has_romanized: false,
+                                });
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // 1B: Musixmatch Paxsenix Mirror Fallback
+        let mirror_url = format!(
+            "https://lyrics.paxsenix.org/musixmatch/lyrics?title={}&artist={}",
+            urlencoding::encode(title),
+            urlencoding::encode(artist)
+        );
+        if let Ok(resp) = client.get(&mirror_url).send().await {
+            if resp.status().is_success() {
+                if let Ok(text) = resp.text().await {
+                    if let Some(res) = Self::parse_generic_lyrics_payload(&text, "Musixmatch") {
+                        return Some(res);
+                    }
+                }
+            }
+        }
+
+        None
+    }
+
+    // =========================================================================
+    // MAIN PRIORITY PROVIDER 2: APPLE MUSIC (Syllable/Line Synced TTML & LRC)
+    // =========================================================================
+    async fn fetch_apple_music(
+        title: &str,
+        artist: &str,
+        _duration: Option<f64>,
+        video_id: &str,
+    ) -> Option<LyricsResult> {
+        let client = lyrics_client();
+        let query = format!("{} {}", title, artist);
+        let search_url = format!(
+            "https://lyrics.paxsenix.org/apple-music/search?q={}",
+            urlencoding::encode(&query)
+        );
+
+        if let Ok(s_resp) = client.get(&search_url).send().await {
+            if s_resp.status().is_success() {
+                if let Ok(s_json) = s_resp.json::<serde_json::Value>().await {
+                    let song_id = s_json
+                        .as_array()
+                        .and_then(|arr| arr.first())
+                        .and_then(|item| item.get("id"))
+                        .and_then(|id| {
+                            id.as_str()
+                                .map(String::from)
+                                .or_else(|| id.as_i64().map(|n| n.to_string()))
+                        });
+                    if let Some(id) = song_id {
+                        let lyr_url = format!(
+                            "https://lyrics.paxsenix.org/apple-music/lyrics?id={}",
+                            urlencoding::encode(&id)
+                        );
+                        if let Ok(l_resp) = client.get(&lyr_url).send().await {
+                            if l_resp.status().is_success() {
+                                if let Ok(body) = l_resp.text().await {
+                                    if let Some(res) =
+                                        Self::parse_generic_lyrics_payload(&body, "Apple Music")
+                                    {
+                                        return Some(res);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // Apple Music RichSync / TTML via SimpMusic if video_id is known
+        if !video_id.is_empty() {
+            let url = format!(
+                "https://api-lyrics.simpmusic.org/v1/{}",
+                urlencoding::encode(video_id)
+            );
+            if let Ok(resp) = client.get(&url).send().await {
+                if resp.status().is_success() {
+                    if let Ok(json) = resp.json::<serde_json::Value>().await {
+                        if let Some(first) = json.get("data").and_then(|d| d.as_array()).and_then(|a| a.first()) {
+                            if let Some(rich) = first
+                                .get("richSyncLyrics")
+                                .or_else(|| first.get("syncedLyrics"))
+                                .and_then(|s| s.as_str())
+                            {
+                                let lines = Self::parse_lrc(rich);
+                                if !lines.is_empty() {
+                                    return Some(LyricsResult {
+                                        synced: true,
+                                        lines,
+                                        plain_text: first
+                                            .get("plainLyrics")
+                                            .and_then(|s| s.as_str())
+                                            .map(String::from),
+                                        provider: "Apple Music".to_string(),
+                                        has_romanized: false,
+                                    });
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        None
+    }
+
+    // =========================================================================
+    // MAIN PRIORITY PROVIDER 3: SPOTIFY (Color-Lyrics Time-Synced Lines)
+    // =========================================================================
+    async fn fetch_spotify(
+        title: &str,
+        artist: &str,
+        _duration: Option<f64>,
+    ) -> Option<LyricsResult> {
+        let client = lyrics_client();
+        let url = format!(
+            "https://lyrics.paxsenix.org/spotify/lyrics?title={}&artist={}",
+            urlencoding::encode(title),
+            urlencoding::encode(artist)
+        );
+        if let Ok(resp) = client.get(&url).send().await {
+            if resp.status().is_success() {
+                if let Ok(body) = resp.text().await {
+                    if let Some(res) = Self::parse_generic_lyrics_payload(&body, "Spotify") {
+                        return Some(res);
+                    }
+                }
+            }
+        }
+        None
+    }
+
+    fn parse_generic_lyrics_payload(raw: &str, provider_name: &str) -> Option<LyricsResult> {
+        let trimmed = raw.trim();
+        if trimmed.is_empty() {
+            return None;
+        }
+        // Check if raw response is direct LRC text
+        if trimmed.starts_with('[') {
+            let lines = Self::parse_lrc(trimmed);
+            if !lines.is_empty() {
+                return Some(LyricsResult {
+                    synced: true,
+                    lines,
+                    plain_text: Some(trimmed.to_string()),
+                    provider: provider_name.to_string(),
+                    has_romanized: false,
+                });
+            }
+        }
+
+        let json: serde_json::Value = serde_json::from_str(trimmed).ok()?;
+
+        // Case 1: LRC string field (`lrc`, `syncedLyrics`, `lyrics`, `subtitles`)
+        for key in ["syncedLyrics", "lrc", "subtitles", "lyrics"] {
+            if let Some(s) = json.get(key).and_then(|v| v.as_str()) {
+                let lines = Self::parse_lrc(s);
+                if !lines.is_empty() {
+                    return Some(LyricsResult {
+                        synced: true,
+                        lines,
+                        plain_text: Some(s.to_string()),
+                        provider: provider_name.to_string(),
+                        has_romanized: false,
+                    });
+                }
+            }
+        }
+
+        // Case 2: Array of timed objects (`content`, `lines`, or top-level array)
+        let arr_opt = json
+            .as_array()
+            .or_else(|| json.get("content").and_then(|v| v.as_array()))
+            .or_else(|| json.get("lines").and_then(|v| v.as_array()))
+            .or_else(|| json.pointer("/lyrics/lines").and_then(|v| v.as_array()));
+
+        if let Some(arr) = arr_opt {
+            let mut lines = Vec::new();
+            for item in arr {
+                let text = item
+                    .get("words")
+                    .or_else(|| item.get("text"))
+                    .and_then(|v| {
+                        if let Some(s) = v.as_str() {
+                            Some(s.trim().to_string())
+                        } else if let Some(syllables) = v.as_array() {
+                            let joined: String = syllables
+                                .iter()
+                                .filter_map(|sy| sy.get("text").and_then(|t| t.as_str()))
+                                .collect::<Vec<_>>()
+                                .join(" ");
+                            Some(joined.trim().to_string())
+                        } else {
+                            None
+                        }
+                    })
+                    .unwrap_or_default();
+
+                let time_ms = item
+                    .get("startTimeMs")
+                    .or_else(|| item.get("timestamp"))
+                    .or_else(|| item.get("time"))
+                    .and_then(|v| {
+                        v.as_f64()
+                            .or_else(|| v.as_i64().map(|n| n as f64))
+                            .or_else(|| v.as_str().and_then(|s| s.parse::<f64>().ok()))
+                    })
+                    .unwrap_or(-1.0);
+
+                if !text.is_empty() && text != "♪" && time_ms >= 0.0 {
+                    // Convert ms to seconds if > 500 or if startTimeMs was used
+                    let secs = if item.get("startTimeMs").is_some()
+                        || item.get("timestamp").is_some()
+                        || time_ms > 500.0
+                    {
+                        time_ms / 1000.0
+                    } else {
+                        time_ms
+                    };
+                    lines.push(LyricLine {
+                        time: secs,
+                        text,
+                        romanized: None,
+                        translation: None,
+                    });
+                }
+            }
+            if !lines.is_empty() {
+                return Some(LyricsResult {
+                    synced: true,
+                    lines,
+                    plain_text: None,
+                    provider: provider_name.to_string(),
+                    has_romanized: false,
+                });
+            }
+        }
+
+        // Case 3: Plain text fallback inside JSON
+        if let Some(plain) = json
+            .get("plainLyrics")
+            .or_else(|| json.get("plain"))
+            .or_else(|| json.get("lyrics"))
+            .and_then(|v| v.as_str())
+        {
+            if !plain.trim().is_empty() {
+                return Some(LyricsResult {
+                    synced: false,
+                    lines: Vec::new(),
+                    plain_text: Some(plain.trim().to_string()),
+                    provider: provider_name.to_string(),
+                    has_romanized: false,
+                });
+            }
+        }
+
+        None
+    }
+
+    // =========================================================================
+    // MAIN PRIORITY PROVIDER 4: YOUTUBE MUSIC (Recursive InnerTube WEB_REMIX)
+    // =========================================================================
+    async fn fetch_youtube_music(
+        video_id: &str,
+        title: &str,
+        artist: &str,
+    ) -> Option<LyricsResult> {
+        let mut vid = video_id.trim().to_string();
+        if vid.is_empty() && !title.is_empty() {
+            let q = format!("{} {}", title, artist);
+            if let Some(tracks) =
+                crate::youtube::YouTubeService::search_innertube(&q, 1, "IN").await
+            {
+                if let Some(first) = tracks.first() {
+                    vid = first.id.clone();
+                }
+            }
+        }
+        if vid.is_empty() {
+            return None;
+        }
+
+        let client = lyrics_client();
+        let next_payload = serde_json::json!({
+            "context": {
+                "client": {
+                    "clientName": "WEB_REMIX",
+                    "clientVersion": "1.20260408.01.00",
+                    "hl": "en",
+                    "gl": "IN"
+                }
+            },
+            "videoId": vid
+        });
+
+        let resp = client
+            .post("https://music.youtube.com/youtubei/v1/next?prettyPrint=false")
+            .header("Referer", "https://music.youtube.com/")
+            .header("Origin", "https://music.youtube.com")
+            .json(&next_payload)
+            .send()
+            .await
+            .ok()?;
+        if !resp.status().is_success() {
+            return None;
+        }
+        let next_json: serde_json::Value = resp.json().await.ok()?;
+        let browse_id = Self::find_lyrics_browse_id_recursive(&next_json)?;
+
+        let browse_payload = serde_json::json!({
+            "context": {
+                "client": {
+                    "clientName": "WEB_REMIX",
+                    "clientVersion": "1.20260408.01.00",
+                    "hl": "en",
+                    "gl": "IN"
+                }
+            },
+            "browseId": browse_id
+        });
+
+        let b_resp = client
+            .post("https://music.youtube.com/youtubei/v1/browse?prettyPrint=false")
+            .header("Referer", "https://music.youtube.com/")
+            .header("Origin", "https://music.youtube.com")
+            .json(&browse_payload)
+            .send()
+            .await
+            .ok()?;
+        if !b_resp.status().is_success() {
+            return None;
+        }
+        let b_json: serde_json::Value = b_resp.json().await.ok()?;
+
+        // 1. Recursive search for `timedLyricsData` anywhere in the browse tree
+        let mut timed_lines = Vec::new();
+        Self::extract_ytm_timed_lyrics_recursive(&b_json, &mut timed_lines);
+        if !timed_lines.is_empty() {
+            return Some(LyricsResult {
+                synced: true,
+                lines: timed_lines,
+                plain_text: None,
+                provider: "YouTube Music".to_string(),
+                has_romanized: false,
+            });
+        }
+
+        // 2. Recursive search for plain `musicDescriptionShelfRenderer` lyrics
+        if let Some(plain_text) = Self::extract_ytm_plain_lyrics_recursive(&b_json) {
+            if !plain_text.trim().is_empty() {
+                let maybe_lrc = Self::parse_lrc(&plain_text);
+                if !maybe_lrc.is_empty() {
+                    return Some(LyricsResult {
+                        synced: true,
+                        lines: maybe_lrc,
+                        plain_text: Some(plain_text),
+                        provider: "YouTube Music".to_string(),
+                        has_romanized: false,
+                    });
+                }
+                return Some(LyricsResult {
+                    synced: false,
+                    lines: Vec::new(),
+                    plain_text: Some(plain_text),
+                    provider: "YouTube Music".to_string(),
+                    has_romanized: false,
+                });
+            }
+        }
+
+        None
+    }
+
+    fn find_lyrics_browse_id_recursive(val: &serde_json::Value) -> Option<String> {
+        match val {
+            serde_json::Value::Object(map) => {
+                if let Some(b_id) = map.get("browseId").and_then(|v| v.as_str()) {
+                    if b_id.starts_with("MPLYt") {
+                        return Some(b_id.to_string());
+                    }
+                }
+                for v in map.values() {
+                    if let Some(found) = Self::find_lyrics_browse_id_recursive(v) {
+                        return Some(found);
+                    }
+                }
+                None
+            }
+            serde_json::Value::Array(arr) => {
+                for item in arr {
+                    if let Some(found) = Self::find_lyrics_browse_id_recursive(item) {
+                        return Some(found);
+                    }
+                }
+                None
+            }
+            _ => None,
+        }
+    }
+
+    fn extract_ytm_timed_lyrics_recursive(val: &serde_json::Value, out: &mut Vec<LyricLine>) {
+        match val {
+            serde_json::Value::Object(map) => {
+                if let Some(arr) = map.get("timedLyricsData").and_then(|v| v.as_array()) {
+                    for item in arr {
+                        let text = item
+                            .get("lyricLine")
+                            .and_then(|s| s.as_str())
+                            .unwrap_or("")
+                            .trim()
+                            .to_string();
+                        let start_ms = item
+                            .pointer("/cueRange/startTimeMilliseconds")
+                            .and_then(|v| {
+                                v.as_str()
+                                    .and_then(|s| s.parse::<f64>().ok())
+                                    .or_else(|| v.as_f64())
+                            })
+                            .unwrap_or(0.0);
+                        if !text.is_empty() && text != "♪" {
+                            out.push(LyricLine {
+                                time: start_ms / 1000.0,
+                                text,
+                                romanized: None,
+                                translation: None,
+                            });
+                        }
+                    }
+                    return;
+                }
+                for v in map.values() {
+                    Self::extract_ytm_timed_lyrics_recursive(v, out);
+                    if !out.is_empty() {
+                        return;
+                    }
+                }
+            }
+            serde_json::Value::Array(arr) => {
+                for item in arr {
+                    Self::extract_ytm_timed_lyrics_recursive(item, out);
+                    if !out.is_empty() {
+                        return;
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+
+    fn extract_ytm_plain_lyrics_recursive(val: &serde_json::Value) -> Option<String> {
+        match val {
+            serde_json::Value::Object(map) => {
+                if let Some(shelf) = map.get("musicDescriptionShelfRenderer") {
+                    if let Some(runs) = shelf
+                        .pointer("/description/runs")
+                        .and_then(|r| r.as_array())
+                    {
+                        let mut text = String::new();
+                        for r in runs {
+                            if let Some(t) = r.get("text").and_then(|s| s.as_str()) {
+                                text.push_str(t);
+                            }
+                        }
+                        if !text.trim().is_empty() {
+                            return Some(text);
+                        }
+                    }
+                }
+                for v in map.values() {
+                    if let Some(found) = Self::extract_ytm_plain_lyrics_recursive(v) {
+                        return Some(found);
+                    }
+                }
+                None
+            }
+            serde_json::Value::Array(arr) => {
+                for item in arr {
+                    if let Some(found) = Self::extract_ytm_plain_lyrics_recursive(item) {
+                        return Some(found);
+                    }
+                }
+                None
+            }
+            _ => None,
+        }
+    }
+
+    // =========================================================================
+    // SECONDARY PROVIDERS: LRCLIB, NETEASE, KUGOU, SIMPMUSIC, LYRICS.OVH
+    // =========================================================================
     async fn fetch_lrclib(
         title: &str,
         artist: &str,
         duration: Option<f64>,
     ) -> Option<LyricsResult> {
+        if title.is_empty() {
+            return None;
+        }
         let client = lyrics_client();
         let mut url = format!(
             "https://lrclib.net/api/get?track_name={}&artist_name={}",
@@ -395,10 +1049,23 @@ impl LyricsService {
             return None;
         }
 
-        if let Some(target_d) = duration.filter(|&d| d > 0.0) {
+        if let Some(target_d) = duration.filter(|&d| d > 15.0) {
+            let strict_matches: Vec<_> = items
+                .iter()
+                .filter(|item| {
+                    item.duration
+                        .map(|d| (d - target_d).abs() <= 4.5)
+                        .unwrap_or(false)
+                })
+                .count()
+                .gt(&0)
+                .then(|| ())
+                .into_iter()
+                .collect();
+            let max_delta = if !strict_matches.is_empty() { 4.5 } else { 8.0 };
             items.retain(|item| {
                 item.duration
-                    .map(|d| (d - target_d).abs() <= 12.0)
+                    .map(|d| (d - target_d).abs() <= max_delta)
                     .unwrap_or(true)
             });
             if items.is_empty() {
@@ -406,10 +1073,17 @@ impl LyricsService {
             }
         }
 
-        // Sort candidates: prefer synced lyrics with closest duration match
         items.sort_by(|a, b| {
-            let a_synced = a.synced_lyrics.as_ref().map(|s| !s.is_empty()).unwrap_or(false);
-            let b_synced = b.synced_lyrics.as_ref().map(|s| !s.is_empty()).unwrap_or(false);
+            let a_synced = a
+                .synced_lyrics
+                .as_ref()
+                .map(|s| !s.is_empty())
+                .unwrap_or(false);
+            let b_synced = b
+                .synced_lyrics
+                .as_ref()
+                .map(|s| !s.is_empty())
+                .unwrap_or(false);
             if a_synced != b_synced {
                 return b_synced.cmp(&a_synced);
             }
@@ -485,6 +1159,9 @@ impl LyricsService {
                 } else {
                     0.0
                 };
+                if target_ms > 15_000.0 && d_ms > 0.0 && delta > 15_000.0 {
+                    continue;
+                }
                 if best_song_id.is_none() || delta < best_delta {
                     best_delta = delta;
                     best_song_id = Some(id);
@@ -524,61 +1201,6 @@ impl LyricsService {
         Some((raw_lrc, roma_lrc, t_lyric))
     }
 
-    async fn merge_netease_roma_trans_onto(
-        lines: &mut [LyricLine],
-        title: &str,
-        artist: &str,
-        duration: Option<f64>,
-    ) {
-        if let Some((_, Some(roma_str), trans_opt)) =
-            Self::fetch_netease_raw(title, artist, duration).await
-        {
-            let roma_lines = Self::parse_lrc(&roma_str);
-            if !roma_lines.is_empty() {
-                for line in lines.iter_mut() {
-                    if line.romanized.is_none() {
-                        if let Some(closest) = roma_lines
-                            .iter()
-                            .min_by(|a, b| {
-                                (a.time - line.time)
-                                    .abs()
-                                    .partial_cmp(&(b.time - line.time).abs())
-                                    .unwrap_or(std::cmp::Ordering::Equal)
-                            })
-                        {
-                            if (closest.time - line.time).abs() <= 1.2 && !closest.text.is_empty() {
-                                line.romanized = Some(closest.text.clone());
-                            }
-                        }
-                    }
-                }
-            }
-
-            if let Some(t_str) = trans_opt {
-                let trans_lines = Self::parse_lrc(&t_str);
-                if !trans_lines.is_empty() {
-                    for line in lines.iter_mut() {
-                        if line.translation.is_none() {
-                            if let Some(closest) = trans_lines
-                                .iter()
-                                .min_by(|a, b| {
-                                    (a.time - line.time)
-                                        .abs()
-                                        .partial_cmp(&(b.time - line.time).abs())
-                                        .unwrap_or(std::cmp::Ordering::Equal)
-                                })
-                            {
-                                if (closest.time - line.time).abs() <= 1.2 && !closest.text.is_empty() {
-                                    line.translation = Some(closest.text.clone());
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-
     async fn fetch_netease(
         title: &str,
         artist: &str,
@@ -605,15 +1227,12 @@ impl LyricsService {
             let roma_lines = Self::parse_lrc(&roma_str);
             if !roma_lines.is_empty() {
                 for line in &mut lines {
-                    if let Some(closest) = roma_lines
-                        .iter()
-                        .min_by(|a, b| {
-                            (a.time - line.time)
-                                .abs()
-                                .partial_cmp(&(b.time - line.time).abs())
-                                .unwrap_or(std::cmp::Ordering::Equal)
-                        })
-                    {
+                    if let Some(closest) = roma_lines.iter().min_by(|a, b| {
+                        (a.time - line.time)
+                            .abs()
+                            .partial_cmp(&(b.time - line.time).abs())
+                            .unwrap_or(std::cmp::Ordering::Equal)
+                    }) {
                         if (closest.time - line.time).abs() <= 1.0 && !closest.text.is_empty() {
                             line.romanized = Some(closest.text.clone());
                         }
@@ -626,15 +1245,12 @@ impl LyricsService {
             let trans_lines = Self::parse_lrc(&trans_str);
             if !trans_lines.is_empty() {
                 for line in &mut lines {
-                    if let Some(closest) = trans_lines
-                        .iter()
-                        .min_by(|a, b| {
-                            (a.time - line.time)
-                                .abs()
-                                .partial_cmp(&(b.time - line.time).abs())
-                                .unwrap_or(std::cmp::Ordering::Equal)
-                        })
-                    {
+                    if let Some(closest) = trans_lines.iter().min_by(|a, b| {
+                        (a.time - line.time)
+                            .abs()
+                            .partial_cmp(&(b.time - line.time).abs())
+                            .unwrap_or(std::cmp::Ordering::Equal)
+                    }) {
                         if (closest.time - line.time).abs() <= 1.0 && !closest.text.is_empty() {
                             line.translation = Some(closest.text.clone());
                         }
@@ -704,8 +1320,14 @@ impl LyricsService {
     }
 
     async fn fetch_simpmusic(video_id: &str) -> Option<LyricsResult> {
+        if video_id.is_empty() {
+            return None;
+        }
         let client = lyrics_client();
-        let url = format!("https://api-lyrics.simpmusic.org/v1/{}", urlencoding::encode(video_id));
+        let url = format!(
+            "https://api-lyrics.simpmusic.org/v1/{}",
+            urlencoding::encode(video_id)
+        );
         let resp = client.get(&url).send().await.ok()?;
         if !resp.status().is_success() {
             return None;
@@ -748,374 +1370,6 @@ impl LyricsService {
         None
     }
 
-    async fn fetch_innertube_lyrics(video_id: &str) -> Option<LyricsResult> {
-        let client = lyrics_client();
-        let next_url = "https://music.youtube.com/youtubei/v1/next";
-        let next_payload = serde_json::json!({
-            "context": {
-                "client": {
-                    "clientName": "WEB_REMIX",
-                    "clientVersion": "1.20240101.01.00",
-                    "hl": "en"
-                }
-            },
-            "videoId": video_id
-        });
-
-        let resp = client.post(next_url).json(&next_payload).send().await.ok()?;
-        if !resp.status().is_success() {
-            return None;
-        }
-        let next_json: serde_json::Value = resp.json().await.ok()?;
-
-        let mut browse_id: Option<String> = None;
-        if let Some(tabs) = next_json
-            .pointer("/contents/singleColumnMusicWatchNextResultsRenderer/tabbedRenderer/watchNextTabbedResultsRenderer/tabs")
-            .and_then(|t| t.as_array())
-        {
-            for tab in tabs {
-                if let Some(b_id) = tab
-                    .pointer("/tabRenderer/endpoint/browseEndpoint/browseId")
-                    .and_then(|b| b.as_str())
-                {
-                    if b_id.starts_with("MPLYt_") {
-                        browse_id = Some(b_id.to_string());
-                        break;
-                    }
-                }
-            }
-        }
-
-        let b_id = browse_id?;
-        let browse_url = "https://music.youtube.com/youtubei/v1/browse";
-        let browse_payload = serde_json::json!({
-            "context": {
-                "client": {
-                    "clientName": "WEB_REMIX",
-                    "clientVersion": "1.20240101.01.00",
-                    "hl": "en"
-                }
-            },
-            "browseId": b_id
-        });
-
-        let b_resp = client.post(browse_url).json(&browse_payload).send().await.ok()?;
-        if !b_resp.status().is_success() {
-            return None;
-        }
-        let b_json: serde_json::Value = b_resp.json().await.ok()?;
-
-        let timed_arr_opt = b_json
-            .pointer("/contents/sectionListRenderer/contents/0/musicDescriptionShelfRenderer/timedLyricsData")
-            .or_else(|| b_json.pointer("/contents/elementRenderer/timedLyricsData"))
-            .or_else(|| b_json.pointer("/contents/elementRenderer/newElement/timedLyricsModel/lyricsData/timedLyricsData"))
-            .and_then(|a| a.as_array())
-            .cloned()
-            .or_else(|| {
-                // Robust recursive search for "timedLyricsData" or "timedLyricsModel" in any sub-node
-                Self::find_timed_lyrics_in_json(&b_json)
-            });
-
-        if let Some(timed_arr) = timed_arr_opt {
-            let mut lines = Vec::new();
-            for item in timed_arr {
-                let text = item
-                    .get("lyricLine")
-                    .and_then(|s| s.as_str())
-                    .unwrap_or("")
-                    .trim()
-                    .to_string();
-                let start_ms = item
-                    .pointer("/cueRange/startTimeMilliseconds")
-                    .and_then(|s| s.as_str())
-                    .and_then(|s| s.parse::<f64>().ok())
-                    .or_else(|| item.pointer("/cueRange/startTimeMilliseconds").and_then(|v| v.as_f64()))
-                    .unwrap_or(0.0);
-                if !text.is_empty() {
-                    lines.push(LyricLine {
-                        time: start_ms / 1000.0,
-                        text,
-                        romanized: None,
-                        translation: None,
-                    });
-                }
-            }
-            if !lines.is_empty() {
-                return Some(LyricsResult {
-                    synced: true,
-                    lines,
-                    plain_text: None,
-                    provider: "YouTube Music".to_string(),
-                    has_romanized: false,
-                });
-            }
-        }
-
-        if let Some(runs) = b_json
-            .pointer("/contents/sectionListRenderer/contents/0/musicDescriptionShelfRenderer/description/runs")
-            .and_then(|r| r.as_array())
-        {
-            let mut text = String::new();
-            for run in runs {
-                if let Some(t) = run.get("text").and_then(|s| s.as_str()) {
-                    text.push_str(t);
-                }
-            }
-            let trimmed = text.trim();
-            if !trimmed.is_empty() {
-                return Some(LyricsResult {
-                    synced: false,
-                    lines: Vec::new(),
-                    plain_text: Some(trimmed.to_string()),
-                    provider: "YouTube Music".to_string(),
-                    has_romanized: false,
-                });
-            }
-        }
-
-        None
-    }
-
-    fn find_timed_lyrics_in_json(val: &serde_json::Value) -> Option<Vec<serde_json::Value>> {
-        match val {
-            serde_json::Value::Object(map) => {
-                if let Some(arr) = map.get("timedLyricsData").and_then(|v| v.as_array()) {
-                    return Some(arr.clone());
-                }
-                for v in map.values() {
-                    if let Some(res) = Self::find_timed_lyrics_in_json(v) {
-                        return Some(res);
-                    }
-                }
-            }
-            serde_json::Value::Array(arr) => {
-                for v in arr {
-                    if let Some(res) = Self::find_timed_lyrics_in_json(v) {
-                        return Some(res);
-                    }
-                }
-            }
-            _ => {}
-        }
-        None
-    }
-
-    async fn fetch_musixmatch(title: &str, artist: &str, duration: Option<f64>) -> Option<LyricsResult> {
-        let client = lyrics_client();
-        let query = format!("{} {}", title, artist);
-        // Musixmatch search + synchronized lyrics via public mobile token gateway
-        let search_url = format!(
-            "https://apic-desktop.musixmatch.com/ws/1.1/macro.subtitles.get?format=json&q_track={}&q_artist={}&user_language=en&app_id=web-desktop-app-v1.0",
-            urlencoding::encode(title),
-            urlencoding::encode(artist)
-        );
-        let resp = client
-            .get(&search_url)
-            .header("Cookie", "AWSELBCORS=0; AWSELB=0")
-            .send()
-            .await
-            .ok()?;
-        if !resp.status().is_success() {
-            return None;
-        }
-        let json: serde_json::Value = resp.json().await.ok()?;
-        let body = json.pointer("/message/body/macro_result_list")?;
-        
-        // Check for subtitles
-        if let Some(sub_body) = body.pointer("/subtitles_list/0/subtitle/subtitle_body").and_then(|s| s.as_str()) {
-            if let Ok(items) = serde_json::from_str::<Vec<serde_json::Value>>(sub_body) {
-                let mut lines = Vec::new();
-                for item in items {
-                    let text = item.get("text").and_then(|s| s.as_str()).unwrap_or("").trim().to_string();
-                    let total_sec = item.pointer("/time/total").and_then(|t| t.as_f64()).unwrap_or(0.0);
-                    if !text.is_empty() {
-                        lines.push(LyricLine {
-                            time: total_sec,
-                            text,
-                            romanized: None,
-                            translation: None,
-                        });
-                    }
-                }
-                if !lines.is_empty() {
-                    return Some(LyricsResult {
-                        synced: true,
-                        lines,
-                        plain_text: None,
-                        provider: "Musixmatch".to_string(),
-                        has_romanized: false,
-                    });
-                }
-            }
-        }
-
-        // Fallback to plain lyrics from Musixmatch
-        if let Some(lyrics_body) = body.pointer("/lyrics_list/0/lyrics/lyrics_body").and_then(|s| s.as_str()) {
-            let clean = lyrics_body.split("******* This Lyrics is NOT for Commercial use *******").next().unwrap_or(lyrics_body).trim();
-            if !clean.is_empty() {
-                return Some(LyricsResult {
-                    synced: false,
-                    lines: Vec::new(),
-                    plain_text: Some(clean.to_string()),
-                    provider: "Musixmatch".to_string(),
-                    has_romanized: false,
-                });
-            }
-        }
-
-        None
-    }
-
-    async fn fetch_apple_music(title: &str, artist: &str, duration: Option<f64>) -> Option<LyricsResult> {
-        let client = lyrics_client();
-        // Apple Music synchronized TTML lyrics endpoint via public WebPlayer API
-        let term = format!("{} {}", artist, title);
-        let search_url = format!(
-            "https://music.apple.com/api/v1/catalog/us/search?term={}&types=songs&limit=3",
-            urlencoding::encode(&term)
-        );
-        let resp = client
-            .get(&search_url)
-            .header("Origin", "https://music.apple.com")
-            .header("Referer", "https://music.apple.com/")
-            .send()
-            .await
-            .ok()?;
-        if !resp.status().is_success() {
-            return None;
-        }
-        let json: serde_json::Value = resp.json().await.ok()?;
-        let songs = json.pointer("/results/songs/data")?.as_array()?;
-        let first_song = songs.first()?;
-        let song_id = first_song.get("id")?.as_str()?;
-
-        // Query TTML/LRC syllables
-        let lyric_url = format!("https://amp-api.music.apple.com/v1/catalog/us/songs/{}/lyrics", song_id);
-        let l_resp = client
-            .get(&lyric_url)
-            .header("Origin", "https://music.apple.com")
-            .send()
-            .await
-            .ok()?;
-        if !l_resp.status().is_success() {
-            return None;
-        }
-        let l_json: serde_json::Value = l_resp.json().await.ok()?;
-        if let Some(ttml) = l_json.pointer("/data/0/attributes/ttml").and_then(|s| s.as_str()) {
-            let lines = Self::parse_ttml_to_lines(ttml);
-            if !lines.is_empty() {
-                return Some(LyricsResult {
-                    synced: true,
-                    lines,
-                    plain_text: None,
-                    provider: "Apple Music".to_string(),
-                    has_romanized: false,
-                });
-            }
-        }
-
-        None
-    }
-
-    fn parse_ttml_to_lines(ttml: &str) -> Vec<LyricLine> {
-        let mut lines = Vec::new();
-        for chunk in ttml.split("<p ") {
-            if let Some(begin_idx) = chunk.find("begin=\"") {
-                let rest = &chunk[begin_idx + 7..];
-                if let Some(end_quote) = rest.find('"') {
-                    let time_str = &rest[..end_quote];
-                    let seconds = Self::parse_ttml_timestamp(time_str);
-                    if let Some(text_start) = chunk.find('>') {
-                        let text_part = &chunk[text_start + 1..];
-                        if let Some(text_end) = text_part.find("</p>") {
-                            let raw_text = &text_part[..text_end];
-                            // Strip inner spans
-                            let mut clean_text = String::new();
-                            let mut in_tag = false;
-                            for c in raw_text.chars() {
-                                if c == '<' { in_tag = true; }
-                                else if c == '>' { in_tag = false; }
-                                else if !in_tag { clean_text.push(c); }
-                            }
-                            let trimmed = clean_text.trim();
-                            if !trimmed.is_empty() {
-                                lines.push(LyricLine {
-                                    time: seconds,
-                                    text: trimmed.to_string(),
-                                    romanized: None,
-                                    translation: None,
-                                });
-                            }
-                        }
-                    }
-                }
-            }
-        }
-        lines
-    }
-
-    fn parse_ttml_timestamp(ts: &str) -> f64 {
-        let parts: Vec<&str> = ts.split(':').collect();
-        if parts.len() == 2 {
-            let m: f64 = parts[0].parse().unwrap_or(0.0);
-            let s: f64 = parts[1].parse().unwrap_or(0.0);
-            m * 60.0 + s
-        } else if parts.len() == 3 {
-            let h: f64 = parts[0].parse().unwrap_or(0.0);
-            let m: f64 = parts[1].parse().unwrap_or(0.0);
-            let s: f64 = parts[2].parse().unwrap_or(0.0);
-            h * 3600.0 + m * 60.0 + s
-        } else {
-            ts.trim_end_matches('s').parse().unwrap_or(0.0)
-        }
-    }
-
-    async fn fetch_spotify(title: &str, artist: &str, duration: Option<f64>) -> Option<LyricsResult> {
-        let client = lyrics_client();
-        // Spotify Musixmatch partner sync proxy endpoint
-        let q = format!("{} {}", title, artist);
-        let url = format!(
-            "https://spotify-lyric-api.herokuapp.com/?track_name={}&artist_name={}",
-            urlencoding::encode(title),
-            urlencoding::encode(artist)
-        );
-        let resp = client.get(&url).send().await.ok()?;
-        if !resp.status().is_success() {
-            return None;
-        }
-        let json: serde_json::Value = resp.json().await.ok()?;
-        if let Some(lines_arr) = json.get("lines").and_then(|l| l.as_array()) {
-            let mut lines = Vec::new();
-            for item in lines_arr {
-                let words = item.get("words").and_then(|w| w.as_str()).unwrap_or("").trim().to_string();
-                let start_ms = item.get("startTimeMs")
-                    .and_then(|s| s.as_str())
-                    .and_then(|s| s.parse::<f64>().ok())
-                    .or_else(|| item.get("startTimeMs").and_then(|v| v.as_f64()))
-                    .unwrap_or(0.0);
-                if !words.is_empty() && words != "♪" {
-                    lines.push(LyricLine {
-                        time: start_ms / 1000.0,
-                        text: words,
-                        romanized: None,
-                        translation: None,
-                    });
-                }
-            }
-            if !lines.is_empty() {
-                let sync_type = json.get("syncType").and_then(|s| s.as_str()).unwrap_or("LINE_SYNCED");
-                return Some(LyricsResult {
-                    synced: sync_type == "LINE_SYNCED" || sync_type == "SYLLABLE_SYNCED",
-                    lines,
-                    plain_text: None,
-                    provider: "Spotify".to_string(),
-                    has_romanized: false,
-                });
-            }
-        }
-        None
-    }
-
     async fn fetch_lyrics_ovh(title: &str, artist: &str) -> Option<LyricsResult> {
         let client = lyrics_client();
         let url = format!(
@@ -1128,21 +1382,20 @@ impl LyricsService {
             return None;
         }
         let json: serde_json::Value = resp.json().await.ok()?;
-        let text = json.get("lyrics")?.as_str()?.trim();
-        if text.is_empty() {
+        let lyrics = json.get("lyrics")?.as_str()?.trim();
+        if lyrics.is_empty() {
             return None;
         }
         Some(LyricsResult {
             synced: false,
             lines: Vec::new(),
-            plain_text: Some(text.to_string()),
+            plain_text: Some(lyrics.to_string()),
             provider: "Lyrics.ovh".to_string(),
             has_romanized: false,
         })
     }
 
     /// Enrich every `LyricLine` with automatic phonetic romanization if it contains non-Latin script
-    /// (Hangul, Hiragana, Katakana, Devanagari/Hindi, Cyrillic) and does not already have a romanized line.
     pub fn enrich_romanization(mut result: LyricsResult) -> LyricsResult {
         let mut any_romanized = result.has_romanized;
         for line in &mut result.lines {
@@ -1181,7 +1434,6 @@ impl LyricsService {
                     break;
                 }
             }
-            // Strip inline word-level `<00:12.34>` enhanced LRC tags if present
             let clean_text = Self::strip_inline_time_tags(rest.trim());
             for t in timestamps {
                 let key_ms = (t * 1000.0).round() as i64;
@@ -1261,8 +1513,7 @@ impl LyricsService {
     }
 }
 
-/// Built-in Multi-Script Phonetic Romanizer (ArchiveTune / Apple Music style)
-/// Supports Korean Hangul, Japanese Hiragana & Katakana, Hindi/Devanagari, and Cyrillic.
+/// Built-in 12-Script Phonetic Romanizer (ArchiveTune / Apple Music style)
 pub struct Romanizer;
 
 impl Romanizer {
@@ -1271,7 +1522,7 @@ impl Romanizer {
             let u = c as u32;
             (0xAC00..=0xD7A3).contains(&u) // Hangul syllables
                 || (0x3040..=0x30FF).contains(&u) // Hiragana + Katakana
-                || (0x0900..=0x0D7F).contains(&u) // Indic scripts (Devanagari, Bengali, Gurmukhi, Gujarati, Odia, Tamil, Telugu, Kannada, Malayalam)
+                || (0x0900..=0x0D7F).contains(&u) // All 9 Brahmic/Indic scripts (Devanagari..Malayalam)
                 || (0x0400..=0x04FF).contains(&u) // Cyrillic
         })
     }
@@ -1332,7 +1583,6 @@ impl Romanizer {
                     }
                 });
 
-                // Sokuon (っ) doubles the next consonant
                 if h_char == 'っ' {
                     if let Some(nh) = next_h {
                         if let Some(rom) = Self::kana_base(nh) {
@@ -1347,7 +1597,6 @@ impl Romanizer {
                     continue;
                 }
 
-                // Digraphs (きゃ, しゃ, ちゃ, etc.)
                 if let Some(nh) = next_h {
                     if matches!(nh, 'ゃ' | 'ゅ' | 'ょ') {
                         if let Some(base) = Self::kana_base(h_char) {
@@ -1381,24 +1630,28 @@ impl Romanizer {
                             out.push(last);
                         }
                     }
-                } else {
+                } else if !LyricsService::has_cjk_characters(&c.to_string()) {
                     out.push(c);
                 }
                 i += 1;
                 continue;
             }
 
-            // 3. 10-Script Indic Phonetic Transliteration (Devanagari, Malayalam, Tamil, Telugu, Kannada, Bengali, Gujarati, Gurmukhi, Odia)
+            // 3. Unified ISCII / Brahmic 9-Script Indic Transliteration (Devanagari, Bengali, Gurmukhi, Gujarati, Odia, Tamil, Telugu, Kannada, Malayalam)
             if (0x0900..=0x0D7F).contains(&u) {
-                // Malayalam Chillu Letters (0x0D7A..=0x0D7F)
-                if (0x0D7A..=0x0D7F).contains(&u) {
+                let is_dravidian = (0x0B80..=0x0D7F).contains(&u);
+                let is_malayalam = (0x0D00..=0x0D7F).contains(&u);
+                let is_tamil = (0x0B80..=0x0BFF).contains(&u);
+                let offset_in_block = (u & 0x7F) as u8;
+
+                if is_malayalam && (0x0D7A..=0x0D7F).contains(&u) {
                     let chillu = match u {
-                        0x0D7A => "nn", // ൺ
-                        0x0D7B => "n",  // ൻ
-                        0x0D7C => "r",  // ർ
-                        0x0D7D => "l",  // ൽ
-                        0x0D7E => "ll", // ൾ
-                        0x0D7F => "k",  // ൿ
+                        0x0D7A => "nn",
+                        0x0D7B => "n",
+                        0x0D7C => "r",
+                        0x0D7D => "l",
+                        0x0D7E => "ll",
+                        0x0D7F => "k",
                         _ => "",
                     };
                     out.push_str(chillu);
@@ -1406,110 +1659,111 @@ impl Romanizer {
                     continue;
                 }
 
-                // Malayalam Special Clusters: റ്റ (tta) & ന്റ (nda)
-                let cluster_cons = if c == 'റ'
-                    && chars.get(i + 1) == Some(&'്')
-                    && chars.get(i + 2) == Some(&'റ')
-                {
-                    Some("tt")
-                } else if c == 'ന'
-                    && chars.get(i + 1) == Some(&'്')
-                    && chars.get(i + 2) == Some(&'റ')
-                {
-                    Some("nd")
-                } else {
-                    None
-                };
+                let next_u = chars.get(i + 1).map(|&nc| nc as u32);
+                let has_nukta = next_u
+                    .map(|nu| (nu & 0x7F) == 0x3C && (0x0900..=0x0D7F).contains(&nu))
+                    .unwrap_or(false);
 
-                if let Some(cons) = cluster_cons {
+                if let Some(cons) =
+                    Self::indic_consonant(offset_in_block, has_nukta, is_malayalam, is_tamil)
+                {
+                    let step = if has_nukta { 2 } else { 1 };
+                    let after_u = chars.get(i + step).map(|&nc| nc as u32);
+                    let after_offset = after_u.and_then(|au| {
+                        if (0x0900..=0x0D7F).contains(&au) {
+                            Some((au & 0x7F) as u8)
+                        } else {
+                            None
+                        }
+                    });
+
+                    if is_malayalam && after_offset == Some(0x4D) {
+                        if let Some(&third_c) = chars.get(i + step + 1) {
+                            let third_u = third_c as u32;
+                            if u == 0x0D31 && third_u == 0x0D31 {
+                                out.push_str("tt");
+                                i += step + 1;
+                                let fourth_u = chars.get(i + 1).map(|&nc| nc as u32);
+                                let fourth_off = fourth_u.and_then(|fu| {
+                                    if (0x0D00..=0x0D7F).contains(&fu) {
+                                        Some((fu & 0x7F) as u8)
+                                    } else {
+                                        None
+                                    }
+                                });
+                                if let Some(fo) = fourth_off {
+                                    if fo == 0x4D {
+                                        i += 2;
+                                        continue;
+                                    } else if let Some(matra) = Self::indic_matra(fo) {
+                                        out.push_str(matra);
+                                        i += 2;
+                                        continue;
+                                    }
+                                }
+                                out.push('a');
+                                i += 1;
+                                continue;
+                            } else if u == 0x0D28 && third_u == 0x0D31 {
+                                out.push_str("nd");
+                                i += step + 1;
+                                let fourth_u = chars.get(i + 1).map(|&nc| nc as u32);
+                                let fourth_off = fourth_u.and_then(|fu| {
+                                    if (0x0D00..=0x0D7F).contains(&fu) {
+                                        Some((fu & 0x7F) as u8)
+                                    } else {
+                                        None
+                                    }
+                                });
+                                if let Some(fo) = fourth_off {
+                                    if fo == 0x4D {
+                                        i += 2;
+                                        continue;
+                                    } else if let Some(matra) = Self::indic_matra(fo) {
+                                        out.push_str(matra);
+                                        i += 2;
+                                        continue;
+                                    }
+                                }
+                                out.push('a');
+                                i += 1;
+                                continue;
+                            }
+                        }
+                    }
+
                     out.push_str(cons);
-                    let next_c = chars.get(i + 3).copied();
-                    if let Some(nc) = next_c {
-                        let nu = nc as u32;
-                        let n_offset = (nu & 0x7F) as u8;
-                        let n_block = nu & 0xFF80;
-                        if n_offset == 0x4D {
-                            // Chandrakkala / Halant suppresses inherent 'a'
-                            i += 4;
-                            continue;
-                        } else if let Some(matra) = Self::indic_matra(n_offset, n_block) {
-                            out.push_str(matra);
-                            i += 4;
-                            continue;
-                        } else if nc.is_whitespace() || nc.is_ascii_punctuation() {
-                            // Word-final schwa deletion
-                            i += 3;
+
+                    match after_offset {
+                        Some(0x4D) => {
+                            i += step + 1;
                             continue;
                         }
-                    } else {
-                        // End of string: schwa deletion
-                        i += 3;
-                        continue;
-                    }
-                    // Inherent vowel 'a'
-                    out.push('a');
-                    i += 3;
-                    continue;
-                }
-
-                let block = u & 0xFF80;
-                let offset = (u & 0x7F) as u8;
-
-                // Devanagari Nukta handling
-                let has_nukta = block == 0x0900 && chars.get(i + 1).copied() == Some('\u{093c}');
-                let cons_opt = if has_nukta {
-                    match c {
-                        'क' => Some("q"),
-                        'ख' => Some("kh"),
-                        'ग' => Some("gh"),
-                        'ज' => Some("z"),
-                        'ड' => Some("r"),
-                        'ढ' => Some("rh"),
-                        'फ' => Some("f"),
-                        _ => Self::indic_consonant(offset, block),
-                    }
-                } else {
-                    Self::indic_consonant(offset, block)
-                };
-
-                if let Some(cons) = cons_opt {
-                    let step = if has_nukta { 2 } else { 1 };
-                    out.push_str(cons);
-                    let next_c = chars.get(i + step).copied();
-                    if let Some(nc) = next_c {
-                        let nu = nc as u32;
-                        let n_offset = (nu & 0x7F) as u8;
-                        if n_offset == 0x4D {
-                            // Virama / Halant / Chandrakkala: suppresses inherent 'a'
+                        Some(mo) if Self::indic_matra(mo).is_some() => {
+                            out.push_str(Self::indic_matra(mo).unwrap());
                             i += step + 1;
                             continue;
-                        } else if let Some(matra) = Self::indic_matra(n_offset, block) {
-                            out.push_str(matra);
-                            i += step + 1;
-                            continue;
-                        } else if nc.is_whitespace() || nc.is_ascii_punctuation() {
-                            // Word-final schwa deletion in modern Indic languages
+                        }
+                        _ => {
+                            let next_is_boundary = chars
+                                .get(i + step)
+                                .map(|nc| nc.is_whitespace() || nc.is_ascii_punctuation())
+                                .unwrap_or(true);
+                            if is_dravidian || !next_is_boundary {
+                                out.push('a');
+                            }
                             i += step;
                             continue;
                         }
-                    } else {
-                        // End of string: schwa deletion
-                        i += step;
-                        continue;
                     }
-
-                    // Inherent vowel 'a'
-                    out.push('a');
-                    i += step;
-                    continue;
-                } else if let Some(vow) = Self::indic_vowel(offset, block) {
+                } else if let Some(vow) = Self::indic_vowel_or_sign(offset_in_block, is_malayalam) {
                     out.push_str(vow);
                     i += 1;
                     continue;
                 }
             }
 
-            // 4. Cyrillic Transliteration (0x0400..=0x04FF)
+            // 4. Cyrillic Transliteration
             if (0x0400..=0x04FF).contains(&u) {
                 if let Some(cyr) = Self::cyrillic_char(c) {
                     out.push_str(cyr);
@@ -1518,11 +1772,13 @@ impl Romanizer {
                 }
             }
 
-            out.push(c);
+            if !LyricsService::has_cjk_characters(&c.to_string()) {
+                out.push(c);
+            }
             i += 1;
         }
 
-        let trimmed = out.trim().to_string();
+        let trimmed = out.split_whitespace().collect::<Vec<_>>().join(" ");
         if trimmed.is_empty() || trimmed == text.trim() {
             None
         } else {
@@ -1552,7 +1808,24 @@ impl Romanizer {
         })
     }
 
-    fn indic_consonant(offset: u8, block: u32) -> Option<&'static str> {
+    fn indic_consonant(
+        offset: u8,
+        has_nukta: bool,
+        is_malayalam: bool,
+        is_tamil: bool,
+    ) -> Option<&'static str> {
+        if has_nukta {
+            return Some(match offset {
+                0x15 => "q",
+                0x16 => "kh",
+                0x17 => "gh",
+                0x1C => "z",
+                0x21 => "r",
+                0x22 => "rh",
+                0x2B => "f",
+                _ => return Self::indic_consonant(offset, false, is_malayalam, is_tamil),
+            });
+        }
         Some(match offset {
             0x15 => "k",
             0x16 => "kh",
@@ -1563,18 +1836,18 @@ impl Romanizer {
             0x1B => "chh",
             0x1C => "j",
             0x1D => "jh",
-            0x1E => "ny",
+            0x1E => "nj",
             0x1F => "t",
             0x20 => "th",
             0x21 => "d",
             0x22 => "dh",
-            0x23 => if block == 0x0B80 || block == 0x0D00 { "nn" } else { "n" },
-            0x24 => "t",
-            0x25 => "th",
+            0x23 => "n",
+            0x24 => "th",
+            0x25 => "thh",
             0x26 => "d",
             0x27 => "dh",
             0x28 => "n",
-            0x29 => if block == 0x0B80 { "n" } else { "nn" }, // Tamil ன (alveolar nasal)
+            0x29 => "n",
             0x2A => "p",
             0x2B => "ph",
             0x2C => "b",
@@ -1582,15 +1855,22 @@ impl Romanizer {
             0x2E => "m",
             0x2F => "y",
             0x30 => "r",
-            0x31 => "rr", // Tamil/Malayalam ற/റ
+            0x31 => "r",
             0x32 => "l",
-            0x33 => "ll", // Tamil/Malayalam/Kannada/Telugu ள/ള/ಳ/ళ
-            0x34 => "zh", // Tamil/Malayalam ழ/ഴ (retroflex approximant)
+            0x33 => "l",
+            0x34 => {
+                if is_malayalam || is_tamil {
+                    "zh"
+                } else {
+                    "l"
+                }
+            }
             0x35 => "v",
             0x36 => "sh",
             0x37 => "sh",
             0x38 => "s",
             0x39 => "h",
+            0x3A => "tt",
             0x58 => "q",
             0x59 => "kh",
             0x5A => "gh",
@@ -1598,47 +1878,51 @@ impl Romanizer {
             0x5C => "r",
             0x5D => "rh",
             0x5E => "f",
+            0x5F => "y",
             _ => return None,
         })
     }
 
-    fn indic_matra(offset: u8, _block: u32) -> Option<&'static str> {
+    fn indic_matra(offset: u8) -> Option<&'static str> {
         Some(match offset {
             0x3E => "aa",
             0x3F => "i",
             0x40 => "ee",
             0x41 => "u",
             0x42 => "oo",
-            0x43 => "ri",
-            0x46 => "e",  // Short e (Tamil/Telugu/Kannada/Malayalam)
-            0x47 => "ee", // Long e
+            0x43 | 0x44 => "ri",
+            0x45 | 0x46 | 0x47 => "e",
             0x48 => "ai",
-            0x4A => "o",  // Short o (Tamil/Telugu/Kannada/Malayalam)
-            0x4B => "oo", // Long o
-            0x4C => "au",
-            0x4F => "au",
+            0x49 | 0x4A | 0x4B => "o",
+            0x4C | 0x57 => "au",
             _ => return None,
         })
     }
 
-    fn indic_vowel(offset: u8, _block: u32) -> Option<&'static str> {
+    fn indic_vowel_or_sign(offset: u8, is_malayalam: bool) -> Option<&'static str> {
         Some(match offset {
+            0x01 | 0x02 => {
+                if is_malayalam {
+                    "m"
+                } else {
+                    "n"
+                }
+            }
+            0x03 => "h",
             0x05 => "a",
             0x06 => "aa",
             0x07 => "i",
             0x08 => "ee",
             0x09 => "u",
             0x0A => "oo",
-            0x0B => "ri",
-            0x0E => "e",
+            0x0B | 0x60 => "ri",
+            0x0D | 0x0E => "e",
             0x0F => "ee",
             0x10 => "ai",
-            0x12 => "o",
+            0x11 | 0x12 => "o",
             0x13 => "oo",
             0x14 => "au",
-            0x01 => "n", // Chandrabindu (Nasalization)
-            0x02 => "m", // Anusvara (Am / M)
-            0x03 => "h", // Visarga
+            0x64 | 0x65 => ".",
             _ => return None,
         })
     }
@@ -1674,4 +1958,3 @@ mod urlencoding {
         result
     }
 }
-

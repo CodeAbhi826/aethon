@@ -64,6 +64,7 @@ class PlayerState {
   homeArtistRadioTracks = $state<Track[]>([]);
   homeFeedLoaded = $state(false);
   isLoadingLyrics = $state(false);
+  isLoadingAutomix = $state(false);
   private lyricsRequestId = 0;
   private lastReconciledUri: string | null = null;
   private lastMediaSessionTrackId: string | null = null;
@@ -218,6 +219,24 @@ class PlayerState {
             this.lastReconciledUri = event.payload.current_uri;
             this.reconcilePlayingTrack(event.payload.current_uri, event.payload.media_title);
           }
+        }
+
+        if (
+          this.currentTrack &&
+          event.payload.duration > 15 &&
+          Math.abs((this.currentTrack.duration || 0) - event.payload.duration) > 3.0
+        ) {
+          this.currentTrack.duration = event.payload.duration;
+          const vid =
+            this.extractVideoId(this.currentTrack.file_path) ||
+            this.extractVideoId(this.currentTrack.id);
+          this.fetchLyrics(
+            this.currentTrack.title,
+            this.currentTrack.artist,
+            event.payload.duration,
+            this.currentTrack.file_path,
+            vid
+          );
         }
 
         if (
@@ -427,7 +446,38 @@ class PlayerState {
     this.selectedPlaylist = playlist;
     try {
       const tracks = await invoke<Track[]>('get_playlist_tracks', { playlistId: playlist.id });
-      this.playlistTracks = tracks;
+      if (tracks && tracks.length > 0) {
+        this.playlistTracks = tracks;
+        return;
+      }
+      if (
+        playlist.id.startsWith('VL') ||
+        playlist.id.startsWith('PL') ||
+        playlist.id.startsWith('RD') ||
+        playlist.description?.includes('YouTube Music')
+      ) {
+        const ytTracks = await invoke<YouTubeTrack[]>('get_cloud_playlist_tracks', {
+          browseId: playlist.id,
+          cookie: settingsState.ytmCookie || null,
+        });
+        if (ytTracks && ytTracks.length > 0) {
+          this.playlistTracks = ytTracks.map((yt) => ({
+            id: `yt_${yt.id}`,
+            title: yt.title,
+            artist: sanitizeArtist(yt.artist),
+            album: playlist.name,
+            duration: yt.duration || 0,
+            file_path: yt.stream_url,
+            cover_art: getHighResArtwork(yt.thumbnail, yt.id),
+            format: 'Opus 256k',
+            play_count: 0,
+            favorite: false,
+            date_added: Math.floor(Date.now() / 1000),
+          }));
+          return;
+        }
+      }
+      this.playlistTracks = [];
     } catch (e) {
       console.error('Error fetching playlist tracks:', e);
       this.playlistTracks = [];
@@ -709,16 +759,9 @@ class PlayerState {
       this.reapplyTheme();
     }
 
-    if (sanitized.title && sanitized.artist) {
-      const currentTrackId = sanitized.id;
-      fetchCrispAlbumArt(sanitized.title, sanitized.artist).then((crispArt) => {
-        if (crispArt && this.currentTrack?.id === currentTrackId) {
-          this.currentTrack.cover_art = crispArt;
-          this.updateMediaSession(this.currentTrack);
-          this.updateMpris(this.currentTrack, true);
-          this.applyMonetColorFromImage(crispArt);
-        }
-      });
+    // Populate ArchiveTune RDAMVM Automix "Up Next" Queue automatically when queue is low
+    if (this.autoplayRadio && this.queue.length <= 2) {
+      this.populateAutomixQueue(videoId, sanitized);
     }
 
     if (
@@ -924,16 +967,79 @@ class PlayerState {
     }
   }
 
-  async searchYouTube(query: string) {
+  async searchYouTube(query: string, limit = 55) {
     if (!query.trim()) return;
     this.isSearching = true;
     try {
-      const res = await invoke<YouTubeTrack[]>('search_youtube', { query, limit: 25 });
+      const res = await invoke<YouTubeTrack[]>('search_youtube', { query, limit });
       this.youtubeResults = res;
     } catch (e) {
       console.error('YouTube search error:', e);
     } finally {
       this.isSearching = false;
+    }
+  }
+
+  async populateAutomixQueue(videoId?: string | null, seedTrack?: Track | null) {
+    const track = seedTrack || this.currentTrack;
+    if (!track) return;
+    const vid =
+      videoId ||
+      this.extractVideoId(track.file_path) ||
+      this.extractVideoId(track.id);
+
+    this.isLoadingAutomix = true;
+    try {
+      let ytList: YouTubeTrack[] = [];
+      if (vid) {
+        ytList = await invoke<YouTubeTrack[]>('get_automix_queue', {
+          videoId: vid,
+          cookie: settingsState.ytmCookie || null,
+        }).catch(() => []);
+      }
+      if (!ytList || ytList.length < 5) {
+        const q = `${track.artist || ''} ${track.title} mix`.trim();
+        const fallback = await invoke<YouTubeTrack[]>('search_youtube', {
+          query: q,
+          limit: 20,
+        }).catch(() => []);
+        ytList = [...(ytList || []), ...fallback];
+      }
+
+      if (ytList && ytList.length > 0) {
+        const existingIds = new Set([
+          track.id,
+          ...this.queue.map((t) => t.id),
+          ...this.history.slice(0, 5).map((t) => t.id),
+        ]);
+        const mapped: Track[] = [];
+        for (const yt of ytList) {
+          const tid = `yt_${yt.id}`;
+          if (!existingIds.has(tid)) {
+            existingIds.add(tid);
+            mapped.push({
+              id: tid,
+              title: yt.title,
+              artist: sanitizeArtist(yt.artist) || track.artist || 'YouTube Music',
+              album: 'Up Next • Automix',
+              duration: yt.duration || 0,
+              file_path: yt.stream_url,
+              cover_art: getHighResArtwork(yt.thumbnail, yt.id),
+              format: 'Opus 256k',
+              play_count: 0,
+              favorite: false,
+              date_added: Math.floor(Date.now() / 1000),
+            });
+          }
+          if (mapped.length >= 22) break;
+        }
+        if (mapped.length > 0) {
+          this.queue = [...this.queue, ...mapped];
+          this.prefetchNextInQueue();
+        }
+      }
+    } finally {
+      this.isLoadingAutomix = false;
     }
   }
 
@@ -996,9 +1102,18 @@ class PlayerState {
     }
 
     if (this.autoplayRadio && this.currentTrack) {
+      await this.populateAutomixQueue(null, this.currentTrack);
+      if (this.queue.length > 0) {
+        const next = this.queue[0];
+        this.queue = this.queue.slice(1);
+        if (next) {
+          await this.playTrack(next);
+          return;
+        }
+      }
       try {
         const query = `${this.currentTrack.artist} songs`;
-        const res = await invoke<YouTubeTrack[]>('search_youtube', { query, limit: 6 });
+        const res = await invoke<YouTubeTrack[]>('search_youtube', { query, limit: 12 });
         if (res && res.length > 0) {
           const suggestions: Track[] = res
             .filter((yt) => `yt_${yt.id}` !== this.currentTrack?.id)

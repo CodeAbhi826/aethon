@@ -52,6 +52,11 @@ export interface YouTubeTrack {
   stream_url: string;
 }
 
+export interface HomeShelf {
+  title: string;
+  tracks: YouTubeTrack[];
+}
+
 export interface PlaybackTrackingSession {
   video_id: string;
   cpn: string;
@@ -104,7 +109,11 @@ export function sanitizeArtist(raw: string): string {
     .replace(/\s+\d+(\.\d+)?[kmbKMB]?\s*(views?|subscribers?|plays?|watching|listeners?).*$/gi, '')
     .replace(/\s*-\s*topic$/i, '')
     .replace(/\s*[•·]\s*.*$/gi, '')
-    .replace(/[\s\-\•\·\|\/,]+$/, '')
+    .replace(/\s*,\s*/g, ', ')
+    .replace(/(?:,\s*){2,}/g, ', ')
+    .replace(/\s*&\s*/g, ' & ')
+    .replace(/\s{2,}/g, ' ')
+    .replace(/^[\s,•·|\-\/]+|[\s,•·|\-\/]+$/g, '')
     .trim();
 }
 
@@ -113,7 +122,6 @@ export function splitArtists(raw: string): string[] {
   const cleaned = sanitizeArtist(raw);
   if (!cleaned) return [];
 
-  // Protect established bands/duos whose proper names contain punctuation
   const knownBands = new Set([
     'ac/dc',
     'simon & garfunkel',
@@ -128,16 +136,7 @@ export function splitArtists(raw: string): string[] {
     return [cleaned];
   }
 
-  // Pre-normalize (feat. X) or [ft. X] inside brackets so nested artists get split cleanly
   let text = cleaned.replace(/[\(\[\{]\s*(?:feat\.?|ft\.?|featuring|with)\s+([^\)\]\}]+)[\)\]\}]/gi, ' feat. $1 ');
-
-  // Match common collaboration separators:
-  // - comma: ,
-  // - ampersand: & (with whitespace around it)
-  // - feat / ft / featuring: (?:feat\.?|ft\.?|featuring)
-  // - x / × (as standalone word or surrounded by spaces): \s+[xX×]\s+
-  // - with: \s+with\s+
-  // - slash: \s+\/\s+ (require spaces around slash to avoid breaking band acronyms)
   const delimiterRegex = /\s*(?:,\s*|\s+&\s+|\s+(?:feat\.?|ft\.?|featuring)\s+|\s+[xX×]\s+|\s+with\s+|\s+\/\s+)\s*/i;
 
   const parts = text.split(delimiterRegex);
@@ -145,7 +144,7 @@ export function splitArtists(raw: string): string[] {
   const result: string[] = [];
 
   for (let p of parts) {
-    p = p.trim().replace(/^[\(\[\{]/, '').replace(/[\)\]\}]$/, '').trim();
+    p = p.trim().replace(/^[\(\[\{,]/, '').replace(/[\)\]\},]$/, '').trim();
     if (p && !seen.has(p.toLowerCase())) {
       seen.add(p.toLowerCase());
       result.push(p);
@@ -155,4 +154,58 @@ export function splitArtists(raw: string): string[] {
   return result.length > 0 ? result : [cleaned];
 }
 
+const FALLBACK_ARTWORK_SVG =
+  'data:image/svg+xml;utf8,' +
+  encodeURIComponent(
+    `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 240 240" width="240" height="240">
+      <defs>
+        <linearGradient id="g" x1="0%" y1="0%" x2="100%" y2="100%">
+          <stop offset="0%" stop-color="#2b223c"/>
+          <stop offset="50%" stop-color="#1d1829"/>
+          <stop offset="100%" stop-color="#120f1a"/>
+        </linearGradient>
+      </defs>
+      <rect width="240" height="240" fill="url(#g)"/>
+      <circle cx="120" cy="120" r="62" fill="none" stroke="rgba(255,255,255,0.08)" stroke-width="2"/>
+      <path d="M108 148V92l44-10v54" fill="none" stroke="rgba(208,188,255,0.65)" stroke-width="6" stroke-linecap="round" stroke-linejoin="round"/>
+      <circle cx="98" cy="148" r="11" fill="rgba(208,188,255,0.65)"/>
+      <circle cx="142" cy="136" r="11" fill="rgba(208,188,255,0.65)"/>
+    </svg>`
+  );
 
+function extractVidFromHint(src: string, hint?: string): string | null {
+  for (const s of [hint || '', src || '']) {
+    if (!s) continue;
+    if (s.startsWith('yt_') && s.length === 14) return s.slice(3);
+    const m = s.match(/(?:\/vi\/|\/vi_webp\/|v=|youtu\.be\/|\/stream\/)([0-9A-Za-z_-]{11})/);
+    if (m) return m[1];
+    if (/^[0-9A-Za-z_-]{11}$/.test(s)) return s;
+  }
+  return null;
+}
+
+export function handleThumbnailError(event: Event, hint?: string) {
+  const img = event.currentTarget as HTMLImageElement | null;
+  if (!img) return;
+  const step = Number(img.dataset.fbStep || '0');
+  const vid = extractVidFromHint(img.src, hint);
+
+  if (vid && step === 0) {
+    img.dataset.fbStep = '1';
+    img.src = `https://i.ytimg.com/vi/${vid}/mqdefault.jpg`;
+  } else if (vid && step === 1) {
+    img.dataset.fbStep = '2';
+    img.src = `https://i.ytimg.com/vi/${vid}/0.jpg`;
+  } else if (step < 3) {
+    img.dataset.fbStep = '3';
+    img.src = FALLBACK_ARTWORK_SVG;
+  }
+}
+
+export function handleThumbnailLoad(event: Event, hint?: string) {
+  const img = event.currentTarget as HTMLImageElement | null;
+  if (!img) return;
+  if (img.naturalWidth === 120 && img.naturalHeight === 90 && !img.src.startsWith('data:')) {
+    handleThumbnailError(event, hint);
+  }
+}

@@ -1,6 +1,6 @@
 <script lang="ts">
   import { playerState } from '../state.svelte';
-  import { sanitizeArtist } from '../types';
+  import { sanitizeArtist, handleThumbnailError, handleThumbnailLoad } from '../types';
   import { getHighResArtwork } from '../artwork';
   import ArtistLinks from './ArtistLinks.svelte';
 
@@ -19,13 +19,6 @@
 </script>
 
 <footer class="h-20 w-full m3-acrylic-dock px-3 sm:px-6 md:px-8 py-2 flex items-center justify-between z-30 shrink-0 select-none gap-2 sm:gap-4 relative">
-  <!-- Top Thin Indeterminate Buffering Shimmer Line -->
-  {#if isLoading}
-    <div class="absolute top-0 left-0 right-0 h-[2px] overflow-hidden bg-white/5 pointer-events-none">
-      <div class="h-full w-1/3 bg-gradient-to-r from-transparent via-[var(--md-sys-primary)] to-transparent animate-shimmer-bar"></div>
-    </div>
-  {/if}
-
   <!-- Left: Track Details & Album Thumbnail -->
   <div class="flex items-center gap-2.5 sm:gap-3.5 min-w-0 max-w-[180px] sm:max-w-[260px] md:max-w-[320px] shrink">
     {#if playerState.currentTrack}
@@ -37,14 +30,10 @@
         {#if playerState.currentTrack.cover_art}
           <img
             src={getHighResArtwork(playerState.currentTrack.cover_art, playerState.currentTrack.id)}
-            class="w-full h-full object-cover group-hover:scale-105 transition duration-300"
+            onload={(e) => handleThumbnailLoad(e, playerState.currentTrack?.id)}
+            onerror={(e) => handleThumbnailError(e, playerState.currentTrack?.id)}
+            class="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
             alt="Artwork"
-            onerror={(e) => {
-              const target = e.currentTarget as HTMLImageElement;
-              if (target.src.includes('maxresdefault.jpg')) {
-                target.src = target.src.replace('maxresdefault.jpg', 'hqdefault.jpg');
-              }
-            }}
           />
         {:else}
           <div class="w-full h-full bg-[var(--md-sys-surface-container)] flex items-center justify-center">
@@ -52,7 +41,7 @@
           </div>
         {/if}
 
-        <div class="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 flex items-center justify-center transition">
+        <div class="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity">
           <span class="material-symbols-rounded text-white text-lg sm:text-xl">keyboard_arrow_up</span>
         </div>
       </button>
@@ -71,7 +60,7 @@
             <ArtistLinks
               artist={playerState.currentTrack.artist}
               class="max-w-full"
-              buttonClass="hover:underline hover:text-white transition text-left truncate cursor-pointer"
+              buttonClass="hover:underline hover:text-white transition-colors text-left cursor-pointer"
             />
           {/if}
         </div>
@@ -80,7 +69,7 @@
       <button
         onclick={() =>
           playerState.currentTrack && playerState.toggleFavorite(playerState.currentTrack.id)}
-        class="p-1.5 sm:p-2 rounded-full hover:bg-white/10 text-[var(--md-sys-on-surface-variant)] transition shrink-0 inline-flex cursor-pointer"
+        class="p-1.5 sm:p-2 rounded-full hover:bg-white/10 text-[var(--md-sys-on-surface-variant)] transition-colors shrink-0 inline-flex cursor-pointer"
         title="Favorite"
       >
         <span class="material-symbols-rounded text-lg sm:text-xl {playerState.currentTrack.favorite ? 'text-rose-400 filled' : ''}">
@@ -107,7 +96,7 @@
         onclick={() => playerState.toggleShuffle()}
         class="p-1 rounded-full {playerState.shuffleMode
           ? 'text-[var(--md-sys-primary)]'
-          : 'text-[var(--md-sys-on-surface-variant)]/60 hover:text-white'} transition cursor-pointer"
+          : 'text-[var(--md-sys-on-surface-variant)]/60 hover:text-white'} transition-colors cursor-pointer"
         title={playerState.shuffleMode ? 'Shuffle On' : 'Shuffle Off'}
       >
         <span class="material-symbols-rounded text-base sm:text-lg">shuffle</span>
@@ -115,13 +104,13 @@
 
       <button
         onclick={() => playerState.playPrevious()}
-        class="p-1 rounded-full text-[var(--md-sys-on-surface-variant)] hover:text-white active:scale-90 transition cursor-pointer"
+        class="p-1 rounded-full text-[var(--md-sys-on-surface-variant)] hover:text-white active:scale-90 transition-transform cursor-pointer"
         title="Previous Track"
       >
         <span class="material-symbols-rounded text-xl sm:text-2xl filled">skip_previous</span>
       </button>
 
-      <!-- Play / Pause Button with Single ArchiveTune Circular Spinner -->
+      <!-- Play / Pause Button with Apple Music Morphing Variable-Sweep Loader -->
       <div class="relative flex items-center justify-center">
         <button
           onclick={() => playerState.togglePlay()}
@@ -129,15 +118,18 @@
           title={isLoading ? 'Buffering stream...' : playerState.playback.is_playing ? 'Pause' : 'Play'}
         >
           {#if isLoading}
-            <svg class="w-5 h-5 archivetune-spinner-svg text-current" viewBox="0 0 36 36" fill="none">
-              <circle cx="18" cy="18" r="14" stroke="currentColor" stroke-opacity="0.2" stroke-width="3" />
+            <svg class="w-5 h-5 sm:w-6 sm:h-6 archivetune-spinner-svg text-current" viewBox="0 0 36 36" fill="none">
+              <circle cx="18" cy="18" r="14" stroke="currentColor" stroke-opacity="0.16" stroke-width="3.2" />
               <circle
-                class="archivetune-spinner-arc-secondary"
                 cx="18"
                 cy="18"
                 r="14"
                 stroke="currentColor"
-                stroke-width="3"
+                stroke-opacity="0.35"
+                stroke-width="3.2"
+                stroke-dasharray="18 70"
+                stroke-dashoffset="-12"
+                stroke-linecap="round"
               />
               <circle
                 class="archivetune-spinner-arc"
@@ -145,7 +137,8 @@
                 cy="18"
                 r="14"
                 stroke="currentColor"
-                stroke-width="3"
+                stroke-width="3.4"
+                stroke-linecap="round"
               />
             </svg>
           {:else if playerState.playback.is_playing}
@@ -162,7 +155,7 @@
 
       <button
         onclick={() => playerState.playNext()}
-        class="p-1 rounded-full text-[var(--md-sys-on-surface-variant)] hover:text-white active:scale-90 transition cursor-pointer"
+        class="p-1 rounded-full text-[var(--md-sys-on-surface-variant)] hover:text-white active:scale-90 transition-transform cursor-pointer"
         title="Next Track"
       >
         <span class="material-symbols-rounded text-xl sm:text-2xl filled">skip_next</span>
@@ -172,7 +165,7 @@
         onclick={() => playerState.toggleRepeat()}
         class="p-1 rounded-full {playerState.repeatMode !== 'off'
           ? 'text-[var(--md-sys-primary)]'
-          : 'text-[var(--md-sys-on-surface-variant)]/60 hover:text-white'} transition cursor-pointer"
+          : 'text-[var(--md-sys-on-surface-variant)]/60 hover:text-white'} transition-colors cursor-pointer"
         title={`Repeat: ${playerState.repeatMode}`}
       >
         <span class="material-symbols-rounded text-base sm:text-lg">
@@ -181,18 +174,14 @@
       </button>
     </div>
 
-    <!-- Scrubber with Active Progress Fill & Buffering Shimmer -->
+    <!-- Scrubber with GPU scaleX Progress Fill -->
     <div class="flex items-center gap-2.5 w-full text-[10px] sm:text-[11px] text-[var(--md-sys-on-surface-variant)] font-mono">
       <span class="w-8 text-right shrink-0">{playerState.formattedTime.current}</span>
-      <div class="relative flex-1 h-1.5 bg-white/10 hover:h-2 rounded-full overflow-hidden group transition-all">
-        {#if isLoading}
-          <div class="absolute inset-0 bg-gradient-to-r from-transparent via-[var(--md-sys-primary)]/60 to-transparent animate-shimmer-bar"></div>
-        {:else}
-          <div
-            class="absolute inset-0 bg-[var(--md-sys-primary)] rounded-full origin-left will-change-transform"
-            style="transform: scaleX({playerState.progressPercent / 100});"
-          ></div>
-        {/if}
+      <div class="relative flex-1 h-1.5 bg-white/10 hover:h-2 rounded-full overflow-hidden group transition-[height]">
+        <div
+          class="absolute inset-0 bg-[var(--md-sys-primary)] rounded-full origin-left will-change-transform"
+          style="transform: scaleX({playerState.progressPercent / 100});"
+        ></div>
         <input
           type="range"
           min="0"
@@ -211,7 +200,7 @@
   <div class="flex items-center justify-end gap-1 sm:gap-2 shrink-0">
     <button
       onclick={() => (playerState.isQueueOpen = !playerState.isQueueOpen)}
-      class="p-2 rounded-full hover:bg-white/10 text-[var(--md-sys-on-surface-variant)] hover:text-white transition relative cursor-pointer"
+      class="p-2 rounded-full hover:bg-white/10 text-[var(--md-sys-on-surface-variant)] hover:text-white transition-colors relative cursor-pointer"
       title="Playing Next"
     >
       <span class="material-symbols-rounded text-xl {playerState.isQueueOpen ? 'text-[var(--md-sys-primary)]' : ''}">
@@ -226,7 +215,7 @@
 
     <button
       onclick={() => (playerState.isEqualizerOpen = true)}
-      class="p-2 rounded-full hover:bg-white/10 text-[var(--md-sys-on-surface-variant)] hover:text-white transition cursor-pointer"
+      class="p-2 rounded-full hover:bg-white/10 text-[var(--md-sys-on-surface-variant)] hover:text-white transition-colors cursor-pointer"
       title="Equalizer"
     >
       <span class="material-symbols-rounded text-xl">tune</span>
@@ -236,7 +225,7 @@
     <div class="relative flex items-center">
       <button
         onclick={() => (showVolumeSlider = !showVolumeSlider)}
-        class="p-2 rounded-full hover:bg-white/10 text-[var(--md-sys-on-surface-variant)] hover:text-white transition cursor-pointer"
+        class="p-2 rounded-full hover:bg-white/10 text-[var(--md-sys-on-surface-variant)] hover:text-white transition-colors cursor-pointer"
         title="Volume"
       >
         <span class="material-symbols-rounded text-xl">
@@ -269,7 +258,7 @@
       onclick={() => playerState.toggleMiniPlayer()}
       class="p-2 rounded-full hover:bg-white/10 {playerState.isMiniPlayerOpen
         ? 'text-[var(--md-sys-primary)]'
-        : 'text-[var(--md-sys-on-surface-variant)] hover:text-white'} transition cursor-pointer"
+        : 'text-[var(--md-sys-on-surface-variant)] hover:text-white'} transition-colors cursor-pointer"
       title="Mini Player"
     >
       <span class="material-symbols-rounded text-xl">picture_in_picture_alt</span>
@@ -277,7 +266,7 @@
 
     <button
       onclick={() => (playerState.isNowPlayingOpen = !playerState.isNowPlayingOpen)}
-      class="p-2 rounded-full hover:bg-white/10 text-[var(--md-sys-on-surface-variant)] hover:text-white transition cursor-pointer"
+      class="p-2 rounded-full hover:bg-white/10 text-[var(--md-sys-on-surface-variant)] hover:text-white transition-colors cursor-pointer"
       title="Expand Player"
     >
       <span class="material-symbols-rounded text-xl">open_in_full</span>
@@ -286,20 +275,9 @@
 </footer>
 
 <style>
-  @keyframes shimmerBar {
-    0% {
-      transform: translateX(-100%);
-    }
-    100% {
-      transform: translateX(300%);
-    }
-  }
-  .animate-shimmer-bar {
-    animation: shimmerBar 1.25s cubic-bezier(0.4, 0, 0.2, 1) infinite;
-  }
   .squircle-morph-btn {
     border-radius: 50%;
-    transition: border-radius 260ms cubic-bezier(0.2, 0, 0, 1), transform 150ms cubic-bezier(0.2, 0, 0, 1);
+    transition: border-radius 240ms cubic-bezier(0.2, 0, 0, 1), transform 140ms cubic-bezier(0.2, 0, 0, 1);
     will-change: border-radius, transform;
   }
   .squircle-morph-btn.is-playing {
