@@ -90,13 +90,15 @@
 </script>
 
 <div class="h-screen w-screen flex flex-col bg-[var(--md-sys-surface)] text-[var(--md-sys-on-surface)] overflow-hidden relative font-sans">
-  {#if settingsState.showFloatingOrbs}
+  {#if settingsState.showFloatingOrbs && !playerState.isNowPlayingOpen}
     <div class="ambient-mesh fixed inset-0 pointer-events-none overflow-hidden z-0"></div>
   {/if}
 
-  <TitleBar />
+  <div class={playerState.isNowPlayingOpen ? 'invisible pointer-events-none' : ''}>
+    <TitleBar />
+  </div>
 
-  <div class="flex-1 flex overflow-hidden relative">
+  <div class="flex-1 flex overflow-hidden relative {playerState.isNowPlayingOpen ? 'invisible pointer-events-none' : ''}">
     <NavigationRail />
 
     <main class="flex-1 overflow-y-auto relative">
@@ -122,7 +124,10 @@
     </main>
   </div>
 
-  <BottomPlayer />
+  <div class={playerState.isNowPlayingOpen ? 'invisible pointer-events-none' : ''}>
+    <BottomPlayer />
+  </div>
+
   <NowPlayingSheet />
   <EqualizerModal />
   <QueueDrawer />

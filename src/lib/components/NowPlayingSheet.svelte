@@ -663,7 +663,7 @@
                   class="fixed inset-0 z-40 bg-transparent cursor-default border-none p-0 outline-none"
                   onclick={() => (isSourcePickerOpen = false)}
                 ></button>
-                <div class="absolute top-7 left-0 z-50 min-w-[170px] bg-[#1a1a1f]/95 backdrop-blur-2xl border border-white/15 rounded-xl shadow-2xl p-1.5 flex flex-col gap-0.5">
+                <div class="absolute top-7 left-0 z-50 min-w-[170px] bg-[#1a1a1f] border border-white/15 rounded-xl shadow-2xl p-1.5 flex flex-col gap-0.5" style="background-color: #1a1a1f;">
                   <div class="px-2 py-1 text-[9px] uppercase tracking-wider text-white/40 font-semibold">Lyrics Source Priority</div>
                   {#each LYRICS_SOURCES as src}
                     <button
@@ -743,7 +743,7 @@
             ontouchmove={handleUserScroll}
             role="region"
             aria-label="Lyrics"
-            class="flex-1 overflow-y-auto px-3 sm:px-6 py-8 space-y-3 scrollbar-none contain-gpu"
+            class="flex-1 overflow-y-auto px-3 sm:px-6 pt-[18vh] pb-[46vh] space-y-3 scrollbar-none contain-gpu lyrics-viewport-mask"
           >
             {#if playerState.isLoadingLyrics}
               <div class="h-full flex flex-col items-center justify-center text-center text-white/50 py-16 gap-3">
@@ -802,28 +802,7 @@
                     ? `--lyric-glow: ${playerState.accentColor || 'var(--md-sys-primary)'};`
                     : ''}
                 >
-                  {#if isCur && settingsState.wordByWordTracking}
-                    {@const words = getWordTokens(line.text)}
-                    <span class="inline-flex flex-wrap gap-x-2">
-                      {#each words as word, wIdx}
-                        {@const wp = getWordProgress(i, wIdx, words.length, line.time)}
-                        <span
-                          class="word-token transition-all duration-150 inline-block will-change-transform {wp >= 1
-                            ? 'word-sung'
-                            : wp <= 0
-                              ? 'word-unsung'
-                              : 'word-singing'}"
-                          style={wp > 0 && wp < 1
-                            ? `opacity: ${0.45 + wp * 0.55}; transform: translate3d(0, -1.5px, 0);`
-                            : ''}
-                        >
-                          {word}
-                        </span>
-                      {/each}
-                    </span>
-                  {:else}
-                    <span class="block">{line.text}</span>
-                  {/if}
+                  <span class="block transition-colors duration-200 {isCur ? 'text-white' : ''}">{line.text}</span>
 
                   {#if isRomanizedMode && line.romanized && line.romanized !== line.text}
                     <span
@@ -893,6 +872,11 @@
     animation: shimmerBar 1.25s cubic-bezier(0.4, 0, 0.2, 1) infinite;
   }
 
+  .lyrics-viewport-mask {
+    mask-image: linear-gradient(to bottom, transparent 0%, black 12%, black 86%, transparent 100%);
+    -webkit-mask-image: linear-gradient(to bottom, transparent 0%, black 12%, black 86%, transparent 100%);
+  }
+
   .contain-gpu {
     contain: layout style;
   }
@@ -950,16 +934,6 @@
     color: rgba(255, 255, 255, 0.65);
   }
 
-  .word-sung {
-    color: #ffffff;
-    text-shadow: 0 0 16px var(--lyric-glow, #d0bcff);
-  }
-  .word-unsung {
-    color: rgba(255, 255, 255, 0.42);
-  }
-  .word-singing {
-    filter: drop-shadow(0 0 10px var(--lyric-glow, #d0bcff));
-  }
 
   .sheet-squircle-btn {
     border-radius: 50%;

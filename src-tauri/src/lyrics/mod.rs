@@ -218,20 +218,20 @@ impl LyricsService {
 
     fn disk_cache_dir() -> std::path::PathBuf {
         dirs::cache_dir()
-            .unwrap_or_else(|| std::path::PathBuf::from("/tmp"))
+            .unwrap_or_else(|| std::path::PathBuf::from("."))
             .join("aethon")
             .join("lyrics")
     }
 
     fn disk_cache_key(title: &str, artist: &str, video_id: Option<&str>) -> String {
         if let Some(vid) = video_id.filter(|v| !v.is_empty()) {
-            format!("yt_{}", vid)
+            format!("v40_yt_{}", vid)
         } else {
             use std::hash::{Hash, Hasher};
             let mut hasher = std::collections::hash_map::DefaultHasher::new();
             title.to_lowercase().hash(&mut hasher);
             artist.to_lowercase().hash(&mut hasher);
-            format!("{:016x}", hasher.finish())
+            format!("v40_{:016x}", hasher.finish())
         }
     }
 
