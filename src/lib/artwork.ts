@@ -3,9 +3,9 @@
 const itunesArtCache = new Map<string, string | null>();
 
 /**
- * Transforms low-res YouTube Music or ytimg thumbnail URLs to crystal clear high-resolution (1080x1080 / maxresdefault).
+ * Transforms low-res YouTube Music or ytimg thumbnail URLs to ArchiveTune native edge-cached standard (544x544 / maxresdefault).
  */
-export function getHighResArtwork(url?: string | null, videoId?: string | null, size = 1080): string {
+export function getHighResArtwork(url?: string | null, videoId?: string | null, size = 544): string {
   if (!url && videoId) {
     return `https://i.ytimg.com/vi/${videoId}/maxresdefault.jpg`;
   }

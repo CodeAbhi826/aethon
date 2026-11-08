@@ -309,6 +309,7 @@ async fn run_stream_downloader(task: Arc<StreamDownloadTask>, video_id: String) 
     }
 
     let mut failures = 0;
+    let mut ytdlp_retries = 0;
 
     while total_len == 0 || cur_pos < total_len {
         let chunk_end = if total_len > 0 {
@@ -317,14 +318,9 @@ async fn run_stream_downloader(task: Arc<StreamDownloadTask>, video_id: String) 
             cur_pos + CHUNK_SIZE - 1
         };
         let cur_url = task.upstream_url.lock().clone();
-        let chunk_url = if cur_url.contains('?') {
-            format!("{}&range={}-{}", cur_url, cur_pos, chunk_end)
-        } else {
-            format!("{}?range={}-{}", cur_url, cur_pos, chunk_end)
-        };
 
         let req_fut = client
-            .get(&chunk_url)
+            .get(&cur_url)
             .header("User-Agent", &task.user_agent)
             .header("Range", format!("bytes={}-{}", cur_pos, chunk_end))
             .send();
@@ -358,38 +354,73 @@ async fn run_stream_downloader(task: Arc<StreamDownloadTask>, video_id: String) 
                     failures += 1;
                 }
             }
-            _ => {
+            Ok(resp) => {
+                let status = resp.status();
                 failures += 1;
                 crate::aethon_log!(
-                    "Upstream chunk error at byte {}/{} for {}. Attempting self-healing recovery (#{})...",
+                    "Upstream chunk HTTP error {} at byte {}/{} for {}. (#{})",
+                    status,
                     cur_pos,
                     total_len,
                     video_id,
                     failures
                 );
-                if failures > 4 {
+                if failures > 3 {
                     *task.error.lock() = Some(format!("Failed past byte {}", cur_pos));
                     task.notify.notify_waiters();
                     break;
                 }
-                let v = video_id.clone();
-                let refreshed = tokio::task::spawn_blocking(move || {
-                    YouTubeService::resolve_via_ytdlp_direct(
-                        &format!("https://www.youtube.com/watch?v={}", v),
-                        "",
-                        "",
-                    )
-                })
-                .await
-                .unwrap_or_default();
 
-                if refreshed.contains("googlevideo.com") {
-                    *task.upstream_url.lock() = refreshed;
-                    tokio::time::sleep(std::time::Duration::from_millis(400)).await;
-                    continue;
+                // If Google Video returned 403 Forbidden or 410 Gone, the signed URL may have expired.
+                // Re-resolve via yt-dlp at most once to prevent runaway Python child processes from pegging CPU.
+                let status_code = status.as_u16();
+                if (status_code == 403 || status_code == 410) && ytdlp_retries < 1 {
+                    ytdlp_retries += 1;
+                    crate::aethon_log!(
+                        "Upstream URL expired (status {}). Attempting single yt-dlp self-healing recovery for {}...",
+                        status,
+                        video_id
+                    );
+                    let v = video_id.clone();
+                    let refreshed = tokio::task::spawn_blocking(move || {
+                        YouTubeService::resolve_via_ytdlp_direct(
+                            &format!("https://www.youtube.com/watch?v={}", v),
+                            "",
+                            "",
+                        )
+                    })
+                    .await
+                    .unwrap_or_default();
+
+                    if refreshed.contains("googlevideo.com") {
+                        *task.upstream_url.lock() = refreshed;
+                        tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+                        continue;
+                    } else {
+                        *task.error.lock() = Some(format!("Failed past byte {}", cur_pos));
+                        task.notify.notify_waiters();
+                        break;
+                    }
                 } else {
+                    tokio::time::sleep(std::time::Duration::from_millis(500 * failures as u64)).await;
+                }
+            }
+            Err(e) => {
+                failures += 1;
+                crate::aethon_log!(
+                    "Upstream chunk network error '{}' at byte {}/{} for {}. (#{})",
+                    e,
+                    cur_pos,
+                    total_len,
+                    video_id,
+                    failures
+                );
+                if failures > 3 {
+                    *task.error.lock() = Some(format!("Failed past byte {}", cur_pos));
+                    task.notify.notify_waiters();
                     break;
                 }
+                tokio::time::sleep(std::time::Duration::from_millis(500 * failures as u64)).await;
             }
         }
     }
@@ -752,10 +783,10 @@ impl YouTubeService {
             if let Some(eq_idx) = url.rfind('=') {
                 let suffix = &url[eq_idx + 1..];
                 if suffix.starts_with('w') || suffix.starts_with('s') {
-                    return format!("{}=w1080-h1080-l90-rj", &url[..eq_idx]);
+                    return format!("{}=w544-h544-l90-rj", &url[..eq_idx]);
                 }
             }
-            return format!("{}=w1080-h1080-l90-rj", url);
+            return format!("{}=w544-h544-l90-rj", url);
         }
         if !video_id.is_empty() && (url.is_empty() || url.contains("default.jpg")) {
             return format!("https://i.ytimg.com/vi/{}/maxresdefault.jpg", video_id);
@@ -1026,13 +1057,8 @@ impl YouTubeService {
                                 if clen > 1_048_576 {
                                     let probe_start = clen.saturating_sub(64);
                                     let probe_end = clen.saturating_sub(33);
-                                    let probe_url = if upstream_url.contains('?') {
-                                        format!("{}&range={}-{}", upstream_url, probe_start, probe_end)
-                                    } else {
-                                        format!("{}?range={}-{}", upstream_url, probe_start, probe_end)
-                                    };
                                     let probe_res = http_client()
-                                        .get(&probe_url)
+                                        .get(&upstream_url)
                                         .header("User-Agent", ua)
                                         .header("Range", format!("bytes={}-{}", probe_start, probe_end))
                                         .send()
@@ -1052,13 +1078,8 @@ impl YouTubeService {
                             }
 
                             // Pre-buffer 64 KB (bytes=0-65535) directly into <video_id>.part so mpv gets audio bytes in 0 ms
-                            let prebuffer_url = if upstream_url.contains('?') {
-                                format!("{}&range=0-65535", upstream_url)
-                            } else {
-                                format!("{}?range=0-65535", upstream_url)
-                            };
                             let prebuffer_res = http_client()
-                                .get(&prebuffer_url)
+                                .get(&upstream_url)
                                 .header("User-Agent", ua)
                                 .header("Range", "bytes=0-65535")
                                 .send()

@@ -23,9 +23,24 @@
     invoke('window_close').catch(() => {});
   }
 
-  let canvasEl = $state<HTMLCanvasElement>();
+  const visualizerBars = Array.from({ length: 36 }, (_, i) => {
+    const centerFactor = 1 - Math.abs(i - 17.5) / 17.5;
+    const heightPercent = Math.max(20, Math.round((0.25 + 0.75 * centerFactor) * 100));
+    const animVariant = (i % 4) + 1;
+    const duration = (0.65 + (i % 7) * 0.1).toFixed(2);
+    const delay = ((i % 5) * 0.09).toFixed(2);
+    const opacity = (0.35 + centerFactor * 0.45).toFixed(2);
+    return {
+      id: i,
+      height: `${heightPercent}%`,
+      animClass: `anim-spectrum-${animVariant}`,
+      duration: `${duration}s`,
+      delay: `${delay}s`,
+      opacity,
+    };
+  });
+
   let lyricsContainerEl = $state<HTMLDivElement>();
-  let animId: number | null = null;
 
   let activeView = $state<'auto' | 'turntable' | 'lyrics'>('auto');
   let userIsScrolling = $state(false);
@@ -57,7 +72,7 @@
       playerState.currentTrack?.id?.startsWith('yt_')
         ? playerState.currentTrack.id.replace('yt_', '')
         : null,
-      1080
+      544
     );
   });
 
@@ -199,77 +214,7 @@
     }
   });
 
-  $effect(() => {
-    const canvas = canvasEl;
-    const open = playerState.isNowPlayingOpen;
-    const isPlaying = playerState.playback.is_playing;
-    if (!open || !canvas || !settingsState.spectrumVisualizer) {
-      if (animId !== null) {
-        cancelAnimationFrame(animId);
-        animId = null;
-      }
-      return;
-    }
-
-    const ctx = canvas.getContext('2d');
-    if (!ctx) return;
-
-    const bars = 36;
-    let phases = Array.from({ length: bars }, () => Math.random() * Math.PI * 2);
-
-    const drawFrame = (playing: boolean) => {
-      const w = canvas.width;
-      const h = canvas.height;
-      ctx.clearRect(0, 0, w, h);
-
-      const barWidth = w / bars - 3;
-
-      for (let i = 0; i < bars; i++) {
-        if (playing) {
-          phases[i] += 0.05 + (i % 5) * 0.015;
-        }
-        const centerFactor = 1 - Math.abs(i - bars / 2) / (bars / 2);
-        const amp = playing
-          ? (Math.sin(phases[i]) * 0.4 + 0.5) * centerFactor * h * 0.72 + 3
-          : 3;
-
-        const x = i * (barWidth + 3);
-        const y = (h - amp) / 2;
-
-        ctx.fillStyle = playerState.accentColor || '#d0bcff';
-        ctx.globalAlpha = playing ? 0.35 + centerFactor * 0.45 : 0.2;
-        ctx.beginPath();
-        ctx.roundRect(x, y, barWidth, amp, 2);
-        ctx.fill();
-      }
-    };
-
-    if (!isPlaying) {
-      if (animId !== null) {
-        cancelAnimationFrame(animId);
-        animId = null;
-      }
-      drawFrame(false); // Halt visualizer immediately when paused
-      return;
-    }
-
-    const render = () => {
-      drawFrame(true);
-      animId = requestAnimationFrame(render);
-    };
-
-    animId = requestAnimationFrame(render);
-
-    return () => {
-      if (animId !== null) {
-        cancelAnimationFrame(animId);
-        animId = null;
-      }
-    };
-  });
-
   onDestroy(() => {
-    if (animId !== null) cancelAnimationFrame(animId);
     if (scrollAnimId !== null) cancelAnimationFrame(scrollAnimId);
     if (scrollResumeTimeout) clearTimeout(scrollResumeTimeout);
   });
@@ -487,8 +432,22 @@
             </div>
 
             {#if settingsState.spectrumVisualizer}
-              <div class="w-full h-5 flex items-center justify-center">
-                <canvas bind:this={canvasEl} width="320" height="20" class="w-full h-full opacity-75"></canvas>
+              <div
+                class="w-full h-5 flex items-center justify-between gap-[3px] px-1 pointer-events-none overflow-hidden"
+                aria-hidden="true"
+              >
+                {#each visualizerBars as bar (bar.id)}
+                  <div
+                    class="spectrum-bar {bar.animClass} rounded-full"
+                    class:playing={playerState.playback.is_playing}
+                    style="
+                      height: {bar.height};
+                      animation-duration: {bar.duration};
+                      animation-delay: {bar.delay};
+                      opacity: {bar.opacity};
+                    "
+                  ></div>
+                {/each}
               </div>
             {/if}
 
@@ -874,5 +833,72 @@
   }
   .sheet-squircle-btn.is-playing {
     border-radius: 28%;
+  }
+
+  /* GPU-Accelerated Hardware Visualizer (zero CPU rasterization) */
+  .spectrum-bar {
+    flex: 1;
+    max-width: 6px;
+    min-width: 2px;
+    background-color: var(--artwork-glow, #d0bcff);
+    transform-origin: center;
+    will-change: transform;
+    transform: scaleY(0.2) translate3d(0, 0, 0);
+    transition: transform 0.35s cubic-bezier(0.2, 0.8, 0.2, 1);
+  }
+
+  .spectrum-bar.playing.anim-spectrum-1 {
+    animation: spectrumBounce1 infinite ease-in-out alternate;
+  }
+  .spectrum-bar.playing.anim-spectrum-2 {
+    animation: spectrumBounce2 infinite ease-in-out alternate;
+  }
+  .spectrum-bar.playing.anim-spectrum-3 {
+    animation: spectrumBounce3 infinite ease-in-out alternate;
+  }
+  .spectrum-bar.playing.anim-spectrum-4 {
+    animation: spectrumBounce4 infinite ease-in-out alternate;
+  }
+
+  @keyframes spectrumBounce1 {
+    0% {
+      transform: scaleY(0.18) translate3d(0, 0, 0);
+    }
+    100% {
+      transform: scaleY(1) translate3d(0, 0, 0);
+    }
+  }
+  @keyframes spectrumBounce2 {
+    0% {
+      transform: scaleY(0.26) translate3d(0, 0, 0);
+    }
+    50% {
+      transform: scaleY(0.58) translate3d(0, 0, 0);
+    }
+    100% {
+      transform: scaleY(0.92) translate3d(0, 0, 0);
+    }
+  }
+  @keyframes spectrumBounce3 {
+    0% {
+      transform: scaleY(0.15) translate3d(0, 0, 0);
+    }
+    40% {
+      transform: scaleY(0.85) translate3d(0, 0, 0);
+    }
+    100% {
+      transform: scaleY(0.38) translate3d(0, 0, 0);
+    }
+  }
+  @keyframes spectrumBounce4 {
+    0% {
+      transform: scaleY(0.22) translate3d(0, 0, 0);
+    }
+    60% {
+      transform: scaleY(0.96) translate3d(0, 0, 0);
+    }
+    100% {
+      transform: scaleY(0.28) translate3d(0, 0, 0);
+    }
   }
 </style>
