@@ -1784,20 +1784,20 @@ impl YouTubeService {
                 .await;
             }
 
-            if task.error.lock().is_none() && task.content_length.load(Ordering::Acquire) > 0 {
-                stream_cache().lock().insert(
-                    vid_owned,
-                    CachedStream {
-                        playable_url: proxy_url.clone(),
-                        upstream_url: resolved,
-                        content_length: Some(task.content_length.load(Ordering::Acquire)),
-                        mime_type: mime,
-                        user_agent: ua,
-                        expires_at: now_unix() + 14_400,
-                    },
-                );
-                return proxy_url;
-            }
+            let final_len = task.content_length.load(Ordering::Acquire);
+            let opt_len = if final_len > 0 { Some(final_len) } else if clen > 0 { Some(clen) } else { None };
+            stream_cache().lock().insert(
+                vid_owned,
+                CachedStream {
+                    playable_url: proxy_url.clone(),
+                    upstream_url: resolved,
+                    content_length: opt_len,
+                    mime_type: mime,
+                    user_agent: ua,
+                    expires_at: now_unix() + 14_400,
+                },
+            );
+            return proxy_url;
         }
 
         resolved
