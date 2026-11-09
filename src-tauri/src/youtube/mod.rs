@@ -340,7 +340,7 @@ async fn fetch_chunk_with_fallback(
     };
 
     let attempts: [(&str, bool); 2] = if is_mobile_client {
-        [(url_with_range.as_str(), true), (base_url, true)]
+        [(url_with_range.as_str(), false), (base_url, true)]
     } else {
         [(base_url, true), (url_with_range.as_str(), false)]
     };
@@ -1814,8 +1814,6 @@ impl YouTubeService {
             .arg("5")
             .arg("-f")
             .arg("251/140/bestaudio[ext=webm]/bestaudio/best")
-            .arg("--extractor-args")
-            .arg("youtube:player_client=tv,android_vr,mweb,web_safari")
             .arg("--")
             .arg(uri);
         crate::sanitize_host_command(&mut cmd);
@@ -1845,8 +1843,6 @@ impl YouTubeService {
                 .arg("5")
                 .arg("-f")
                 .arg("251/140/bestaudio/best")
-                .arg("--extractor-args")
-                .arg("youtube:player_client=tv,android_vr,mweb,web_safari")
                 .arg("--")
                 .arg(format!("ytsearch1:{}", query));
             crate::sanitize_host_command(&mut alt_cmd);
