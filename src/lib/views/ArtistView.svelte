@@ -15,16 +15,21 @@
   let artistTracks = $state<Track[]>([]);
   let albumTracks = $state<Track[]>([]);
   let liveVideoTracks = $state<Track[]>([]);
-  let isLoadingTracks = $state(true);
+  let isLoadingTracks = $state(false);
   let showAllSongs = $state(false);
+  let fetchSeq = 0;
   let isBuffering = $derived(playerState.isLoading || Boolean(playerState.playback.is_buffering));
 
   let artistName = $derived(playerState.selectedArtist || 'Artist');
 
   let localArtistTracks = $derived(
     playerState.library.filter((t) =>
-      t.artist.toLowerCase().includes(artistName.toLowerCase())
+      splitArtists(t.artist).some((a) => a.toLowerCase() === artistName.toLowerCase())
     )
+  );
+
+  let heroArtworkTrack = $derived(
+    artistTracks.find((t) => Boolean(t.cover_art)) || localArtistTracks.find((t) => Boolean(t.cover_art))
   );
 
   // Derive collaborating / similar artists from the artist's catalog
@@ -35,7 +40,7 @@
       const parts = splitArtists(t.artist);
       for (const p of parts) {
         const lower = p.toLowerCase();
-        if (p && !seen.has(lower) && lower !== 'unknown artist') {
+        if (p && !seen.has(lower) && lower !== 'unknown artist' && lower !== 'various artists') {
           seen.add(lower);
           list.push({ name: p, avatar: t.cover_art || '', id: t.id });
         }
@@ -48,18 +53,22 @@
 
   let lastFetchedArtist = '';
   $effect(() => {
-    if (playerState.selectedArtist && playerState.selectedArtist !== lastFetchedArtist) {
+    if (!playerState.selectedArtist) {
+      isLoadingTracks = false;
+      return;
+    }
+    if (playerState.selectedArtist !== lastFetchedArtist) {
       lastFetchedArtist = playerState.selectedArtist;
       showAllSongs = false;
-      fetchArtistData();
+      fetchArtistData(playerState.selectedArtist);
     }
   });
 
-  function ytToTrack(yt: YouTubeTrack, albumLabel: string): Track {
+  function ytToTrack(yt: YouTubeTrack, albumLabel: string, fallbackArtist: string): Track {
     return {
       id: `yt_${yt.id}`,
       title: yt.title,
-      artist: sanitizeArtist(yt.artist) || artistName,
+      artist: sanitizeArtist(yt.artist) || fallbackArtist,
       album: albumLabel,
       duration: yt.duration || 0,
       file_path: yt.stream_url,
@@ -71,26 +80,32 @@
     };
   }
 
-  async function fetchArtistData() {
+  async function fetchArtistData(targetArtist: string) {
+    const seq = ++fetchSeq;
+    artistTracks = [];
+    albumTracks = [];
+    liveVideoTracks = [];
     isLoadingTracks = true;
     try {
       const [songsRes, albumsRes, videosRes] = await Promise.all([
         invoke<YouTubeTrack[]>('search_youtube', {
-          query: `${artistName} popular songs`,
+          query: `${targetArtist} popular songs`,
           limit: 45,
         }).catch(() => []),
         invoke<YouTubeTrack[]>('search_youtube', {
-          query: `${artistName} album singles`,
+          query: `${targetArtist} album singles`,
           limit: 16,
         }).catch(() => []),
         invoke<YouTubeTrack[]>('search_youtube', {
-          query: `${artistName} official music video live`,
+          query: `${targetArtist} official music video live`,
           limit: 12,
         }).catch(() => []),
       ]);
 
+      if (seq !== fetchSeq) return;
+
       if (songsRes && songsRes.length > 0) {
-        artistTracks = songsRes.map((yt) => ytToTrack(yt, artistName));
+        artistTracks = songsRes.map((yt) => ytToTrack(yt, targetArtist, targetArtist));
       } else {
         artistTracks = localArtistTracks;
       }
@@ -99,27 +114,35 @@
       if (albumsRes && albumsRes.length > 0) {
         albumTracks = albumsRes
           .filter((yt) => !songIds.has(`yt_${yt.id}`))
-          .map((yt) => ytToTrack(yt, `${artistName} • Releases`));
+          .map((yt) => ytToTrack(yt, `${targetArtist} • Releases`, targetArtist));
       } else {
         albumTracks = artistTracks.slice(6, 16);
       }
 
       if (videosRes && videosRes.length > 0) {
         liveVideoTracks = videosRes
-          .map((yt) => ytToTrack(yt, `${artistName} • Videos`))
+          .map((yt) => ytToTrack(yt, `${targetArtist} • Videos`, targetArtist))
           .slice(0, 10);
       }
     } catch {
-      artistTracks = localArtistTracks;
+      if (seq === fetchSeq) {
+        artistTracks = localArtistTracks;
+      }
     } finally {
-      isLoadingTracks = false;
+      if (seq === fetchSeq) {
+        isLoadingTracks = false;
+      }
     }
   }
 
   function handleShuffleAll() {
     const list = artistTracks.length > 0 ? artistTracks : localArtistTracks;
     if (list.length > 0) {
-      const shuffled = [...list].sort(() => Math.random() - 0.5);
+      const shuffled = [...list];
+      for (let i = shuffled.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
+      }
       playerState.queue = shuffled.slice(1);
       playerState.playTrack(shuffled[0]);
     }
@@ -160,12 +183,12 @@
   <!-- ArchiveTune Artist Hero Header -->
   <div class="p-6 sm:p-8 rounded-3xl m3-acrylic-card border border-white/[0.08] flex flex-col sm:flex-row items-center gap-6 relative overflow-hidden">
     <div class="w-28 h-28 sm:w-36 sm:h-36 rounded-full overflow-hidden shadow-2xl ring-2 ring-white/15 shrink-0 bg-white/5">
-      {#if artistTracks[0]?.cover_art}
+      {#if heroArtworkTrack?.cover_art}
         <img
-          src={getHighResArtwork(artistTracks[0].cover_art, artistTracks[0].id)}
+          src={getHighResArtwork(heroArtworkTrack.cover_art, heroArtworkTrack.id)}
           alt={artistName}
-          onload={(e) => handleThumbnailLoad(e, artistTracks[0]?.id)}
-          onerror={(e) => handleThumbnailError(e, artistTracks[0]?.id)}
+          onload={(e) => handleThumbnailLoad(e, heroArtworkTrack?.id)}
+          onerror={(e) => handleThumbnailError(e, heroArtworkTrack?.id)}
           class="w-full h-full object-cover"
         />
       {:else}
@@ -175,14 +198,18 @@
       {/if}
     </div>
 
-    <div class="flex-1 text-center sm:text-left space-y-3 min-w-0">
+    <div class="w-full sm:w-auto flex-1 text-center sm:text-left space-y-3 min-w-0">
       <div>
         <span class="text-[10px] font-bold uppercase tracking-wider text-[var(--md-sys-primary)]">Artist</span>
         <h1 class="text-2xl sm:text-4xl font-bold text-white tracking-tight font-display truncate mt-0.5">
           {artistName}
         </h1>
         <p class="text-xs text-white/50 mt-1">
-          {artistTracks.length} songs available in catalog
+          {#if isLoadingTracks}
+            Loading artist catalog…
+          {:else}
+            {artistTracks.length} {artistTracks.length === 1 ? 'song' : 'songs'} available in catalog
+          {/if}
         </p>
       </div>
 
@@ -190,8 +217,9 @@
       <div class="flex items-center justify-center sm:justify-start gap-2.5 pt-1">
         <button
           type="button"
+          disabled={isLoadingTracks || (artistTracks.length === 0 && localArtistTracks.length === 0)}
           onclick={handleShuffleAll}
-          class="flex items-center gap-1.5 px-5 py-2.5 rounded-full bg-[var(--md-sys-primary)] text-[var(--md-sys-on-primary)] text-xs font-semibold hover:scale-105 cursor-pointer transition-transform shadow-md"
+          class="flex items-center gap-1.5 px-5 py-2.5 rounded-full bg-[var(--md-sys-primary)] text-[var(--md-sys-on-primary)] text-xs font-semibold hover:scale-105 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer transition-transform shadow-md"
         >
           <span class="material-symbols-rounded text-base">shuffle</span>
           <span>Shuffle</span>
@@ -199,8 +227,9 @@
 
         <button
           type="button"
+          disabled={isLoadingTracks || (artistTracks.length === 0 && localArtistTracks.length === 0)}
           onclick={handleStartRadio}
-          class="flex items-center gap-1.5 px-5 py-2.5 rounded-full bg-white/[0.08] hover:bg-white/[0.15] border border-white/10 text-white text-xs font-semibold cursor-pointer transition-colors"
+          class="flex items-center gap-1.5 px-5 py-2.5 rounded-full bg-white/[0.08] hover:bg-white/[0.15] disabled:opacity-40 disabled:cursor-not-allowed border border-white/10 text-white text-xs font-semibold cursor-pointer transition-colors"
         >
           <span class="material-symbols-rounded text-base">radio</span>
           <span>Radio</span>
@@ -211,8 +240,8 @@
 
   <!-- 1. ArchiveTune "Songs" Section with "Show all" Expansion (No 10-Song Cutoff!) -->
   <section class="space-y-3">
-    <div class="flex items-center justify-between px-1">
-      <h2 class="font-display font-bold text-lg sm:text-xl text-white">Songs</h2>
+    <div class="flex items-center justify-between px-0.5">
+      <h2 class="font-display font-bold text-lg sm:text-xl text-white tracking-tight">Songs</h2>
       {#if artistTracks.length > 6}
         <button
           type="button"
@@ -230,6 +259,11 @@
           <div class="h-14 rounded-2xl bg-white/[0.04] animate-pulse"></div>
         {/each}
       </div>
+    {:else if artistTracks.length === 0}
+      <div class="py-12 text-center rounded-2xl bg-white/[0.02] border border-white/[0.05] space-y-1.5">
+        <span class="material-symbols-rounded text-3xl text-white/25">music_off</span>
+        <p class="text-xs font-medium text-white/55">No songs found for {artistName}</p>
+      </div>
     {:else}
       <div class="divide-y divide-white/[0.04] rounded-2xl bg-white/[0.02] border border-white/[0.05] overflow-hidden">
         {#each showAllSongs ? artistTracks : artistTracks.slice(0, 6) as track, idx (track.id)}
@@ -243,36 +277,48 @@
               playerState.openContextMenu(track, e.clientX, e.clientY);
             }}
             onkeydown={(e) => {
-              if (e.key === 'Enter') playerState.playTrack(track);
+              if (e.target === e.currentTarget && (e.key === 'Enter' || e.key === ' ')) {
+                e.preventDefault();
+                playerState.playTrack(track);
+              }
             }}
-            class="h-14 flex items-center justify-between px-3.5 {isCurrent
-              ? 'bg-[var(--md-sys-primary-container)]/35'
-              : 'hover:bg-white/[0.05]'} transition-colors cursor-pointer group overflow-hidden"
+            class="h-14 flex items-center justify-between px-3.5 transition-colors cursor-pointer group overflow-hidden {isCurrent ? '' : 'hover:bg-white/[0.05]'}"
+            style={isCurrent ? 'background-color: color-mix(in srgb, var(--md-sys-primary-container) 35%, transparent); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--md-sys-primary) 35%, transparent);' : ''}
           >
             <div class="flex items-center gap-3.5 min-w-0 flex-1 pr-3">
               <span class="w-5 text-center text-xs font-mono text-white/35 shrink-0">
                 {idx + 1}
               </span>
-              <div class="relative w-10 h-10 rounded-lg overflow-hidden bg-white/5 shrink-0">
-                <img
-                  loading="lazy"
-                  decoding="async"
-                  src={getHighResArtwork(track.cover_art, track.id)}
-                  alt={track.title}
-                  onload={(e) => handleThumbnailLoad(e, track.id)}
-                  onerror={(e) => handleThumbnailError(e, track.id)}
-                  class="w-full h-full object-cover"
-                />
+              <div class="relative w-10 h-10 rounded-xl overflow-hidden bg-white/5 shrink-0">
+                {#if track.cover_art}
+                  <img
+                    loading="lazy"
+                    decoding="async"
+                    src={getHighResArtwork(track.cover_art, track.id)}
+                    alt={track.title}
+                    onload={(e) => handleThumbnailLoad(e, track.id)}
+                    onerror={(e) => handleThumbnailError(e, track.id)}
+                    class="w-full h-full object-cover"
+                  />
+                {:else}
+                  <div class="w-full h-full flex items-center justify-center text-white/30">
+                    <span class="material-symbols-rounded text-lg">music_note</span>
+                  </div>
+                {/if}
                 <div class="absolute inset-0 bg-black/50 {isCurrent ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'} flex items-center justify-center transition-opacity">
                   {#if isCurrent && isBuffering}
                     <svg class="w-4 h-4 archivetune-spinner-svg text-[var(--md-sys-primary)]" viewBox="0 0 36 36" fill="none">
                       <circle cx="18" cy="18" r="14" stroke="currentColor" stroke-opacity="0.2" stroke-width="3.2" />
                       <circle class="archivetune-spinner-arc" cx="18" cy="18" r="14" stroke="currentColor" stroke-width="3.2" stroke-linecap="round" />
                     </svg>
+                  {:else if isCurrent && playerState.playback.is_playing}
+                    <div class="flex items-end gap-[2px] h-3.5">
+                      <span class="w-[2.5px] h-full bg-[var(--md-sys-primary)] rounded-full animate-eq-1"></span>
+                      <span class="w-[2.5px] h-full bg-[var(--md-sys-primary)] rounded-full animate-eq-2"></span>
+                      <span class="w-[2.5px] h-full bg-[var(--md-sys-primary)] rounded-full animate-eq-3"></span>
+                    </div>
                   {:else}
-                    <span class="material-symbols-rounded text-white text-lg filled">
-                      {isCurrent && playerState.playback.is_playing ? 'equalizer' : 'play_arrow'}
-                    </span>
+                    <span class="material-symbols-rounded text-white text-lg filled">play_arrow</span>
                   {/if}
                 </div>
               </div>
@@ -291,7 +337,7 @@
 
             <div class="flex items-center gap-2 shrink-0">
               {#if track.duration > 0}
-                <span class="font-mono text-[11px] text-white/40">
+                <span class="font-mono text-[11px] text-white/40 group-hover:hidden group-focus-within:hidden">
                   {formatDuration(track.duration)}
                 </span>
               {/if}
@@ -301,7 +347,8 @@
                   e.stopPropagation();
                   playerState.openContextMenu(track, e.clientX, e.clientY);
                 }}
-                class="w-7 h-7 rounded-full flex items-center justify-center text-white/40 hover:text-white hover:bg-white/10 transition opacity-0 group-hover:opacity-100 cursor-pointer"
+                class="w-7 h-7 rounded-full hidden group-hover:flex group-focus-within:flex items-center justify-center text-white/50 hover:text-white hover:bg-white/10 transition-colors cursor-pointer"
+                aria-label="More options"
                 title="More options"
               >
                 <span class="material-symbols-rounded text-base">more_vert</span>
@@ -316,9 +363,10 @@
   <!-- 2. ArchiveTune "Albums & Singles" Horizontal Shelf -->
   {#if albumTracks.length > 0}
     <section class="space-y-3">
-      <h2 class="font-display font-bold text-lg sm:text-xl text-white px-1">Albums & Singles</h2>
+      <h2 class="font-display font-bold text-lg sm:text-xl text-white px-0.5 tracking-tight">Albums & Singles</h2>
       <div class="flex items-start gap-4 overflow-x-auto scrollbar-none pb-2 -mx-6 px-6">
         {#each albumTracks as track (track.id)}
+          {@const isCurrent = playerState.currentTrack?.id === track.id}
           <div
             role="button"
             tabindex="0"
@@ -328,11 +376,14 @@
               playerState.openContextMenu(track, e.clientX, e.clientY);
             }}
             onkeydown={(e) => {
-              if (e.key === 'Enter') playerState.playTrack(track);
+              if (e.target === e.currentTarget && (e.key === 'Enter' || e.key === ' ')) {
+                e.preventDefault();
+                playerState.playTrack(track);
+              }
             }}
             class="w-36 sm:w-40 shrink-0 group cursor-pointer space-y-2"
           >
-            <div class="relative aspect-square rounded-2xl overflow-hidden bg-white/5 shadow-md ring-1 ring-white/[0.07]">
+            <div class="relative aspect-square rounded-2xl overflow-hidden bg-white/5 shadow-md ring-1 {isCurrent ? 'ring-[var(--md-sys-primary)]' : 'ring-white/[0.07]'}">
               {#if track.cover_art}
                 <img
                   loading="lazy"
@@ -343,15 +394,21 @@
                   onerror={(e) => handleThumbnailError(e, track.id)}
                   class="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
                 />
+              {:else}
+                <div class="w-full h-full flex items-center justify-center text-white/30">
+                  <span class="material-symbols-rounded text-3xl">album</span>
+                </div>
               {/if}
-              <div class="absolute inset-0 bg-black/30 opacity-0 group-hover:opacity-100 flex items-end justify-end p-2.5 transition-opacity">
+              <div class="absolute inset-0 bg-black/30 {isCurrent ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'} flex items-end justify-end p-2.5 transition-opacity">
                 <div class="w-9 h-9 rounded-full bg-[var(--md-sys-primary)] text-[var(--md-sys-on-primary)] flex items-center justify-center shadow-lg">
-                  <span class="material-symbols-rounded text-xl filled">play_arrow</span>
+                  <span class="material-symbols-rounded text-xl filled">
+                    {isCurrent && playerState.playback.is_playing ? 'equalizer' : 'play_arrow'}
+                  </span>
                 </div>
               </div>
             </div>
             <div class="px-0.5 overflow-hidden">
-              <p class="text-xs font-semibold text-white truncate block w-full">{track.title}</p>
+              <p class="text-xs font-semibold {isCurrent ? 'text-[var(--md-sys-primary)]' : 'text-white'} truncate block w-full">{track.title}</p>
               <ArtistLinks
                 artist={track.artist}
                 class="text-[11px] text-white/50 mt-0.5"
@@ -367,9 +424,10 @@
   <!-- 3. ArchiveTune "Videos & Live Performances" Shelf -->
   {#if liveVideoTracks.length > 0}
     <section class="space-y-3">
-      <h2 class="font-display font-bold text-lg sm:text-xl text-white px-1">Videos & Live</h2>
+      <h2 class="font-display font-bold text-lg sm:text-xl text-white px-0.5 tracking-tight">Videos & Live</h2>
       <div class="flex items-start gap-4 overflow-x-auto scrollbar-none pb-2 -mx-6 px-6">
         {#each liveVideoTracks as track (track.id)}
+          {@const isCurrent = playerState.currentTrack?.id === track.id}
           <div
             role="button"
             tabindex="0"
@@ -379,11 +437,14 @@
               playerState.openContextMenu(track, e.clientX, e.clientY);
             }}
             onkeydown={(e) => {
-              if (e.key === 'Enter') playerState.playTrack(track);
+              if (e.target === e.currentTarget && (e.key === 'Enter' || e.key === ' ')) {
+                e.preventDefault();
+                playerState.playTrack(track);
+              }
             }}
-            class="w-44 sm:w-52 shrink-0 group cursor-pointer space-y-2"
+            class="w-36 sm:w-44 shrink-0 group cursor-pointer space-y-2"
           >
-            <div class="relative aspect-video rounded-2xl overflow-hidden bg-white/5 shadow-md ring-1 ring-white/[0.07]">
+            <div class="relative aspect-square rounded-2xl overflow-hidden bg-white/5 shadow-md ring-1 {isCurrent ? 'ring-[var(--md-sys-primary)]' : 'ring-white/[0.07]'}">
               {#if track.cover_art}
                 <img
                   loading="lazy"
@@ -394,15 +455,21 @@
                   onerror={(e) => handleThumbnailError(e, track.id)}
                   class="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
                 />
+              {:else}
+                <div class="w-full h-full flex items-center justify-center text-white/30">
+                  <span class="material-symbols-rounded text-3xl">smart_display</span>
+                </div>
               {/if}
-              <div class="absolute inset-0 bg-black/35 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity">
+              <div class="absolute inset-0 bg-black/35 {isCurrent ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'} flex items-center justify-center transition-opacity">
                 <div class="w-10 h-10 rounded-full bg-[var(--md-sys-primary)] text-[var(--md-sys-on-primary)] flex items-center justify-center shadow-lg">
-                  <span class="material-symbols-rounded text-xl filled">play_arrow</span>
+                  <span class="material-symbols-rounded text-xl filled">
+                    {isCurrent && playerState.playback.is_playing ? 'equalizer' : 'play_arrow'}
+                  </span>
                 </div>
               </div>
             </div>
             <div class="px-0.5 overflow-hidden">
-              <p class="text-xs font-semibold text-white truncate block w-full">{track.title}</p>
+              <p class="text-xs font-semibold {isCurrent ? 'text-[var(--md-sys-primary)]' : 'text-white'} truncate block w-full">{track.title}</p>
               <p class="text-[11px] text-white/50 truncate block w-full mt-0.5">{formatDuration(track.duration) || artistName}</p>
             </div>
           </div>
@@ -414,15 +481,15 @@
   <!-- 4. ArchiveTune "Fans might also like" Similar Artists Row -->
   {#if similarArtists.length > 0}
     <section class="space-y-3">
-      <h2 class="font-display font-bold text-lg sm:text-xl text-white px-1">Fans might also like</h2>
-      <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-6 gap-3.5">
+      <h2 class="font-display font-bold text-lg sm:text-xl text-white px-0.5 tracking-tight">Fans might also like</h2>
+      <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-3.5">
         {#each similarArtists as sim}
           <button
             type="button"
             onclick={() => playerState.openArtist(sim.name)}
-            class="p-3.5 rounded-2xl bg-white/[0.02] hover:bg-white/[0.06] border border-white/[0.05] flex flex-col items-center text-center gap-2.5 transition-all cursor-pointer group"
+            class="p-3.5 rounded-2xl bg-white/[0.02] hover:bg-white/[0.06] border border-white/[0.05] flex flex-col items-center text-center gap-2.5 transition-colors cursor-pointer group"
           >
-            <div class="w-16 h-16 rounded-full overflow-hidden bg-white/5 shadow-md">
+            <div class="w-16 h-16 rounded-full overflow-hidden bg-white/5 shadow-md flex items-center justify-center">
               {#if sim.avatar}
                 <img
                   loading="lazy"
@@ -431,8 +498,10 @@
                   alt={sim.name}
                   onload={(e) => handleThumbnailLoad(e, sim.id)}
                   onerror={(e) => handleThumbnailError(e, sim.id)}
-                  class="w-16 h-16 rounded-full object-cover group-hover:scale-105 transition-transform"
+                  class="w-full h-full object-cover group-hover:scale-105 transition-transform"
                 />
+              {:else}
+                <span class="material-symbols-rounded text-2xl text-white/30">person</span>
               {/if}
             </div>
             <span class="text-xs font-semibold text-white truncate w-full">{sim.name}</span>

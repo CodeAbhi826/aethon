@@ -868,6 +868,10 @@ impl YouTubeService {
         }
     }
 
+    pub fn clear_memory_stream_cache() {
+        stream_cache().lock().clear();
+    }
+
     pub fn upgrade_thumbnail_url(url: &str, video_id: &str) -> String {
         let trimmed = url.trim();
         if trimmed.contains("googleusercontent.com") || trimmed.contains("ggpht.com") {

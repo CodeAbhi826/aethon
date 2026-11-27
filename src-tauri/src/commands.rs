@@ -161,7 +161,18 @@ pub async fn scan_library(
     state: State<'_, AppState>,
 ) -> Result<Vec<Track>, String> {
     crate::aethon_log!("scan_library: path={:?}", path);
-    let p = path.map(std::path::PathBuf::from);
+    let p = path.map(|raw| {
+        let trimmed = raw.trim();
+        if trimmed == "~" {
+            dirs::home_dir().unwrap_or_else(|| PathBuf::from(trimmed))
+        } else if let Some(rest) = trimmed.strip_prefix("~/") {
+            dirs::home_dir()
+                .map(|h| h.join(rest))
+                .unwrap_or_else(|| PathBuf::from(trimmed))
+        } else {
+            PathBuf::from(trimmed)
+        }
+    });
     let db = Arc::clone(&state.db);
     let tracks = tokio::task::spawn_blocking(move || Scanner::scan_directory(p, &db))
         .await
@@ -177,8 +188,15 @@ pub fn get_library_tracks(state: State<'_, AppState>) -> Result<Vec<Track>, Stri
 }
 
 #[tauri::command]
-pub fn toggle_favorite(track_id: String, state: State<'_, AppState>) -> Result<bool, String> {
+pub fn toggle_favorite(
+    track_id: String,
+    track: Option<Track>,
+    state: State<'_, AppState>,
+) -> Result<bool, String> {
     crate::aethon_log!("toggle_favorite: track_id={}", track_id);
+    if let Some(t) = track {
+        let _ = state.db.upsert_track(&t);
+    }
     state
         .db
         .toggle_favorite(&track_id)
@@ -403,6 +421,7 @@ pub fn get_stream_cache_size() -> Result<u64, String> {
 
 #[tauri::command]
 pub fn clear_stream_cache() -> Result<u64, String> {
+    YouTubeService::clear_memory_stream_cache();
     let cache_dir = dirs::cache_dir()
         .unwrap_or_else(|| PathBuf::from("."))
         .join("aethon")
@@ -413,6 +432,41 @@ pub fn clear_stream_cache() -> Result<u64, String> {
     let freed_bytes = remove_dir_contents(&cache_dir);
     crate::aethon_log!("clear_stream_cache: freed {} bytes", freed_bytes);
     Ok(freed_bytes)
+}
+
+#[tauri::command]
+pub fn get_cached_video_ids() -> Result<Vec<String>, String> {
+    let cache_dir = dirs::cache_dir()
+        .unwrap_or_else(|| PathBuf::from("."))
+        .join("aethon")
+        .join("streams");
+    if !cache_dir.exists() {
+        return Ok(Vec::new());
+    }
+    let mut ids = Vec::new();
+    if let Ok(entries) = std::fs::read_dir(&cache_dir) {
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.is_file() {
+                if let Some(ext) = path.extension().and_then(|e| e.to_str()) {
+                    if matches!(ext, "webm" | "m4a" | "opus") {
+                        if let Some(stem) = path.file_stem().and_then(|s| s.to_str()) {
+                            ids.push(stem.to_string());
+                        }
+                    }
+                }
+            }
+        }
+    }
+    Ok(ids)
+}
+
+#[tauri::command]
+pub fn get_listening_stats(since_epoch: i64, state: State<'_, AppState>) -> Result<Vec<Track>, String> {
+    state
+        .db
+        .get_listening_stats(since_epoch)
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -472,9 +526,13 @@ pub fn get_playlists(state: State<'_, AppState>) -> Result<Vec<Playlist>, String
 pub fn add_to_playlist(
     playlist_id: String,
     track_id: String,
+    track: Option<Track>,
     state: State<'_, AppState>,
 ) -> Result<(), String> {
     crate::aethon_log!("add_to_playlist: pl='{}', track='{}'", playlist_id, track_id);
+    if let Some(t) = track {
+        let _ = state.db.upsert_track(&t);
+    }
     state
         .db
         .add_to_playlist(&playlist_id, &track_id)

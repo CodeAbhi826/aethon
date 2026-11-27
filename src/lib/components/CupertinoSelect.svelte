@@ -30,7 +30,9 @@
 
   let isOpen = $state(false);
   let openUpward = $state(false);
+  let highlightedIndex = $state(-1);
   let containerEl = $state<HTMLDivElement>();
+  let triggerEl = $state<HTMLButtonElement>();
   let popoverEl = $state<HTMLDivElement>();
 
   let selectedOption = $derived(
@@ -40,23 +42,27 @@
   function checkDirection() {
     if (containerEl) {
       const rect = containerEl.getBoundingClientRect();
-      const spaceBelow = window.innerHeight - rect.bottom;
-      openUpward = spaceBelow < 260 && rect.top > 260;
+      const spaceBelow = window.innerHeight - rect.bottom - 88; // account for BottomPlayer height
+      openUpward = spaceBelow < 240 && rect.top > 260;
     }
   }
 
-  async function toggleOpen(e: MouseEvent) {
+  async function openMenu() {
+    checkDirection();
+    const curIdx = options.findIndex((o) => o.value === value);
+    highlightedIndex = curIdx >= 0 ? curIdx : 0;
+    isOpen = true;
+    await tick();
+    if (popoverEl) {
+      const selected = popoverEl.querySelector('[aria-selected="true"]') as HTMLElement;
+      selected?.scrollIntoView({ block: 'nearest' });
+    }
+  }
+
+  async function toggleOpen() {
     if (disabled) return;
     if (!isOpen) {
-      checkDirection();
-      isOpen = true;
-      await tick();
-      if (popoverEl) {
-        const selected = popoverEl.querySelector('[aria-selected="true"]') as HTMLElement;
-        if (selected) {
-          selected.scrollIntoView({ block: 'nearest' });
-        }
-      }
+      await openMenu();
     } else {
       isOpen = false;
     }
@@ -67,36 +73,40 @@
     value = opt.value;
     isOpen = false;
     onchange?.(opt.value);
+    triggerEl?.focus();
   }
 
   function handleKeyDown(e: KeyboardEvent) {
     if (disabled) return;
     if (e.key === 'Escape') {
-      isOpen = false;
+      if (isOpen) {
+        e.preventDefault();
+        e.stopPropagation();
+        isOpen = false;
+        triggerEl?.focus();
+      }
     } else if (e.key === 'ArrowDown') {
       e.preventDefault();
       if (!isOpen) {
-        checkDirection();
-        isOpen = true;
-      } else {
-        const curIdx = options.findIndex((o) => o.value === value);
-        if (curIdx < options.length - 1) {
-          selectOption(options[curIdx + 1]);
-        }
+        openMenu();
+      } else if (options.length > 0) {
+        highlightedIndex = (highlightedIndex + 1) % options.length;
+        const btns = popoverEl?.querySelectorAll<HTMLElement>('[role="option"]');
+        btns?.[highlightedIndex]?.scrollIntoView({ block: 'nearest' });
       }
     } else if (e.key === 'ArrowUp') {
       e.preventDefault();
-      if (isOpen) {
-        const curIdx = options.findIndex((o) => o.value === value);
-        if (curIdx > 0) {
-          selectOption(options[curIdx - 1]);
-        }
+      if (!isOpen) {
+        openMenu();
+      } else if (options.length > 0) {
+        highlightedIndex = (highlightedIndex - 1 + options.length) % options.length;
+        const btns = popoverEl?.querySelectorAll<HTMLElement>('[role="option"]');
+        btns?.[highlightedIndex]?.scrollIntoView({ block: 'nearest' });
       }
-    } else if (e.key === 'Enter' || e.key === ' ') {
-      if (isOpen) {
-        e.preventDefault();
-        isOpen = false;
-      }
+    } else if ((e.key === 'Enter' || e.key === ' ') && isOpen) {
+      e.preventDefault();
+      const target = options[highlightedIndex];
+      if (target) selectOption(target);
     }
   }
 
@@ -139,12 +149,15 @@
     <!-- Dropdown Trigger Button -->
     <div class="relative shrink-0">
       <button
+        bind:this={triggerEl}
         type="button"
         onclick={toggleOpen}
         aria-haspopup="listbox"
         aria-expanded={isOpen}
+        aria-label={label || 'Select option'}
         {disabled}
-        class="flex items-center justify-between gap-2.5 px-3.5 py-2 rounded-xl text-xs font-semibold text-white bg-[#181422]/90 hover:bg-[#201a2e]/95 border border-white/10 hover:border-[var(--md-sys-primary)]/60 focus:border-[var(--md-sys-primary)] focus:ring-2 focus:ring-[var(--md-sys-primary)]/30 transition-all shadow-sm cursor-pointer select-none"
+        class="flex items-center justify-between gap-2.5 px-3.5 py-2 rounded-xl text-xs font-semibold text-[var(--md-sys-on-surface)] border border-white/10 hover:border-white/25 focus:outline-none focus-visible:outline-2 focus-visible:outline-offset-2 transition-colors shadow-sm cursor-pointer select-none"
+        style="background-color: var(--md-sys-surface-container-low, #181422); outline-color: var(--md-sys-primary);"
       >
         <span class="truncate max-w-[180px]">{selectedOption?.label ?? 'Select...'}</span>
         <span
@@ -158,17 +171,19 @@
       {#if isOpen}
         <div
           bind:this={popoverEl}
-          class="absolute right-0 {openUpward ? 'bottom-full mb-2' : 'top-full mt-2'} w-64 max-h-60 overflow-y-auto z-50 rounded-2xl bg-[#1c1726] border border-white/15 p-1.5 shadow-2xl space-y-1 animate-dropdown scrollbar-none"
+          class="absolute right-0 {openUpward ? 'bottom-full mb-2' : 'top-full mt-2'} w-64 max-h-60 overflow-y-auto z-50 rounded-2xl border border-white/15 p-1.5 shadow-2xl space-y-1 animate-dropdown scrollbar-none"
+          style="background-color: var(--md-sys-surface-container-high, #1c1726);"
           role="listbox"
         >
-          {#each options as opt}
+          {#each options as opt, optIdx}
             {@const isSelected = opt.value === value}
+            {@const isHighlighted = optIdx === highlightedIndex}
             <button
               type="button"
               role="option"
               aria-selected={isSelected}
               onclick={(e) => { e.stopPropagation(); selectOption(opt); }}
-              class="w-full flex items-center justify-between gap-3 px-3 py-2 rounded-xl text-xs text-left transition-all {isSelected ? 'bg-[var(--md-sys-primary-container)] text-[var(--md-sys-on-primary-container)] font-semibold shadow-sm' : 'text-white/80 hover:text-white hover:bg-white/[0.08]'}"
+              class="w-full flex items-center justify-between gap-3 px-3 py-2 rounded-xl text-xs text-left transition-colors cursor-pointer {isSelected ? 'bg-[var(--md-sys-primary-container)] text-[var(--md-sys-on-primary-container)] font-semibold shadow-sm' : isHighlighted ? 'bg-white/[0.1] text-white' : 'text-white/80 hover:text-white hover:bg-white/[0.08]'}"
             >
               <div class="flex flex-col min-w-0 flex-1">
                 <span class="truncate {isSelected ? 'text-[var(--md-sys-on-primary-container)]' : 'text-white'}">{opt.label}</span>
@@ -194,12 +209,15 @@
     role="presentation"
   >
     <button
+      bind:this={triggerEl}
       type="button"
       onclick={toggleOpen}
       aria-haspopup="listbox"
       aria-expanded={isOpen}
+      aria-label={label || 'Select option'}
       {disabled}
-      class="flex items-center justify-between gap-2.5 px-3.5 py-2 rounded-xl text-xs font-semibold text-white bg-[#181422]/90 hover:bg-[#201a2e]/95 border border-white/10 hover:border-[var(--md-sys-primary)]/60 focus:border-[var(--md-sys-primary)] focus:ring-2 focus:ring-[var(--md-sys-primary)]/30 transition-all shadow-sm cursor-pointer select-none"
+      class="flex items-center justify-between gap-2.5 px-3.5 py-2 rounded-xl text-xs font-semibold text-[var(--md-sys-on-surface)] border border-white/10 hover:border-white/25 focus:outline-none focus-visible:outline-2 focus-visible:outline-offset-2 transition-colors shadow-sm cursor-pointer select-none"
+      style="background-color: var(--md-sys-surface-container-low, #181422); outline-color: var(--md-sys-primary);"
     >
       <span class="truncate max-w-[180px]">{selectedOption?.label ?? 'Select...'}</span>
       <span
@@ -212,17 +230,19 @@
     {#if isOpen}
       <div
         bind:this={popoverEl}
-        class="absolute right-0 {openUpward ? 'bottom-full mb-2' : 'top-full mt-2'} w-64 max-h-60 overflow-y-auto z-50 rounded-2xl bg-[#1c1726] border border-white/15 p-1.5 shadow-2xl space-y-1 animate-dropdown scrollbar-none"
+        class="absolute right-0 {openUpward ? 'bottom-full mb-2' : 'top-full mt-2'} w-64 max-h-60 overflow-y-auto z-50 rounded-2xl border border-white/15 p-1.5 shadow-2xl space-y-1 animate-dropdown scrollbar-none"
+        style="background-color: var(--md-sys-surface-container-high, #1c1726);"
         role="listbox"
       >
-        {#each options as opt}
+        {#each options as opt, optIdx}
           {@const isSelected = opt.value === value}
+          {@const isHighlighted = optIdx === highlightedIndex}
           <button
             type="button"
             role="option"
             aria-selected={isSelected}
             onclick={(e) => { e.stopPropagation(); selectOption(opt); }}
-            class="w-full flex items-center justify-between gap-3 px-3 py-2 rounded-xl text-xs text-left transition-all {isSelected ? 'bg-[var(--md-sys-primary-container)] text-[var(--md-sys-on-primary-container)] font-semibold shadow-sm' : 'text-white/80 hover:text-white hover:bg-white/[0.08]'}"
+            class="w-full flex items-center justify-between gap-3 px-3 py-2 rounded-xl text-xs text-left transition-colors cursor-pointer {isSelected ? 'bg-[var(--md-sys-primary-container)] text-[var(--md-sys-on-primary-container)] font-semibold shadow-sm' : isHighlighted ? 'bg-white/[0.1] text-white' : 'text-white/80 hover:text-white hover:bg-white/[0.08]'}"
           >
             <div class="flex flex-col min-w-0 flex-1">
               <span class="truncate {isSelected ? 'text-[var(--md-sys-on-primary-container)]' : 'text-white'}">{opt.label}</span>

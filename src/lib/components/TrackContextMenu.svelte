@@ -1,6 +1,6 @@
 <script lang="ts">
+  import { tick } from 'svelte';
   import { playerState } from '../state.svelte';
-  import { onMount } from 'svelte';
   import { getHighResArtwork } from '../artwork';
   import { splitArtists } from '../types';
 
@@ -13,14 +13,18 @@
 
   $effect(() => {
     if (menu) {
-      // Adjust menu position so it doesn't clip off the screen
-      const width = 230;
-      const height = 340;
-      const maxX = window.innerWidth - width - 12;
-      const maxY = window.innerHeight - height - 12;
-
-      adjustedX = Math.min(menu.x, maxX);
-      adjustedY = Math.min(menu.y, maxY);
+      // Initial optimistic clamp, then refine with actual rendered menu dimensions
+      adjustedX = Math.max(12, Math.min(menu.x, window.innerWidth - 236));
+      adjustedY = Math.max(12, Math.min(menu.y, window.innerHeight - 360));
+      tick().then(() => {
+        if (!menuRef || !menu) return;
+        const rect = menuRef.getBoundingClientRect();
+        const maxX = Math.max(12, window.innerWidth - rect.width - 12);
+        const maxY = Math.max(12, window.innerHeight - rect.height - 12);
+        adjustedX = Math.max(12, Math.min(menu.x, maxX));
+        adjustedY = Math.max(12, Math.min(menu.y, maxY));
+        menuRef.focus();
+      });
     }
   });
 
@@ -30,13 +34,31 @@
   }
 
   function handleKeydown(e: KeyboardEvent) {
+    if (!menu) return;
     if (e.key === 'Escape') {
+      e.stopPropagation();
       playerState.closeContextMenu();
+      return;
+    }
+    if (menuRef && ['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(e.key)) {
+      const items = Array.from(menuRef.querySelectorAll<HTMLButtonElement>('[role="menuitem"]:not(:disabled)'));
+      if (items.length === 0) return;
+      e.preventDefault();
+      const idx = items.indexOf(document.activeElement as HTMLButtonElement);
+      if (e.key === 'Home') items[0].focus();
+      else if (e.key === 'End') items[items.length - 1].focus();
+      else if (e.key === 'ArrowDown') items[(idx + 1) % items.length].focus();
+      else if (e.key === 'ArrowUp') items[(idx - 1 + items.length) % items.length].focus();
     }
   }
 
-  function handleBackdrop(e: MouseEvent) {
+  function handleBackdrop() {
     playerState.closeContextMenu();
+  }
+
+  function isLocalTrackPath(fp?: string | null): boolean {
+    if (!fp) return false;
+    return fp.startsWith('/') || /^[A-Za-z]:\\/.test(fp);
   }
 </script>
 
@@ -46,15 +68,16 @@
   <!-- Backdrop click catcher -->
   <button
     type="button"
-    class="fixed inset-0 z-50 bg-transparent border-0 cursor-default"
+    class="fixed inset-0 z-[70] bg-transparent border-0 cursor-default"
     onclick={handleBackdrop}
+    oncontextmenu={(e) => { e.preventDefault(); playerState.closeContextMenu(); }}
     aria-label="Close context menu"
   ></button>
 
   <div
     bind:this={menuRef}
-    class="fixed z-50 w-56 py-1.5 rounded-2xl bg-[#1e1e24] border border-white/10 shadow-2xl shadow-black/80 flex flex-col gap-0.5 text-xs text-white/90 animate-in fade-in zoom-in-95 duration-150"
-    style="left: {adjustedX}px; top: {adjustedY}px; background-color: #1e1e24;"
+    class="fixed z-[70] w-56 max-h-[calc(100vh-24px)] overflow-y-auto py-1.5 rounded-2xl border border-white/10 shadow-2xl shadow-black/80 flex flex-col gap-0.5 text-xs text-white/90 animate-in focus:outline-none"
+    style="left: {adjustedX}px; top: {adjustedY}px; background-color: var(--md-sys-surface-container-high, #1e1e24);"
     role="menu"
     tabindex="-1"
   >
@@ -65,12 +88,6 @@
           src={getHighResArtwork(track.cover_art, track.id)}
           alt={track.title}
           class="w-8 h-8 rounded-lg object-cover flex-shrink-0"
-          onerror={(e) => {
-            const target = e.currentTarget as HTMLImageElement;
-            if (target.src.includes('maxresdefault.jpg')) {
-              target.src = target.src.replace('maxresdefault.jpg', 'hqdefault.jpg');
-            }
-          }}
         />
       {:else}
         <div class="w-8 h-8 rounded-lg bg-white/5 flex items-center justify-center flex-shrink-0">
@@ -86,7 +103,7 @@
     <!-- Actions -->
     <button
       type="button"
-      class="px-3 py-2 flex items-center gap-2.5 hover:bg-white/10 transition-colors text-left text-white/90"
+      class="px-3 py-2 flex items-center gap-2.5 hover:bg-white/10 transition-colors text-left text-white/90 cursor-pointer"
       onclick={() => handleAction(() => playerState.playTrack(track))}
       role="menuitem"
     >
@@ -96,7 +113,7 @@
 
     <button
       type="button"
-      class="px-3 py-2 flex items-center gap-2.5 hover:bg-white/10 transition-colors text-left text-white/90"
+      class="px-3 py-2 flex items-center gap-2.5 hover:bg-white/10 transition-colors text-left text-white/90 cursor-pointer"
       onclick={() => handleAction(() => playerState.playNextInQueue(track))}
       role="menuitem"
     >
@@ -106,7 +123,7 @@
 
     <button
       type="button"
-      class="px-3 py-2 flex items-center gap-2.5 hover:bg-white/10 transition-colors text-left text-white/90"
+      class="px-3 py-2 flex items-center gap-2.5 hover:bg-white/10 transition-colors text-left text-white/90 cursor-pointer"
       onclick={() => handleAction(() => playerState.addToQueue(track))}
       role="menuitem"
     >
@@ -118,7 +135,7 @@
 
     <button
       type="button"
-      class="px-3 py-2 flex items-center gap-2.5 hover:bg-white/10 transition-colors text-left text-white/90"
+      class="px-3 py-2 flex items-center gap-2.5 hover:bg-white/10 transition-colors text-left text-white/90 cursor-pointer"
       onclick={() => handleAction(() => playerState.openAddToPlaylist(track))}
       role="menuitem"
     >
@@ -128,11 +145,11 @@
 
     <button
       type="button"
-      class="px-3 py-2 flex items-center gap-2.5 hover:bg-white/10 transition-colors text-left text-white/90"
-      onclick={() => handleAction(() => playerState.toggleFavorite(track.id))}
+      class="px-3 py-2 flex items-center gap-2.5 hover:bg-white/10 transition-colors text-left text-white/90 cursor-pointer"
+      onclick={() => handleAction(() => playerState.toggleFavorite(track.id, track))}
       role="menuitem"
     >
-      <span class="material-symbols-rounded text-base text-white/70 {track.favorite ? 'text-rose-400 fill-1' : ''}">
+      <span class="material-symbols-rounded text-base {track.favorite ? 'text-rose-400 filled' : 'text-white/70'}">
         {track.favorite ? 'favorite' : 'favorite_border'}
       </span>
       <span>{track.favorite ? 'Remove Favorite' : 'Favorite'}</span>
@@ -142,12 +159,12 @@
       {#each splitArtists(track.artist) as art}
         <button
           type="button"
-          class="px-3 py-2 flex items-center gap-2.5 hover:bg-white/10 transition-colors text-left text-white/90"
+          class="px-3 py-2 flex items-center gap-2.5 hover:bg-white/10 transition-colors text-left text-white/90 min-w-0 cursor-pointer"
           onclick={() => handleAction(() => playerState.openArtist(art))}
           role="menuitem"
         >
-          <span class="material-symbols-rounded text-base text-white/70">person</span>
-          <span>Go to {art}</span>
+          <span class="material-symbols-rounded text-base text-white/70 shrink-0">person</span>
+          <span class="truncate">Go to {art}</span>
         </button>
       {/each}
     {/if}
@@ -155,12 +172,12 @@
     {#if track.album && track.album !== 'Unknown' && track.album !== 'Lossless Online Stream' && track.album !== 'YouTube Music Stream'}
       <button
         type="button"
-        class="px-3 py-2 flex items-center gap-2.5 hover:bg-white/10 transition-colors text-left text-white/90"
+        class="px-3 py-2 flex items-center gap-2.5 hover:bg-white/10 transition-colors text-left text-white/90 min-w-0 cursor-pointer"
         onclick={() => handleAction(() => playerState.openAlbum(track.album, track.artist, track.cover_art))}
         role="menuitem"
       >
-        <span class="material-symbols-rounded text-base text-white/70">album</span>
-        <span>Go to Album</span>
+        <span class="material-symbols-rounded text-base text-white/70 shrink-0">album</span>
+        <span class="truncate">Go to Album</span>
       </button>
     {/if}
 
@@ -169,7 +186,7 @@
     <!-- Download Track -->
     <button
       type="button"
-      class="px-3 py-2 flex items-center gap-2.5 hover:bg-white/10 transition-colors text-left text-white/90 disabled:opacity-40"
+      class="px-3 py-2 flex items-center gap-2.5 hover:bg-white/10 transition-colors text-left text-white/90 disabled:opacity-40 cursor-pointer disabled:cursor-not-allowed"
       disabled={playerState.downloadingTrackIds.includes(track.id)}
       onclick={() => handleAction(() => playerState.downloadTrack(track))}
       role="menuitem"
@@ -180,10 +197,10 @@
       <span>{playerState.downloadingTrackIds.includes(track.id) ? 'Downloading…' : 'Download Offline'}</span>
     </button>
 
-    {#if !track.file_path.startsWith('http://') && !track.file_path.startsWith('https://')}
+    {#if isLocalTrackPath(track.file_path)}
       <button
         type="button"
-        class="px-3 py-2 flex items-center gap-2.5 hover:bg-white/10 transition-colors text-left text-white/90"
+        class="px-3 py-2 flex items-center gap-2.5 hover:bg-white/10 transition-colors text-left text-white/90 cursor-pointer"
         onclick={() => handleAction(() => playerState.revealInFileManager(track.file_path))}
         role="menuitem"
       >

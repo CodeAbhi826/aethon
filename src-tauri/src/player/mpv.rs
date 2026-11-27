@@ -520,6 +520,7 @@ impl MpvEngine {
         vol: f64,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         let clamped = vol.clamp(0.0, 100.0);
+        self.state.write().volume = clamped;
         let msg = serde_json::json!({
             "command": ["set_property", "volume", clamped]
         });

@@ -216,6 +216,8 @@ pub fn run() {
             set_settings_batch,
             get_stream_cache_size,
             clear_stream_cache,
+            get_cached_video_ids,
+            get_listening_stats,
             show_window,
             window_minimize,
             window_toggle_maximize,

@@ -6,30 +6,47 @@
   const playlists = $derived(playerState.playlists);
 
   let addedPlaylistId = $state<string | null>(null);
+  let errorMsg = $state<string | null>(null);
+  let closeTimer: ReturnType<typeof setTimeout> | null = null;
 
   async function handleSelectPlaylist(pl: Playlist) {
-    if (!track) return;
+    if (!track || addedPlaylistId) return;
+    errorMsg = null;
+    const ok = await playerState.addToPlaylist(pl.id, track);
+    if (!ok) {
+      errorMsg = 'Could not add track to this playlist.';
+      return;
+    }
     addedPlaylistId = pl.id;
-    await playerState.addToPlaylist(pl.id, track);
-    setTimeout(() => {
+    if (closeTimer) clearTimeout(closeTimer);
+    closeTimer = setTimeout(() => {
       addedPlaylistId = null;
+      errorMsg = null;
       playerState.isAddToPlaylistModalOpen = false;
       playerState.targetTrackForPlaylist = null;
-    }, 400);
+    }, 380);
   }
 
   function handleCreateNew() {
+    if (closeTimer) clearTimeout(closeTimer);
+    addedPlaylistId = null;
+    errorMsg = null;
     playerState.isAddToPlaylistModalOpen = false;
     playerState.isNewPlaylistModalOpen = true;
   }
 
   function handleClose() {
+    if (closeTimer) clearTimeout(closeTimer);
+    addedPlaylistId = null;
+    errorMsg = null;
     playerState.isAddToPlaylistModalOpen = false;
     playerState.targetTrackForPlaylist = null;
   }
 
   function handleKeydown(e: KeyboardEvent) {
+    if (!playerState.isAddToPlaylistModalOpen) return;
     if (e.key === 'Escape') {
+      e.stopPropagation();
       handleClose();
     }
   }
@@ -38,21 +55,26 @@
 <svelte:window onkeydown={handleKeydown} />
 
 {#if playerState.isAddToPlaylistModalOpen && track}
-  <div class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/75 animate-in fade-in duration-150">
+  <div
+    class="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/75 animate-in"
+    role="presentation"
+    onclick={(e) => { if (e.target === e.currentTarget) handleClose(); }}
+  >
     <div
-      class="w-full max-w-sm rounded-3xl bg-[#1c1b1f]/95 border border-white/10 p-5 shadow-2xl shadow-black/80 flex flex-col gap-4 animate-in zoom-in-95 duration-200"
+      class="w-full max-w-sm rounded-3xl border border-white/10 p-5 shadow-2xl shadow-black/80 flex flex-col gap-4 animate-in"
+      style="background-color: var(--md-sys-surface-container, #1c1b1f);"
       role="dialog"
       aria-modal="true"
       aria-labelledby="add-to-playlist-title"
     >
-      <div class="flex items-center justify-between">
-        <div>
+      <div class="flex items-center justify-between gap-3">
+        <div class="min-w-0 flex-1">
           <h3 id="add-to-playlist-title" class="text-base font-semibold text-white">Add to Playlist</h3>
-          <p class="text-xs text-white/50 truncate max-w-[240px]">{track.title} • {track.artist}</p>
+          <p class="text-xs text-white/50 truncate">{track.title} • {track.artist}</p>
         </div>
         <button
           type="button"
-          class="p-1 rounded-full text-white/50 hover:text-white hover:bg-white/10 transition-colors"
+          class="p-1 rounded-full text-white/50 hover:text-white hover:bg-white/10 transition-colors cursor-pointer shrink-0"
           onclick={handleClose}
           aria-label="Close"
         >
@@ -60,14 +82,23 @@
         </button>
       </div>
 
+      {#if errorMsg}
+        <p class="text-xs text-rose-400 bg-rose-500/10 border border-rose-500/20 rounded-xl px-3 py-2" role="alert">
+          {errorMsg}
+        </p>
+      {/if}
+
       <!-- Playlists List -->
       <div class="max-h-64 overflow-y-auto flex flex-col gap-1 pr-1 custom-scrollbar">
         <button
           type="button"
-          class="w-full px-3 py-2.5 rounded-xl hover:bg-white/10 transition-colors flex items-center gap-3 text-left group border border-dashed border-white/15"
+          class="w-full px-3 py-2.5 rounded-xl hover:bg-white/10 transition-colors flex items-center gap-3 text-left group border border-dashed border-white/15 cursor-pointer"
           onclick={handleCreateNew}
         >
-          <div class="w-9 h-9 rounded-lg bg-[var(--md-sys-primary,#d0bcff)]/20 text-[var(--md-sys-primary,#d0bcff)] flex items-center justify-center">
+          <div
+            class="w-9 h-9 rounded-lg flex items-center justify-center shrink-0"
+            style="background-color: color-mix(in srgb, var(--md-sys-primary, #d0bcff) 20%, transparent); color: var(--md-sys-primary, #d0bcff);"
+          >
             <span class="material-symbols-rounded text-lg">add</span>
           </div>
           <div>
@@ -84,7 +115,7 @@
           {#each playlists as pl (pl.id)}
             <button
               type="button"
-              class="w-full px-3 py-2 rounded-xl hover:bg-white/10 transition-colors flex items-center justify-between text-left group"
+              class="w-full px-3 py-2 rounded-xl hover:bg-white/10 transition-colors flex items-center justify-between text-left group cursor-pointer"
               onclick={() => handleSelectPlaylist(pl)}
             >
               <div class="flex items-center gap-3 min-w-0">

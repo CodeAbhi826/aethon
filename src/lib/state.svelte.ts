@@ -34,7 +34,12 @@ class PlayerState {
   currentMood = $state<string>('All');
   lyrics = $state<LyricsResult>({ synced: false, lines: [], provider: '', has_romanized: false });
   youtubeResults = $state<YouTubeTrack[]>([]);
+  searchQuery = $state('');
+  searchFilter = $state<'all' | 'songs' | 'videos' | 'albums' | 'artists'>('all');
+  searchError = $state<string | null>(null);
   isSearching = $state(false);
+  isLoadingPlaylist = $state(false);
+  private searchRequestId = 0;
   activeTab = $state<TabType>('home');
   isNowPlayingOpen = $state(false);
   isEqualizerOpen = $state(false);
@@ -84,7 +89,39 @@ class PlayerState {
     return Math.min(100, Math.max(0, (this.playback.position / total) * 100));
   });
 
+  private loadSavedVolume(): number {
+    try {
+      if (typeof localStorage !== 'undefined') {
+        const raw = localStorage.getItem('aethon_volume');
+        if (raw !== null) {
+          const parsed = Number(raw);
+          if (Number.isFinite(parsed)) {
+            return Math.min(100, Math.max(0, parsed));
+          }
+        }
+      }
+    } catch {}
+    return 85;
+  }
+
+  private loadSavedEqBands(): number[] {
+    try {
+      if (typeof localStorage !== 'undefined') {
+        const raw = localStorage.getItem('aethon_eq_bands');
+        if (raw) {
+          const parsed = JSON.parse(raw);
+          if (Array.isArray(parsed) && parsed.length === 10 && parsed.every((n) => Number.isFinite(Number(n)))) {
+            return parsed.map(Number);
+          }
+        }
+      }
+    } catch {}
+    return [0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
+  }
+
   constructor() {
+    this.playback.volume = this.loadSavedVolume();
+    this.equalizerBands = this.loadSavedEqBands();
     this.initTauriListeners();
     this.initMediaSession();
     this.loadLibrary();
@@ -368,12 +405,19 @@ class PlayerState {
       await listen('tray-playpause', () => this.togglePlay());
       await listen('tray-mini-player', () => this.toggleMiniPlayer());
 
+      const savedVol = this.loadSavedVolume();
+      invoke('set_volume', { volume: savedVol }).catch(() => {});
+      if (this.equalizerBands.some((b) => Math.abs(b) >= 0.05)) {
+        invoke('set_equalizer', { bands: this.equalizerBands }).catch(() => {});
+      }
+
       const state = await invoke<PlaybackState>('get_playback_state').catch(() => null);
       if (state) {
         if (!state.current_uri) {
           this.hasMpvLoaded = false;
           this.playback = {
             ...state,
+            volume: savedVol,
             is_playing: false,
             position: this.currentTrack ? this.playback.position : state.position,
             duration: this.currentTrack
@@ -444,6 +488,8 @@ class PlayerState {
 
   async selectPlaylist(playlist: Playlist) {
     this.selectedPlaylist = playlist;
+    this.playlistTracks = [];
+    this.isLoadingPlaylist = true;
     try {
       const tracks = await invoke<Track[]>('get_playlist_tracks', { playlistId: playlist.id });
       if (tracks && tracks.length > 0) {
@@ -464,7 +510,7 @@ class PlayerState {
           this.playlistTracks = ytTracks.map((yt) => ({
             id: `yt_${yt.id}`,
             title: yt.title,
-            artist: sanitizeArtist(yt.artist),
+            artist: sanitizeArtist(yt.artist) || 'YouTube Music',
             album: playlist.name,
             duration: yt.duration || 0,
             file_path: yt.stream_url,
@@ -481,18 +527,22 @@ class PlayerState {
     } catch (e) {
       console.error('Error fetching playlist tracks:', e);
       this.playlistTracks = [];
+    } finally {
+      this.isLoadingPlaylist = false;
     }
   }
 
-  async addToPlaylist(playlistId: string, track: Track) {
+  async addToPlaylist(playlistId: string, track: Track): Promise<boolean> {
     try {
-      await invoke('add_to_playlist', { playlistId, trackId: track.id });
+      await invoke('add_to_playlist', { playlistId, trackId: track.id, track });
       await this.loadPlaylists();
       if (this.selectedPlaylist?.id === playlistId) {
         await this.selectPlaylist(this.selectedPlaylist);
       }
+      return true;
     } catch (e) {
       console.error('Error adding track to playlist:', e);
+      return false;
     }
   }
 
@@ -882,9 +932,13 @@ class PlayerState {
   }
 
   async setVolume(vol: number) {
-    this.playback.volume = vol;
+    const clamped = Math.min(100, Math.max(0, Math.round(vol)));
+    this.playback.volume = clamped;
     try {
-      await invoke('set_volume', { volume: vol });
+      if (typeof localStorage !== 'undefined') {
+        localStorage.setItem('aethon_volume', String(clamped));
+      }
+      await invoke('set_volume', { volume: clamped });
     } catch (e) {
       console.error('Volume error:', e);
     }
@@ -893,17 +947,50 @@ class PlayerState {
   async setEqualizer(bands: number[]) {
     this.equalizerBands = bands;
     try {
+      if (typeof localStorage !== 'undefined') {
+        localStorage.setItem('aethon_eq_bands', JSON.stringify(bands));
+      }
       await invoke('set_equalizer', { bands });
     } catch (e) {
       console.error('Equalizer error:', e);
     }
   }
 
-  async toggleFavorite(trackId: string) {
+  async toggleFavorite(trackId: string, trackObj?: Track) {
     try {
-      const fav = await invoke<boolean>('toggle_favorite', { trackId });
-      const t = this.library.find((item) => item.id === trackId);
-      if (t) t.favorite = fav;
+      const candidate =
+        trackObj ||
+        (this.currentTrack?.id === trackId ? this.currentTrack : undefined) ||
+        this.library.find((item) => item.id === trackId) ||
+        this.queue.find((item) => item.id === trackId) ||
+        this.playlistTracks.find((item) => item.id === trackId) ||
+        this.playHistoryTracks.find((item) => item.id === trackId) ||
+        this.homeQuickPickFeed.find((item) => item.id === trackId) ||
+        this.homeChartTracks.find((item) => item.id === trackId) ||
+        this.homeArtistRadioTracks.find((item) => item.id === trackId);
+
+      const fav = await invoke<boolean>('toggle_favorite', {
+        trackId,
+        track: candidate || null,
+      });
+
+      const lists = [
+        this.library,
+        this.queue,
+        this.playHistoryTracks,
+        this.playlistTracks,
+        this.homeQuickPickFeed,
+        this.homeChartTracks,
+        this.homeArtistRadioTracks,
+      ];
+      for (const list of lists) {
+        for (const item of list) {
+          if (item.id === trackId) item.favorite = fav;
+        }
+      }
+      if (fav && candidate && !this.library.some((item) => item.id === trackId)) {
+        this.library = [{ ...candidate, favorite: true }, ...this.library];
+      }
       if (this.currentTrack?.id === trackId) {
         this.currentTrack.favorite = fav;
       }
@@ -968,16 +1055,35 @@ class PlayerState {
   }
 
   async searchYouTube(query: string, limit = 55) {
-    if (!query.trim()) return;
+    const trimmed = query.trim();
+    if (!trimmed) return;
+    const reqId = ++this.searchRequestId;
     this.isSearching = true;
+    this.searchError = null;
     try {
-      const res = await invoke<YouTubeTrack[]>('search_youtube', { query, limit });
-      this.youtubeResults = res;
+      const res = await invoke<YouTubeTrack[]>('search_youtube', { query: trimmed, limit });
+      if (reqId === this.searchRequestId) {
+        this.youtubeResults = res;
+      }
     } catch (e) {
-      console.error('YouTube search error:', e);
+      if (reqId === this.searchRequestId) {
+        console.error('YouTube search error:', e);
+        this.searchError = e instanceof Error ? e.message : String(e);
+      }
     } finally {
-      this.isSearching = false;
+      if (reqId === this.searchRequestId) {
+        this.isSearching = false;
+      }
     }
+  }
+
+  clearSearch() {
+    this.searchRequestId++;
+    this.searchQuery = '';
+    this.searchFilter = 'all';
+    this.searchError = null;
+    this.youtubeResults = [];
+    this.isSearching = false;
   }
 
   async populateAutomixQueue(videoId?: string | null, seedTrack?: Track | null) {
@@ -1058,6 +1164,9 @@ class PlayerState {
 
   removeFromQueue(idx: number) {
     this.queue = this.queue.filter((_, i) => i !== idx);
+    if (idx === 0 && this.queue.length > 0) {
+      this.prefetchNextInQueue();
+    }
   }
 
   clearQueue() {
@@ -1076,12 +1185,16 @@ class PlayerState {
 
   openArtist(artistName: string) {
     if (!artistName) return;
+    this.isNowPlayingOpen = false;
+    this.isQueueOpen = false;
     this.selectedArtist = artistName;
     this.activeTab = 'artist';
   }
 
   openAlbum(title: string, artist: string, cover?: string, year?: string) {
     if (!title) return;
+    this.isNowPlayingOpen = false;
+    this.isQueueOpen = false;
     this.selectedAlbum = { title, artist, cover, year };
     this.activeTab = 'album';
   }

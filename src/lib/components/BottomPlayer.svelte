@@ -1,22 +1,49 @@
 <script lang="ts">
   import { playerState } from '../state.svelte';
-  import { sanitizeArtist, handleThumbnailError, handleThumbnailLoad } from '../types';
+  import { handleThumbnailError, handleThumbnailLoad } from '../types';
   import { getHighResArtwork } from '../artwork';
   import ArtistLinks from './ArtistLinks.svelte';
 
   let showVolumeSlider = $state(false);
+  let volumeWrapEl = $state<HTMLDivElement>();
+  let lastNonZeroVolume = $state(85);
   let isLoading = $derived(playerState.isLoading || Boolean(playerState.playback.is_buffering));
 
   function handleSeek(e: Event) {
+    if (!playerState.currentTrack) return;
     const val = Number((e.target as HTMLInputElement).value);
     playerState.seek(val);
   }
 
   function handleVolume(e: Event) {
     const val = Number((e.target as HTMLInputElement).value);
+    if (val > 0) lastNonZeroVolume = val;
     playerState.setVolume(val);
   }
+
+  function toggleMute() {
+    if (playerState.playback.volume > 0) {
+      lastNonZeroVolume = playerState.playback.volume;
+      playerState.setVolume(0);
+    } else {
+      playerState.setVolume(lastNonZeroVolume || 85);
+    }
+  }
 </script>
+
+<svelte:window
+  onclick={(e) => {
+    if (showVolumeSlider && volumeWrapEl && !volumeWrapEl.contains(e.target as Node)) {
+      showVolumeSlider = false;
+    }
+  }}
+  onkeydown={(e) => {
+    if (showVolumeSlider && e.key === 'Escape') {
+      e.stopPropagation();
+      showVolumeSlider = false;
+    }
+  }}
+/>
 
 <footer class="h-20 w-full m3-acrylic-dock px-3 sm:px-6 md:px-8 py-2 flex items-center justify-between z-30 shrink-0 select-none gap-2 sm:gap-4 relative">
   <!-- Left: Track Details & Album Thumbnail -->
@@ -53,7 +80,7 @@
         >
           {playerState.currentTrack.title}
         </button>
-        <div class="text-[11px] sm:text-xs text-[var(--md-sys-on-surface-variant)]/75 truncate mt-0.5 flex items-center gap-1.5">
+        <div class="text-[11px] sm:text-xs text-[var(--md-sys-on-surface-variant)] opacity-75 truncate mt-0.5 flex items-center gap-1.5">
           {#if isLoading}
             <span class="text-[10px] font-medium text-[var(--md-sys-primary)] animate-pulse">Loading stream...</span>
           {:else}
@@ -67,9 +94,12 @@
       </div>
 
       <button
+        type="button"
         onclick={() =>
-          playerState.currentTrack && playerState.toggleFavorite(playerState.currentTrack.id)}
+          playerState.currentTrack && playerState.toggleFavorite(playerState.currentTrack.id, playerState.currentTrack)}
         class="p-1.5 sm:p-2 rounded-full hover:bg-white/10 text-[var(--md-sys-on-surface-variant)] transition-colors shrink-0 inline-flex cursor-pointer"
+        aria-label={playerState.currentTrack.favorite ? 'Remove favorite' : 'Favorite'}
+        aria-pressed={playerState.currentTrack.favorite}
         title="Favorite"
       >
         <span class="material-symbols-rounded text-lg sm:text-xl {playerState.currentTrack.favorite ? 'text-rose-400 filled' : ''}">
@@ -93,18 +123,23 @@
   <div class="flex flex-col items-center max-w-xl flex-1 px-2 min-w-0">
     <div class="flex items-center gap-2.5 sm:gap-4 mb-1.5">
       <button
+        type="button"
         onclick={() => playerState.toggleShuffle()}
         class="p-1 rounded-full {playerState.shuffleMode
           ? 'text-[var(--md-sys-primary)]'
-          : 'text-[var(--md-sys-on-surface-variant)]/60 hover:text-white'} transition-colors cursor-pointer"
+          : 'text-[var(--md-sys-on-surface-variant)] opacity-60 hover:opacity-100 hover:text-white'} transition-colors cursor-pointer"
+        aria-label={playerState.shuffleMode ? 'Shuffle On' : 'Shuffle Off'}
+        aria-pressed={playerState.shuffleMode}
         title={playerState.shuffleMode ? 'Shuffle On' : 'Shuffle Off'}
       >
         <span class="material-symbols-rounded text-base sm:text-lg">shuffle</span>
       </button>
 
       <button
+        type="button"
         onclick={() => playerState.playPrevious()}
         class="p-1 rounded-full text-[var(--md-sys-on-surface-variant)] hover:text-white active:scale-90 transition-transform cursor-pointer"
+        aria-label="Previous Track"
         title="Previous Track"
       >
         <span class="material-symbols-rounded text-xl sm:text-2xl filled">skip_previous</span>
@@ -113,8 +148,10 @@
       <!-- Play / Pause Button with Apple Music Morphing Variable-Sweep Loader -->
       <div class="relative flex items-center justify-center">
         <button
+          type="button"
           onclick={() => playerState.togglePlay()}
           class="squircle-morph-btn relative w-9 h-9 sm:w-11 sm:h-11 {playerState.playback.is_playing ? 'is-playing' : ''} bg-[var(--md-sys-primary)] text-[var(--md-sys-on-primary)] flex items-center justify-center active:scale-90 hover:scale-105 cursor-pointer select-none shadow-md shadow-black/30"
+          aria-label={isLoading ? 'Buffering stream' : playerState.playback.is_playing ? 'Pause' : 'Play'}
           title={isLoading ? 'Buffering stream...' : playerState.playback.is_playing ? 'Pause' : 'Play'}
         >
           {#if isLoading}
@@ -154,18 +191,22 @@
       </div>
 
       <button
+        type="button"
         onclick={() => playerState.playNext()}
         class="p-1 rounded-full text-[var(--md-sys-on-surface-variant)] hover:text-white active:scale-90 transition-transform cursor-pointer"
+        aria-label="Next Track"
         title="Next Track"
       >
         <span class="material-symbols-rounded text-xl sm:text-2xl filled">skip_next</span>
       </button>
 
       <button
+        type="button"
         onclick={() => playerState.toggleRepeat()}
         class="p-1 rounded-full {playerState.repeatMode !== 'off'
           ? 'text-[var(--md-sys-primary)]'
-          : 'text-[var(--md-sys-on-surface-variant)]/60 hover:text-white'} transition-colors cursor-pointer"
+          : 'text-[var(--md-sys-on-surface-variant)] opacity-60 hover:opacity-100 hover:text-white'} transition-colors cursor-pointer"
+        aria-label={`Repeat: ${playerState.repeatMode}`}
         title={`Repeat: ${playerState.repeatMode}`}
       >
         <span class="material-symbols-rounded text-base sm:text-lg">
@@ -177,7 +218,7 @@
     <!-- Scrubber with GPU scaleX Progress Fill -->
     <div class="flex items-center gap-2.5 w-full text-[10px] sm:text-[11px] text-[var(--md-sys-on-surface-variant)] font-mono">
       <span class="w-8 text-right shrink-0">{playerState.formattedTime.current}</span>
-      <div class="relative flex-1 h-1.5 bg-white/10 hover:h-2 rounded-full overflow-hidden group transition-[height]">
+      <div class="relative flex-1 h-1.5 bg-white/10 rounded-full overflow-hidden group">
         <div
           class="absolute inset-0 bg-[var(--md-sys-primary)] rounded-full origin-left will-change-transform"
           style="transform: scaleX({playerState.progressPercent / 100});"
@@ -188,8 +229,10 @@
           max={playerState.playback.duration || playerState.currentTrack?.duration || Math.max(playerState.playback.position, 100)}
           step="0.5"
           value={playerState.playback.position}
+          disabled={!playerState.currentTrack}
           oninput={handleSeek}
-          class="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+          aria-label="Seek audio position"
+          class="absolute inset-0 w-full h-full opacity-0 cursor-pointer disabled:cursor-default"
         />
       </div>
       <span class="w-8 shrink-0">{playerState.formattedTime.total}</span>
@@ -199,33 +242,42 @@
   <!-- Right: Queue, Equalizer, Volume, Expand -->
   <div class="flex items-center justify-end gap-1 sm:gap-2 shrink-0">
     <button
+      type="button"
       onclick={() => (playerState.isQueueOpen = !playerState.isQueueOpen)}
       class="p-2 rounded-full hover:bg-white/10 text-[var(--md-sys-on-surface-variant)] hover:text-white transition-colors relative cursor-pointer"
+      aria-label="Playing Next Queue"
+      aria-expanded={playerState.isQueueOpen}
       title="Playing Next"
     >
       <span class="material-symbols-rounded text-xl {playerState.isQueueOpen ? 'text-[var(--md-sys-primary)]' : ''}">
         queue_music
       </span>
       {#if playerState.queue.length > 0}
-        <span class="absolute top-1 right-1 w-3.5 h-3.5 rounded-full bg-[var(--md-sys-primary)] text-[var(--md-sys-on-primary)] text-[8px] font-bold flex items-center justify-center">
+        <span class="absolute top-1 right-1 min-w-[14px] h-3.5 px-0.5 rounded-full bg-[var(--md-sys-primary)] text-[var(--md-sys-on-primary)] text-[8px] font-bold flex items-center justify-center">
           {playerState.queue.length > 9 ? '9+' : playerState.queue.length}
         </span>
       {/if}
     </button>
 
     <button
+      type="button"
       onclick={() => (playerState.isEqualizerOpen = true)}
       class="p-2 rounded-full hover:bg-white/10 text-[var(--md-sys-on-surface-variant)] hover:text-white transition-colors cursor-pointer"
+      aria-label="Equalizer"
+      aria-expanded={playerState.isEqualizerOpen}
       title="Equalizer"
     >
       <span class="material-symbols-rounded text-xl">tune</span>
     </button>
 
     <!-- Volume -->
-    <div class="relative flex items-center">
+    <div bind:this={volumeWrapEl} class="relative flex items-center">
       <button
+        type="button"
         onclick={() => (showVolumeSlider = !showVolumeSlider)}
         class="p-2 rounded-full hover:bg-white/10 text-[var(--md-sys-on-surface-variant)] hover:text-white transition-colors cursor-pointer"
+        aria-label="Volume"
+        aria-expanded={showVolumeSlider}
         title="Volume"
       >
         <span class="material-symbols-rounded text-xl">
@@ -238,16 +290,27 @@
       </button>
 
       {#if showVolumeSlider}
-        <div class="absolute bottom-12 right-0 m3-acrylic-card border border-white/10 p-3 rounded-2xl shadow-2xl flex items-center gap-2.5 w-40 z-50">
+        <div class="absolute bottom-12 right-0 m3-acrylic-card border border-white/10 p-3 rounded-2xl shadow-2xl flex items-center gap-2 w-48 z-50">
+          <button
+            type="button"
+            onclick={toggleMute}
+            aria-label={playerState.playback.volume === 0 ? 'Unmute' : 'Mute'}
+            class="p-1 rounded-lg text-white/70 hover:text-white hover:bg-white/10 transition-colors cursor-pointer shrink-0"
+          >
+            <span class="material-symbols-rounded text-base">
+              {playerState.playback.volume === 0 ? 'volume_off' : 'volume_up'}
+            </span>
+          </button>
           <input
             type="range"
             min="0"
             max="100"
             value={playerState.playback.volume}
             oninput={handleVolume}
-            class="w-full h-1 bg-white/20 rounded-lg appearance-none cursor-pointer accent-[var(--md-sys-primary)]"
+            aria-label="Volume"
+            class="w-full h-1.5 bg-white/20 rounded-lg cursor-pointer accent-[var(--md-sys-primary)]"
           />
-          <span class="text-[10px] font-mono text-[var(--md-sys-primary)] w-7 text-right">
+          <span class="text-[10px] font-mono text-[var(--md-sys-primary)] w-7 text-right shrink-0">
             {Math.round(playerState.playback.volume)}%
           </span>
         </div>
@@ -255,18 +318,24 @@
     </div>
 
     <button
+      type="button"
       onclick={() => playerState.toggleMiniPlayer()}
       class="p-2 rounded-full hover:bg-white/10 {playerState.isMiniPlayerOpen
         ? 'text-[var(--md-sys-primary)]'
         : 'text-[var(--md-sys-on-surface-variant)] hover:text-white'} transition-colors cursor-pointer"
+      aria-label="Mini Player"
+      aria-pressed={playerState.isMiniPlayerOpen}
       title="Mini Player"
     >
       <span class="material-symbols-rounded text-xl">picture_in_picture_alt</span>
     </button>
 
     <button
+      type="button"
       onclick={() => (playerState.isNowPlayingOpen = !playerState.isNowPlayingOpen)}
       class="p-2 rounded-full hover:bg-white/10 text-[var(--md-sys-on-surface-variant)] hover:text-white transition-colors cursor-pointer"
+      aria-label="Expand Now Playing"
+      aria-expanded={playerState.isNowPlayingOpen}
       title="Expand Player"
     >
       <span class="material-symbols-rounded text-xl">open_in_full</span>
@@ -278,7 +347,7 @@
   .squircle-morph-btn {
     border-radius: 50%;
     transition: border-radius 240ms cubic-bezier(0.2, 0, 0, 1), transform 140ms cubic-bezier(0.2, 0, 0, 1);
-    will-change: border-radius, transform;
+    will-change: transform;
   }
   .squircle-morph-btn.is-playing {
     border-radius: 28%;

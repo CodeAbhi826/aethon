@@ -1,6 +1,7 @@
 <script lang="ts">
   import { fly, fade } from 'svelte/transition';
   import { playerState } from '../state.svelte';
+  import { settingsState } from '../settingsState.svelte';
   import { handleThumbnailError, handleThumbnailLoad } from '../types';
   import { getHighResArtwork } from '../artwork';
   import ArtistLinks from './ArtistLinks.svelte';
@@ -26,6 +27,7 @@
     newQueue[index] = newQueue[index - 1];
     newQueue[index - 1] = item;
     playerState.queue = newQueue;
+    if (index <= 1) playerState.prefetchNextInQueue();
   }
 
   function handleMoveDown(index: number) {
@@ -35,16 +37,28 @@
     newQueue[index] = newQueue[index + 1];
     newQueue[index + 1] = item;
     playerState.queue = newQueue;
+    if (index === 0) playerState.prefetchNextInQueue();
   }
 
   function shuffleQueue() {
     if (playerState.queue.length <= 1) return;
-    playerState.queue = [...playerState.queue].sort(() => Math.random() - 0.5);
+    const arr = [...playerState.queue];
+    for (let i = arr.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [arr[i], arr[j]] = [arr[j], arr[i]];
+    }
+    playerState.queue = arr;
+    playerState.prefetchNextInQueue();
   }
 
   function toggleAutomix() {
     playerState.autoplayRadio = !playerState.autoplayRadio;
-    if (playerState.autoplayRadio && playerState.queue.length <= 2 && playerState.currentTrack) {
+    if (
+      playerState.autoplayRadio &&
+      !playerState.isLoadingAutomix &&
+      playerState.queue.length <= 2 &&
+      playerState.currentTrack
+    ) {
       playerState.populateAutomixQueue(null, playerState.currentTrack);
     }
   }
@@ -57,30 +71,39 @@
   }
 </script>
 
+<svelte:window
+  onkeydown={(e) => {
+    if (playerState.isQueueOpen && e.key === 'Escape') {
+      e.stopPropagation();
+      playerState.isQueueOpen = false;
+    }
+  }}
+/>
+
 {#if playerState.isQueueOpen}
   <!-- Backdrop -->
-  <div
-    role="button"
-    tabindex="0"
-    transition:fade={{ duration: 220 }}
+  <button
+    type="button"
+    aria-label="Close queue"
+    transition:fade={{ duration: settingsState.reduceMotion ? 0 : 200 }}
     onclick={() => (playerState.isQueueOpen = false)}
-    onkeydown={(e) => {
-      if (e.key === 'Escape') playerState.isQueueOpen = false;
-    }}
-    class="fixed inset-0 bg-black/70 z-50"
-  ></div>
+    class="fixed inset-0 bg-black/70 z-[50] border-0 cursor-default"
+  ></button>
 
   <!-- ArchiveTune Up Next & Automix Radio Sheet -->
   <div
-    in:fly={{ x: 420, duration: 320, opacity: 1, easing: appleDrawerEasing }}
-    out:fly={{ x: 420, duration: 250, opacity: 1, easing: appleDrawerEasing }}
-    class="fixed top-0 right-0 h-full w-full sm:w-[410px] m3-acrylic border-l border-white/10 z-50 shadow-2xl flex flex-col justify-between overflow-hidden select-none will-change-transform"
+    role="dialog"
+    aria-modal="true"
+    aria-labelledby="queue-drawer-title"
+    in:fly={{ x: 420, duration: settingsState.reduceMotion ? 0 : 300, opacity: 1, easing: appleDrawerEasing }}
+    out:fly={{ x: 420, duration: settingsState.reduceMotion ? 0 : 240, opacity: 1, easing: appleDrawerEasing }}
+    class="fixed top-11 right-0 h-[calc(100%-2.75rem)] w-full sm:w-[410px] m3-acrylic border-l border-white/10 z-[50] shadow-2xl flex flex-col justify-between overflow-hidden select-none will-change-transform"
   >
     <!-- Header -->
     <div class="px-5 py-4 border-b border-white/[0.06] flex items-center justify-between">
       <div>
-        <h2 class="font-display font-bold text-base text-white">Playing Next</h2>
-        <p class="text-[11px] text-white/45">
+        <h2 id="queue-drawer-title" class="font-display font-bold text-base text-[var(--md-sys-on-surface)]">Playing Next</h2>
+        <p class="text-[11px] text-[var(--md-sys-on-surface-variant)] opacity-70">
           {playerState.queue.length} {playerState.queue.length === 1 ? 'song' : 'songs'} in queue
         </p>
       </div>
@@ -91,6 +114,7 @@
             type="button"
             onclick={shuffleQueue}
             class="w-8 h-8 rounded-full flex items-center justify-center text-white/65 hover:text-white hover:bg-white/10 transition-colors cursor-pointer"
+            aria-label="Shuffle queue"
             title="Shuffle Queue"
           >
             <span class="material-symbols-rounded text-[18px]">shuffle</span>
@@ -100,6 +124,7 @@
           <button
             type="button"
             onclick={() => playerState.clearQueue()}
+            aria-label="Clear queue"
             class="px-2.5 py-1 rounded-full text-xs font-medium text-white/60 hover:text-white hover:bg-white/10 transition-colors cursor-pointer"
           >
             Clear
@@ -108,6 +133,8 @@
         <button
           type="button"
           onclick={() => (playerState.isQueueOpen = false)}
+          aria-label="Close queue"
+          title="Close"
           class="w-8 h-8 rounded-full flex items-center justify-center text-white/60 hover:text-white hover:bg-white/10 transition-colors cursor-pointer"
         >
           <span class="material-symbols-rounded text-xl">close</span>
@@ -120,7 +147,10 @@
       {#if playerState.currentTrack}
         <div class="space-y-2">
           <span class="text-[10px] font-bold uppercase tracking-wider text-white/40 px-1">Now Playing</span>
-          <div class="p-2.5 rounded-2xl bg-[var(--md-sys-primary-container)]/35 border border-[var(--md-sys-primary)]/30 flex items-center gap-3">
+          <div
+            class="p-2.5 rounded-2xl border flex items-center gap-3"
+            style="background-color: color-mix(in srgb, var(--md-sys-primary-container) 35%, transparent); border-color: color-mix(in srgb, var(--md-sys-primary) 30%, transparent);"
+          >
             <div class="relative w-12 h-12 rounded-xl overflow-hidden shrink-0 bg-white/5">
               {#if playerState.currentTrack.cover_art}
                 <img
@@ -174,6 +204,8 @@
         </div>
         <button
           type="button"
+          role="switch"
+          aria-checked={playerState.autoplayRadio}
           onclick={toggleAutomix}
           class="w-10 h-5 rounded-full transition-colors relative cursor-pointer {playerState.autoplayRadio
             ? 'bg-[var(--md-sys-primary)]'
@@ -181,26 +213,26 @@
           aria-label="Toggle Automix"
         >
           <div
-            class="w-3.5 h-3.5 rounded-full bg-black absolute top-[3px] transition-transform {playerState.autoplayRadio
-              ? 'left-[22px]'
-              : 'left-[3px]'}"
+            class="w-3.5 h-3.5 rounded-full absolute top-[3px] left-[3px] transition-transform duration-200 will-change-transform"
+            style="background-color: {playerState.autoplayRadio ? 'var(--md-sys-on-primary, #000000)' : '#ffffff'}; transform: translateX({playerState.autoplayRadio ? '19px' : '0px'});"
           ></div>
         </button>
       </div>
 
       <!-- Up Next List -->
-      <div class="space-y-1.5">
+      <div class="space-y-1.5" role="list">
         <div class="flex items-center justify-between px-1">
           <span class="text-[10px] font-bold uppercase tracking-wider text-white/40">
             Up Next {playerState.autoplayRadio ? '• Automix' : ''}
           </span>
-          {#if playerState.currentTrack && playerState.queue.length < 5 && !playerState.isLoadingAutomix}
+          {#if playerState.currentTrack && playerState.queue.length < 5}
             <button
               type="button"
+              disabled={playerState.isLoadingAutomix}
               onclick={() => playerState.populateAutomixQueue(null, playerState.currentTrack)}
-              class="text-[11px] font-semibold text-[var(--md-sys-primary)] hover:underline cursor-pointer"
+              class="text-[11px] font-semibold text-[var(--md-sys-primary)] hover:underline cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              + Load Radio Mix
+              {playerState.isLoadingAutomix ? 'Loading Mix…' : '+ Load Radio Mix'}
             </button>
           {/if}
         </div>
@@ -212,7 +244,7 @@
             {/each}
           </div>
         {:else if playerState.queue.length > 0}
-          {#each playerState.queue as track, idx (track.id + '_' + idx)}
+          {#each playerState.queue as track, idx (`${track.id}_${idx}`)}
             <div
               role="listitem"
               oncontextmenu={(e) => {
@@ -224,6 +256,7 @@
               <div class="flex items-center gap-3 min-w-0 flex-1 pr-2">
                 <button
                   type="button"
+                  aria-label="Play {track.title}"
                   onclick={() => handlePlayNow(idx)}
                   class="relative w-10 h-10 rounded-lg overflow-hidden shrink-0 bg-white/5 cursor-pointer"
                 >
@@ -242,7 +275,7 @@
                       <span class="material-symbols-rounded text-white/40 text-sm">music_note</span>
                     </div>
                   {/if}
-                  <div class="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity">
+                  <div class="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 flex items-center justify-center transition-opacity">
                     <span class="material-symbols-rounded text-white text-base filled">play_arrow</span>
                   </div>
                 </button>
@@ -263,18 +296,19 @@
                 </div>
               </div>
 
-              <div class="flex items-center gap-1 shrink-0">
+              <div class="flex items-center gap-1 shrink-0 relative">
                 {#if track.duration > 0}
-                  <span class="text-[10px] font-mono text-white/35 group-hover:hidden">
+                  <span class="text-[10px] font-mono text-white/35 group-hover:opacity-0 group-focus-within:opacity-0 transition-opacity">
                     {formatDuration(track.duration)}
                   </span>
                 {/if}
-                <div class="hidden group-hover:flex items-center gap-0.5">
+                <div class="flex items-center gap-0.5 opacity-0 pointer-events-none group-hover:opacity-100 group-hover:pointer-events-auto group-focus-within:opacity-100 group-focus-within:pointer-events-auto transition-opacity">
                   <button
                     type="button"
                     onclick={() => handleMoveUp(idx)}
                     disabled={idx === 0}
                     class="p-1 rounded text-white/50 hover:text-white disabled:opacity-20 cursor-pointer"
+                    aria-label="Move Up"
                     title="Move Up"
                   >
                     <span class="material-symbols-rounded text-sm">arrow_upward</span>
@@ -284,6 +318,7 @@
                     onclick={() => handleMoveDown(idx)}
                     disabled={idx === playerState.queue.length - 1}
                     class="p-1 rounded text-white/50 hover:text-white disabled:opacity-20 cursor-pointer"
+                    aria-label="Move Down"
                     title="Move Down"
                   >
                     <span class="material-symbols-rounded text-sm">arrow_downward</span>
@@ -292,9 +327,23 @@
                     type="button"
                     onclick={() => playerState.removeFromQueue(idx)}
                     class="p-1 rounded text-white/50 hover:text-rose-400 cursor-pointer"
+                    aria-label="Remove from queue"
                     title="Remove"
                   >
                     <span class="material-symbols-rounded text-sm">close</span>
+                  </button>
+                  <button
+                    type="button"
+                    onclick={(e) => {
+                      e.stopPropagation();
+                      const rect = e.currentTarget.getBoundingClientRect();
+                      playerState.openContextMenu(track, rect.left - 180, rect.bottom + 4);
+                    }}
+                    class="p-1 rounded text-white/50 hover:text-white cursor-pointer"
+                    aria-label="More options"
+                    title="More options"
+                  >
+                    <span class="material-symbols-rounded text-sm">more_vert</span>
                   </button>
                 </div>
               </div>

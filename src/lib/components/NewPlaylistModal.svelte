@@ -1,30 +1,53 @@
 <script lang="ts">
+  import { tick } from 'svelte';
   import { playerState } from '../state.svelte';
 
   let name = $state('');
   let description = $state('');
   let isSubmitting = $state(false);
+  let errorMsg = $state<string | null>(null);
+  let nameInputEl: HTMLInputElement | null = $state(null);
+
+  $effect(() => {
+    if (playerState.isNewPlaylistModalOpen) {
+      tick().then(() => nameInputEl?.focus());
+    }
+  });
 
   async function handleCreate() {
-    if (!name.trim()) return;
+    if (!name.trim() || isSubmitting) return;
     isSubmitting = true;
-    const pl = await playerState.createPlaylist(name, description);
-    isSubmitting = false;
-    if (pl) {
-      name = '';
-      description = '';
-      playerState.isNewPlaylistModalOpen = false;
+    errorMsg = null;
+    try {
+      const pl = await playerState.createPlaylist(name, description);
+      if (pl) {
+        if (playerState.targetTrackForPlaylist) {
+          await playerState.addToPlaylist(pl.id, playerState.targetTrackForPlaylist);
+          playerState.targetTrackForPlaylist = null;
+        }
+        name = '';
+        description = '';
+        playerState.isNewPlaylistModalOpen = false;
+      } else {
+        errorMsg = 'Failed to create playlist.';
+      }
+    } finally {
+      isSubmitting = false;
     }
   }
 
   function handleClose() {
     name = '';
     description = '';
+    errorMsg = null;
+    playerState.targetTrackForPlaylist = null;
     playerState.isNewPlaylistModalOpen = false;
   }
 
   function handleKeydown(e: KeyboardEvent) {
+    if (!playerState.isNewPlaylistModalOpen) return;
     if (e.key === 'Escape') {
+      e.stopPropagation();
       handleClose();
     }
   }
@@ -33,9 +56,14 @@
 <svelte:window onkeydown={handleKeydown} />
 
 {#if playerState.isNewPlaylistModalOpen}
-  <div class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/75 animate-in fade-in duration-150">
+  <div
+    class="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/75 animate-in"
+    role="presentation"
+    onclick={(e) => { if (e.target === e.currentTarget) handleClose(); }}
+  >
     <div
-      class="w-full max-w-sm rounded-3xl bg-[#1c1b1f]/95 border border-white/10 p-6 shadow-2xl shadow-black/80 flex flex-col gap-4 animate-in zoom-in-95 duration-200"
+      class="w-full max-w-sm rounded-3xl border border-white/10 p-6 shadow-2xl shadow-black/80 flex flex-col gap-4 animate-in"
+      style="background-color: var(--md-sys-surface-container, #1c1b1f);"
       role="dialog"
       aria-modal="true"
       aria-labelledby="new-playlist-title"
@@ -44,7 +72,7 @@
         <h3 id="new-playlist-title" class="text-base font-semibold text-white">New Playlist</h3>
         <button
           type="button"
-          class="p-1 rounded-full text-white/50 hover:text-white hover:bg-white/10 transition-colors"
+          class="p-1 rounded-full text-white/50 hover:text-white hover:bg-white/10 transition-colors cursor-pointer"
           onclick={handleClose}
           aria-label="Close"
         >
@@ -52,10 +80,17 @@
         </button>
       </div>
 
+      {#if errorMsg}
+        <p class="text-xs text-rose-400 bg-rose-500/10 border border-rose-500/20 rounded-xl px-3 py-2" role="alert">
+          {errorMsg}
+        </p>
+      {/if}
+
       <div class="flex flex-col gap-3">
         <div>
           <label for="playlist-name-input" class="text-[11px] font-medium text-white/60 mb-1 block">Playlist Name</label>
           <input
+            bind:this={nameInputEl}
             id="playlist-name-input"
             type="text"
             bind:value={name}
@@ -81,7 +116,7 @@
       <div class="flex items-center justify-end gap-2.5 mt-2">
         <button
           type="button"
-          class="px-4 py-2 rounded-xl text-xs font-medium text-white/70 hover:text-white hover:bg-white/10 transition-colors"
+          class="px-4 py-2 rounded-xl text-xs font-medium text-white/70 hover:text-white hover:bg-white/10 transition-colors cursor-pointer"
           onclick={handleClose}
         >
           Cancel
@@ -89,7 +124,7 @@
         <button
           type="button"
           disabled={!name.trim() || isSubmitting}
-          class="px-5 py-2 rounded-xl text-xs font-medium bg-[var(--md-sys-primary,#d0bcff)] text-black hover:opacity-90 disabled:opacity-40 transition-opacity flex items-center gap-1.5"
+          class="px-5 py-2 rounded-xl text-xs font-medium bg-[var(--md-sys-primary,#d0bcff)] text-[var(--md-sys-on-primary,#141218)] hover:opacity-90 disabled:opacity-40 disabled:cursor-not-allowed transition-opacity flex items-center gap-1.5 cursor-pointer"
           onclick={handleCreate}
         >
           {#if isSubmitting}

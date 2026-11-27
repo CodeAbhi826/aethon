@@ -35,12 +35,40 @@
     window.addEventListener('resize', handleResize);
 
     const handleKeyDown = (e: KeyboardEvent) => {
-      const activeTag = (document.activeElement?.tagName || '').toLowerCase();
+      if (e.key === 'Escape') {
+        if (playerState.activeContextMenu) {
+          playerState.closeContextMenu();
+          return;
+        } else if (playerState.isAddToPlaylistModalOpen) {
+          playerState.isAddToPlaylistModalOpen = false;
+          return;
+        } else if (playerState.isNewPlaylistModalOpen) {
+          playerState.isNewPlaylistModalOpen = false;
+          return;
+        } else if (playerState.isQueueOpen) {
+          playerState.isQueueOpen = false;
+          return;
+        } else if (playerState.isEqualizerOpen) {
+          playerState.isEqualizerOpen = false;
+          return;
+        } else if (playerState.isMiniPlayerOpen) {
+          playerState.isMiniPlayerOpen = false;
+          return;
+        } else if (playerState.isNowPlayingOpen) {
+          playerState.isNowPlayingOpen = false;
+          return;
+        }
+      }
+
+      const activeEl = document.activeElement;
+      const activeTag = (activeEl?.tagName || '').toLowerCase();
+      const activeRole = activeEl?.getAttribute('role') || '';
       if (
         activeTag === 'input' ||
         activeTag === 'textarea' ||
         activeTag === 'button' ||
-        activeTag === 'select'
+        activeTag === 'select' ||
+        activeRole === 'button'
       ) {
         return;
       }
@@ -64,20 +92,6 @@
         playerState.setVolume(Math.min(100, playerState.playback.volume + 5));
       } else if (e.code === 'ArrowDown') {
         playerState.setVolume(Math.max(0, playerState.playback.volume - 5));
-      } else if (e.key === 'Escape') {
-        if (playerState.activeContextMenu) {
-          playerState.closeContextMenu();
-        } else if (playerState.isAddToPlaylistModalOpen) {
-          playerState.isAddToPlaylistModalOpen = false;
-        } else if (playerState.isNewPlaylistModalOpen) {
-          playerState.isNewPlaylistModalOpen = false;
-        } else if (playerState.isQueueOpen) {
-          playerState.isQueueOpen = false;
-        } else if (playerState.isEqualizerOpen) {
-          playerState.isEqualizerOpen = false;
-        } else if (playerState.isNowPlayingOpen) {
-          playerState.isNowPlayingOpen = false;
-        }
       }
     };
 

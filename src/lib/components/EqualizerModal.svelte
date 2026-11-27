@@ -28,6 +28,10 @@
     return 'Custom';
   }
 
+  $effect(() => {
+    selectedPreset = checkMatchingPreset(playerState.equalizerBands);
+  });
+
   function setBand(idx: number, gain: number) {
     const clamped = Math.round(Math.max(-12, Math.min(12, gain)) * 10) / 10;
     const newBands = [...playerState.equalizerBands];
@@ -152,37 +156,48 @@
       return { x, y, gain: g };
     });
 
-    const accent = playerState.accentColor || '#38bdf8';
+    const accent =
+      (canvasEl ? getComputedStyle(canvasEl).getPropertyValue('--md-sys-primary').trim() : '') ||
+      playerState.accentColor ||
+      '#d0bcff';
 
-    // Spline curve
+    // Smooth curve through band control points
     ctx.beginPath();
     ctx.moveTo(points[0].x, points[0].y);
     for (let i = 0; i < points.length - 1; i++) {
-      const xc = (points[i].x + points[i + 1].x) / 2;
-      const yc = (points[i].y + points[i + 1].y) / 2;
-      ctx.quadraticCurveTo(points[i].x, points[i].y, xc, yc);
+      const p0 = points[Math.max(0, i - 1)];
+      const p1 = points[i];
+      const p2 = points[i + 1];
+      const p3 = points[Math.min(points.length - 1, i + 2)];
+      const cp1x = p1.x + (p2.x - p0.x) / 6;
+      const cp1y = p1.y + (p2.y - p0.y) / 6;
+      const cp2x = p2.x - (p3.x - p1.x) / 6;
+      const cp2y = p2.y - (p3.y - p1.y) / 6;
+      ctx.bezierCurveTo(cp1x, cp1y, cp2x, cp2y, p2.x, p2.y);
     }
-    ctx.lineTo(points[points.length - 1].x, points[points.length - 1].y);
 
-    // Save path for stroke
+    // Dual-stroke lightweight glow (no CPU shadowBlur)
+    ctx.save();
+    ctx.globalAlpha = 0.22;
+    ctx.strokeStyle = accent;
+    ctx.lineWidth = 6;
+    ctx.stroke();
+    ctx.restore();
+
     ctx.strokeStyle = accent;
     ctx.lineWidth = 2.5;
-    ctx.shadowColor = accent;
-    ctx.shadowBlur = 10;
     ctx.stroke();
-    ctx.shadowBlur = 0;
 
-    // Gradient fill under curve to 0dB line
+    // Fill under curve to 0dB line
     ctx.lineTo(points[points.length - 1].x, h * 0.5);
     ctx.lineTo(points[0].x, h * 0.5);
     ctx.closePath();
 
-    const grad = ctx.createLinearGradient(0, 0, 0, h);
-    grad.addColorStop(0, `${accent}33`);
-    grad.addColorStop(0.5, `${accent}11`);
-    grad.addColorStop(1, `${accent}00`);
-    ctx.fillStyle = grad;
+    ctx.save();
+    ctx.globalAlpha = 0.16;
+    ctx.fillStyle = accent;
     ctx.fill();
+    ctx.restore();
 
     // Draw dots at each band
     for (const pt of points) {
@@ -198,42 +213,64 @@
     }
   }
 
-  // Reactive redraw on state change
+  // Reactive redraw on state or resize change
   $effect(() => {
+    const _bands = playerState.equalizerBands;
+    const _accent = playerState.accentColor;
     if (playerState.isEqualizerOpen && canvasEl) {
-      // Small timeout to allow modal container to lay out bounding box
-      const raf = requestAnimationFrame(() => {
-        drawCurve();
-      });
-      return () => cancelAnimationFrame(raf);
-    }
-  });
-
-  $effect(() => {
-    const _ = playerState.equalizerBands;
-    if (canvasEl && playerState.isEqualizerOpen) {
-      drawCurve();
+      const raf = requestAnimationFrame(() => drawCurve());
+      const ro = new ResizeObserver(() => drawCurve());
+      ro.observe(canvasEl);
+      return () => {
+        cancelAnimationFrame(raf);
+        ro.disconnect();
+      };
     }
   });
 </script>
 
+<svelte:window
+  onkeydown={(e) => {
+    if (playerState.isEqualizerOpen && e.key === 'Escape') {
+      e.stopPropagation();
+      playerState.isEqualizerOpen = false;
+    }
+  }}
+/>
+
 {#if playerState.isEqualizerOpen}
-  <div class="fixed inset-0 z-50 bg-black/75 flex items-center justify-center p-4">
-    <div class="w-full max-w-2xl bg-[#14151a] border border-white/[0.08] rounded-3xl p-6 shadow-2xl animate-scale-up select-none">
+  <div
+    class="fixed inset-0 z-[60] bg-black/75 flex items-center justify-center p-4"
+    role="presentation"
+    onclick={(e) => { if (e.target === e.currentTarget) playerState.isEqualizerOpen = false; }}
+  >
+    <div
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="eq-modal-title"
+      class="w-full max-w-2xl max-h-[90vh] overflow-y-auto border border-white/[0.08] rounded-3xl p-6 shadow-2xl animate-scale-up select-none"
+      style="background-color: var(--md-sys-surface-container, #14151a);"
+    >
       
       <!-- Modal Header -->
       <div class="flex items-center justify-between pb-4 border-b border-white/[0.06]">
         <div class="flex items-center gap-2.5">
-          <div class="w-8 h-8 rounded-xl bg-[var(--md-sys-primary)]/15 flex items-center justify-center text-[var(--md-sys-primary)]">
+          <div
+            class="w-8 h-8 rounded-xl flex items-center justify-center text-[var(--md-sys-primary)]"
+            style="background-color: color-mix(in srgb, var(--md-sys-primary) 15%, transparent);"
+          >
             <span class="material-symbols-rounded text-[20px]">tune</span>
           </div>
           <div>
-            <h3 class="font-heading font-bold text-base text-white">10-Band Graphic Equalizer</h3>
-            <p class="text-[11px] text-[#9ea2b0]">Zero-latency PipeWire / MPV DSP Audio Filters</p>
+            <h3 id="eq-modal-title" class="font-heading font-bold text-base text-[var(--md-sys-on-surface)]">10-Band Graphic Equalizer</h3>
+            <p class="text-[11px] text-[var(--md-sys-on-surface-variant)] opacity-75">Zero-latency PipeWire / MPV DSP Audio Filters</p>
           </div>
         </div>
         <button
-          onclick={() => playerState.isEqualizerOpen = false}
+          type="button"
+          aria-label="Close equalizer"
+          title="Close"
+          onclick={() => (playerState.isEqualizerOpen = false)}
           class="w-8 h-8 rounded-full bg-white/[0.06] hover:bg-white/[0.12] flex items-center justify-center text-white transition-colors cursor-pointer"
         >
           <span class="material-symbols-rounded text-[18px]">close</span>
@@ -245,8 +282,9 @@
         {#each presets as p}
           {@const isActive = selectedPreset === p.name}
           <button
+            type="button"
             onclick={() => applyPreset(p)}
-            class="px-3 py-1.5 rounded-full text-xs font-medium transition-all shrink-0 cursor-pointer {isActive ? 'bg-[var(--md-sys-primary)] text-[var(--md-sys-on-primary)] font-bold shadow-md shadow-[var(--md-sys-primary)]/20 scale-105' : 'bg-white/[0.05] text-[#9ea2b0] hover:text-white hover:bg-white/[0.08]'}"
+            class="px-3 py-1.5 rounded-full text-xs font-medium transition-colors shrink-0 cursor-pointer {isActive ? 'bg-[var(--md-sys-primary)] text-[var(--md-sys-on-primary)] font-bold shadow-md' : 'bg-white/[0.05] text-[var(--md-sys-on-surface-variant)] hover:text-white hover:bg-white/[0.08]'}"
           >
             {p.name}
           </button>
@@ -259,22 +297,24 @@
       </div>
 
       <!-- Response Curve Canvas -->
-      <div class="w-full bg-[#0d0e12] rounded-2xl p-2 border border-white/[0.06] mb-5">
+      <div class="w-full rounded-2xl p-2 border border-white/[0.06] mb-5" style="background-color: var(--md-sys-surface-dim, #0d0e12);">
         <canvas bind:this={canvasEl} class="w-full h-24 rounded-lg block"></canvas>
       </div>
 
       <!-- 10 Vertical Sliders -->
-      <div class="grid grid-cols-10 gap-1.5 items-center text-center">
+      <div class="grid grid-cols-10 gap-1.5 items-center text-center min-w-0">
         {#each frequencies as freq, idx}
           {@const gain = playerState.equalizerBands[idx] || 0}
           {@const isNonZero = Math.abs(gain) > 0.05}
           {@const norm = (gain + 12) / 24} <!-- 0 at -12, 0.5 at 0, 1 at +12 -->
-          <div class="flex flex-col items-center">
+          <div class="flex flex-col items-center min-w-0">
             <!-- dB Readout (clickable to reset band) -->
             <button
+              type="button"
               onclick={() => setBand(idx, 0)}
               title="Click to reset to 0dB"
-              class="text-[10px] font-mono px-1 py-0.5 rounded transition-colors cursor-pointer mb-2 {isNonZero ? 'text-[var(--md-sys-primary)] font-bold bg-[var(--md-sys-primary)]/10' : 'text-[#6b6e7c] hover:text-white'}"
+              class="text-[10px] font-mono px-1 py-0.5 rounded transition-colors cursor-pointer mb-2 {isNonZero ? 'text-[var(--md-sys-primary)] font-bold' : 'text-[var(--md-sys-on-surface-variant)] opacity-60 hover:opacity-100 hover:text-white'}"
+              style={isNonZero ? 'background-color: color-mix(in srgb, var(--md-sys-primary) 12%, transparent);' : ''}
             >
               {gain > 0 ? `+${gain.toFixed(1)}` : gain.toFixed(1)}
             </button>
@@ -287,11 +327,12 @@
               aria-valuemin="-12"
               aria-valuemax="12"
               aria-valuenow={gain}
+              aria-valuetext="{gain} dB"
               onpointerdown={(e) => handleSliderPointerDown(e, idx)}
               onpointermove={(e) => handleSliderPointerMove(e, idx)}
               onpointerup={(e) => handleSliderPointerUp(e, idx)}
               onkeydown={(e) => handleKeyDown(e, idx)}
-              class="relative w-7 h-36 flex items-center justify-center cursor-pointer outline-none group touch-none"
+              class="relative w-7 h-36 flex items-center justify-center cursor-pointer outline-none focus-visible:ring-2 focus-visible:ring-white/40 rounded-lg group touch-none"
             >
               <!-- Center 0dB indicator tick -->
               <div class="absolute left-1 right-1 top-1/2 -translate-y-1/2 h-[1px] bg-white/20 pointer-events-none z-0"></div>
@@ -301,36 +342,37 @@
                 <!-- Active filled region from 0dB center -->
                 {#if gain > 0}
                   <div
-                    class="absolute left-0 right-0 bg-[var(--md-sys-primary)] rounded-full transition-all"
+                    class="absolute left-0 right-0 bg-[var(--md-sys-primary)] rounded-full"
                     style="top: {(1 - norm) * 100}%; bottom: 50%;"
                   ></div>
                 {:else if gain < 0}
                   <div
-                    class="absolute left-0 right-0 bg-[var(--md-sys-primary)]/70 rounded-full transition-all"
-                    style="top: 50%; bottom: {norm * 100}%;"
+                    class="absolute left-0 right-0 rounded-full"
+                    style="top: 50%; bottom: {norm * 100}%; background-color: color-mix(in srgb, var(--md-sys-primary) 70%, transparent);"
                   ></div>
                 {/if}
               </div>
 
               <!-- Custom Thumb Knob -->
               <div
-                class="absolute w-4 h-4 rounded-full border-2 border-white shadow-lg pointer-events-none transition-transform duration-75 {isNonZero ? 'bg-[var(--md-sys-primary)] ring-2 ring-[var(--md-sys-primary)]/40' : 'bg-[#e2e4ea]'} group-hover:scale-125"
-                style="top: {(1 - norm) * 100}%; transform: translateY(-50%);"
+                class="absolute left-1/2 w-4 h-4 rounded-full border-2 border-white shadow-lg pointer-events-none transition-transform duration-75 -translate-x-1/2 -translate-y-1/2 group-hover:scale-125 {isNonZero ? 'bg-[var(--md-sys-primary)]' : 'bg-[#e2e4ea]'}"
+                style="top: {(1 - norm) * 100}%; {isNonZero ? 'box-shadow: 0 0 0 3px color-mix(in srgb, var(--md-sys-primary) 35%, transparent);' : ''}"
               ></div>
             </div>
 
             <!-- Frequency Label -->
-            <span class="text-[10px] font-medium text-[#8c909e] truncate w-full mt-2 font-display">{freq}</span>
+            <span class="text-[10px] font-medium text-[var(--md-sys-on-surface-variant)] opacity-75 truncate w-full mt-2 font-display">{freq}</span>
           </div>
         {/each}
       </div>
 
       <!-- Footer: Reset button -->
       <div class="flex items-center justify-between pt-4 mt-5 border-t border-white/[0.06]">
-        <span class="text-[11px] text-[#6b6e7c]">Double click any dB label to reset to 0dB</span>
+        <span class="text-[11px] text-[var(--md-sys-on-surface-variant)] opacity-60">Click any dB label to reset to 0dB</span>
         <button
+          type="button"
           onclick={() => applyPreset(presets[0])}
-          class="px-4 py-1.5 rounded-xl text-xs font-semibold text-[#9ea2b0] hover:text-white hover:bg-white/[0.08] border border-white/[0.06] transition-all cursor-pointer"
+          class="px-4 py-1.5 rounded-xl text-xs font-semibold text-[var(--md-sys-on-surface-variant)] hover:text-white hover:bg-white/[0.08] border border-white/[0.06] transition-colors cursor-pointer"
         >
           Reset to Flat
         </button>

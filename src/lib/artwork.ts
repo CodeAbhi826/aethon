@@ -1,8 +1,10 @@
 // High-resolution artwork resolver preserving exact YouTube Music square album covers across cards & Split/NowPlaying view
+import { convertFileSrc } from '@tauri-apps/api/core';
 
 /**
  * Preserves the exact YouTube Music cover art from selection cards and upgrades googleusercontent/ggpht size to 544x544.
  * Never replaces square album covers with 16:9 video frames or broken 404 maxresdefault.jpg URLs.
+ * Converts local filesystem cover art paths via Tauri convertFileSrc().
  */
 export function getHighResArtwork(url?: string | null, videoId?: string | null, size = 544): string {
   const trimmed = (url || '').trim();
@@ -10,6 +12,21 @@ export function getHighResArtwork(url?: string | null, videoId?: string | null, 
 
   if (!trimmed || trimmed.endsWith('/default.jpg')) {
     return cleanVid ? `https://i.ytimg.com/vi/${cleanVid}/mqdefault.jpg` : '';
+  }
+
+  // Convert local filesystem paths (e.g. ~/.cache/aethon/covers/<hash>.jpg) to Tauri asset:// URLs
+  if (
+    !trimmed.startsWith('http://') &&
+    !trimmed.startsWith('https://') &&
+    !trimmed.startsWith('data:') &&
+    !trimmed.startsWith('asset:') &&
+    !trimmed.startsWith('blob:')
+  ) {
+    try {
+      return convertFileSrc(trimmed);
+    } catch {
+      return trimmed;
+    }
   }
 
   // Upgrade YouTube Music square album covers (lh3.googleusercontent.com / yt3.googleusercontent.com / yt3.ggpht.com)

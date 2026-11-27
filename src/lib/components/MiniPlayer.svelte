@@ -1,7 +1,7 @@
 <script lang="ts">
-  import { scale, fly } from 'svelte/transition';
+  import { scale } from 'svelte/transition';
   import { playerState } from '../state.svelte';
-  import { sanitizeArtist } from '../types';
+  import { settingsState } from '../settingsState.svelte';
   import { getHighResArtwork } from '../artwork';
   import ArtistLinks from './ArtistLinks.svelte';
 
@@ -10,22 +10,23 @@
   const isBuffering = $derived(playerState.isLoading || Boolean(playerState.playback.is_buffering));
   const progressPercent = $derived(playerState.progressPercent);
   const formattedTime = $derived(playerState.formattedTime);
+  const totalDuration = $derived(playerState.playback.duration || (currentTrack?.duration ?? 0));
 
-  function handleSeek(e: MouseEvent) {
-    const bar = e.currentTarget as HTMLElement;
-    const rect = bar.getBoundingClientRect();
-    const pos = (e.clientX - rect.left) / rect.width;
-    const duration = playerState.playback.duration || (currentTrack?.duration ?? 0);
-    playerState.seek(pos * duration);
+  function handleRangeInput(e: Event) {
+    if (!currentTrack || totalDuration <= 0) return;
+    const val = Number((e.currentTarget as HTMLInputElement).value);
+    if (Number.isFinite(val)) {
+      playerState.seek(val);
+    }
   }
 </script>
 
 {#if playerState.isMiniPlayerOpen}
   <div
-    in:scale={{ start: 0.9, duration: 240, opacity: 0 }}
-    out:scale={{ start: 0.9, duration: 180, opacity: 0 }}
-    class="fixed bottom-6 right-6 z-50 w-80 rounded-2xl bg-[#141218] border border-white/15 p-3.5 shadow-2xl shadow-black/90 flex flex-col gap-2.5 select-none group origin-bottom-right"
-    style="background-color: #141218;"
+    in:scale={{ start: 0.9, duration: settingsState.reduceMotion ? 0 : 220, opacity: 0 }}
+    out:scale={{ start: 0.9, duration: settingsState.reduceMotion ? 0 : 160, opacity: 0 }}
+    class="fixed bottom-24 right-6 z-[45] w-80 rounded-2xl border border-white/15 p-3.5 shadow-2xl shadow-black/90 flex flex-col gap-2.5 select-none group origin-bottom-right"
+    style="background-color: var(--md-sys-surface-container, #141218);"
     role="region"
     aria-label="Mini Player"
   >
@@ -36,12 +37,6 @@
             src={getHighResArtwork(currentTrack.cover_art, currentTrack.id)}
             alt={currentTrack.title}
             class="w-full h-full object-cover transition-transform duration-700 {isPlaying ? 'scale-105' : 'scale-100'}"
-            onerror={(e) => {
-              const target = e.currentTarget as HTMLImageElement;
-              if (target.src.includes('maxresdefault.jpg')) {
-                target.src = target.src.replace('maxresdefault.jpg', 'hqdefault.jpg');
-              }
-            }}
           />
         {:else}
           <div class="w-full h-full flex items-center justify-center text-white/40">
@@ -54,11 +49,15 @@
         <h4 class="text-xs font-semibold text-white truncate leading-tight">
           {currentTrack ? currentTrack.title : 'Not Playing'}
         </h4>
-        <ArtistLinks
-          artist={currentTrack ? currentTrack.artist : ''}
-          class="mt-0.5 block max-w-full"
-          buttonClass="text-[11px] text-white/70 hover:text-white transition-colors cursor-pointer text-left leading-tight"
-        />
+        {#if currentTrack?.artist}
+          <ArtistLinks
+            artist={currentTrack.artist}
+            class="mt-0.5 block max-w-full"
+            buttonClass="text-[11px] text-white/70 hover:text-white transition-colors cursor-pointer text-left leading-tight"
+          />
+        {:else}
+          <p class="mt-0.5 text-[11px] text-white/40 truncate leading-tight">Ready to play</p>
+        {/if}
       </div>
 
       <div class="flex items-center gap-1 flex-shrink-0">
@@ -69,6 +68,7 @@
             playerState.isMiniPlayerOpen = false;
             playerState.isNowPlayingOpen = true;
           }}
+          aria-label="Expand Now Playing"
           title="Expand Now Playing"
         >
           <span class="material-symbols-rounded text-base">open_in_full</span>
@@ -79,6 +79,7 @@
           onclick={() => {
             playerState.isMiniPlayerOpen = false;
           }}
+          aria-label="Close Mini Player"
           title="Close Mini Player"
         >
           <span class="material-symbols-rounded text-base">close</span>
@@ -86,17 +87,23 @@
       </div>
     </div>
 
-    <button
-      type="button"
-      class="w-full h-1.5 rounded-full bg-white/10 cursor-pointer relative overflow-hidden p-0 border-0"
-      onclick={handleSeek}
-      aria-label="Audio progress scrubber"
-    >
+    <div class="relative w-full h-1.5 rounded-full bg-white/10 overflow-hidden">
       <div
-        class="h-full bg-[var(--md-sys-primary,#d0bcff)] rounded-full transition-[width] duration-150"
-        style="width: {progressPercent}%;"
+        class="absolute inset-0 bg-[var(--md-sys-primary,#d0bcff)] rounded-full origin-left will-change-transform"
+        style="transform: scaleX({progressPercent / 100}) translate3d(0, 0, 0);"
       ></div>
-    </button>
+      <input
+        type="range"
+        min="0"
+        max={totalDuration || 1}
+        step="0.5"
+        value={playerState.playback.position}
+        disabled={!currentTrack || totalDuration <= 0}
+        oninput={handleRangeInput}
+        aria-label="Seek audio position"
+        class="absolute inset-0 w-full h-full opacity-0 cursor-pointer disabled:cursor-default"
+      />
+    </div>
 
     <div class="flex items-center justify-between text-[10px] text-white/50 px-0.5">
       <span>{formattedTime.current}</span>
@@ -106,6 +113,7 @@
           type="button"
           class="p-1 rounded-full text-white/70 hover:text-white hover:bg-white/10 transition-colors cursor-pointer"
           onclick={() => playerState.playPrevious()}
+          aria-label="Previous Track"
           title="Previous Track"
         >
           <span class="material-symbols-rounded text-base">skip_previous</span>
@@ -115,12 +123,13 @@
           type="button"
           class="mini-squircle-btn w-9 h-9 {isPlaying ? 'is-playing' : ''} bg-white text-black flex items-center justify-center active:scale-90 hover:scale-105 cursor-pointer select-none shadow-md"
           onclick={() => playerState.togglePlay()}
+          aria-label={isBuffering ? 'Buffering' : isPlaying ? 'Pause' : 'Play'}
           title={isBuffering ? 'Buffering...' : isPlaying ? 'Pause' : 'Play'}
         >
           {#if isBuffering}
-            <svg class="w-4 h-4 animate-spin text-black" viewBox="0 0 36 36" fill="none">
-              <circle cx="18" cy="18" r="13" stroke="currentColor" stroke-opacity="0.25" stroke-width="3.4" />
-              <circle cx="18" cy="18" r="13" stroke="currentColor" stroke-width="3.4" stroke-dasharray="52 100" stroke-linecap="round" />
+            <svg class="w-4 h-4 archivetune-spinner-svg text-black" viewBox="0 0 36 36" fill="none">
+              <circle cx="18" cy="18" r="14" stroke="currentColor" stroke-opacity="0.25" stroke-width="3.4" />
+              <circle cx="18" cy="18" r="14" stroke="currentColor" stroke-width="3.4" class="archivetune-spinner-arc" />
             </svg>
           {:else if isPlaying}
             <svg viewBox="0 0 960 960" class="w-5 h-5 fill-current" xmlns="http://www.w3.org/2000/svg">
@@ -137,6 +146,7 @@
           type="button"
           class="p-1 rounded-full text-white/70 hover:text-white hover:bg-white/10 transition-colors cursor-pointer"
           onclick={() => playerState.playNext()}
+          aria-label="Next Track"
           title="Next Track"
         >
           <span class="material-symbols-rounded text-base">skip_next</span>
@@ -152,7 +162,7 @@
   .mini-squircle-btn {
     border-radius: 50%;
     transition: border-radius 260ms cubic-bezier(0.2, 0, 0, 1), transform 150ms cubic-bezier(0.2, 0, 0, 1);
-    will-change: border-radius, transform;
+    will-change: transform;
   }
   .mini-squircle-btn.is-playing {
     border-radius: 28%;

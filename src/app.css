@@ -26,6 +26,16 @@
   --md-sys-mesh-1: rgba(142, 68, 173, 0.35);
   --md-sys-mesh-2: rgba(41, 128, 185, 0.30);
   --md-sys-mesh-3: rgba(231, 76, 60, 0.22);
+  --md-sys-acrylic: rgba(28, 22, 36, 0.95);
+  --md-sys-acrylic-card: rgba(38, 30, 48, 0.90);
+  --md-sys-acrylic-dock: rgba(16, 13, 20, 0.97);
+  --at-accent: #d0bcff;
+  --at-accent-container: #4f378b;
+  --at-on-accent-container: #eaddff;
+}
+
+input, textarea {
+  user-select: text;
 }
 
 html, body {
@@ -73,7 +83,6 @@ body {
   pointer-events: none;
   z-index: 0;
   transform: translate3d(0, 0, 0);
-  will-change: transform, opacity;
   background: 
     radial-gradient(circle at 15% 15%, var(--md-sys-mesh-1) 0%, transparent 60%),
     radial-gradient(circle at 85% 25%, var(--md-sys-mesh-2) 0%, transparent 60%),
@@ -91,24 +100,32 @@ body {
 }
 .m3-acrylic-dock {
   background: var(--md-sys-acrylic-dock, rgba(16, 13, 20, 0.97));
-  border-top: 1px solid rgba(255, 255, 255, 0.08);
+  border-top: 1px solid color-mix(in srgb, var(--md-sys-outline-variant) 55%, transparent);
   box-shadow: 0 -4px 24px rgba(0, 0, 0, 0.65), inset 0 1px 0 rgba(255, 255, 255, 0.05);
 }
 
 /* Custom Scrollbars */
-::-webkit-scrollbar {
+::-webkit-scrollbar,
+.custom-scrollbar::-webkit-scrollbar {
   width: 5px;
   height: 5px;
 }
-::-webkit-scrollbar-track {
+::-webkit-scrollbar-track,
+.custom-scrollbar::-webkit-scrollbar-track {
   background: transparent;
 }
-::-webkit-scrollbar-thumb {
-  background: rgba(255, 255, 255, 0.12);
+::-webkit-scrollbar-thumb,
+.custom-scrollbar::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.14);
   border-radius: 9999px;
 }
-::-webkit-scrollbar-thumb:hover {
-  background: rgba(255, 255, 255, 0.22);
+::-webkit-scrollbar-thumb:hover,
+.custom-scrollbar::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.24);
+}
+.scrollbar-none {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
 }
 .scrollbar-none::-webkit-scrollbar {
   display: none;
@@ -183,4 +200,72 @@ input[type=range] {
 }
 .interlude-dot-3 {
   animation: interludePulse 1.3s ease-in-out 0.44s infinite;
+}
+
+/* Shared GPU-composited Equalizer Bars for active tracks across all views */
+@keyframes eqBar1 {
+  0%, 100% { transform: scaleY(0.42) translate3d(0, 0, 0); }
+  50% { transform: scaleY(0.95) translate3d(0, 0, 0); }
+}
+@keyframes eqBar2 {
+  0%, 100% { transform: scaleY(0.92) translate3d(0, 0, 0); }
+  50% { transform: scaleY(0.35) translate3d(0, 0, 0); }
+}
+@keyframes eqBar3 {
+  0%, 100% { transform: scaleY(0.55) translate3d(0, 0, 0); }
+  50% { transform: scaleY(0.88) translate3d(0, 0, 0); }
+}
+.animate-eq-1 {
+  transform-origin: bottom;
+  animation: eqBar1 0.72s ease-in-out infinite;
+  will-change: transform;
+}
+.animate-eq-2 {
+  transform-origin: bottom;
+  animation: eqBar2 0.64s ease-in-out infinite;
+  will-change: transform;
+}
+.animate-eq-3 {
+  transform-origin: bottom;
+  animation: eqBar3 0.8s ease-in-out infinite;
+  will-change: transform;
+}
+
+/* Modal & Menu entrance animations (GPU opacity + transform only) */
+@keyframes aethonZoomFadeIn {
+  from {
+    opacity: 0;
+    transform: scale(0.95) translate3d(0, 0, 0);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1) translate3d(0, 0, 0);
+  }
+}
+.animate-in {
+  animation: aethonZoomFadeIn 150ms cubic-bezier(0.2, 0, 0, 1) forwards;
+}
+
+/* Reduced motion support */
+@media (prefers-reduced-motion: reduce) {
+  .archivetune-spinner-svg,
+  .archivetune-spinner-arc,
+  .interlude-dot-1,
+  .interlude-dot-2,
+  .interlude-dot-3,
+  .animate-eq-1,
+  .animate-eq-2,
+  .animate-eq-3,
+  .animate-in {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+:root.reduce-motion *,
+:root.reduce-motion *::before,
+:root.reduce-motion *::after {
+  animation-duration: 0.01ms !important;
+  animation-iteration-count: 1 !important;
+  transition-duration: 0.01ms !important;
 }

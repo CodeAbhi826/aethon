@@ -88,6 +88,7 @@ class SettingsState {
   libraryPath = $state('~/Music');
   autoScanOnStartup = $state(true);
   streamCacheSizeBytes = $state<number>(0);
+  cachedVideoIds = $state<string[]>([]);
 
   // 10. Account & Sync (Online Streaming Account)
   regionCode = $state('IN');
@@ -116,6 +117,7 @@ class SettingsState {
     await this.loadFromDb();
     this.updateActiveTheme();
     this.refreshCacheSize();
+    this.refreshCachedVideoIds();
 
     // Apply saved audio engine settings to MPV on startup
     if (this.replayGain) {
@@ -129,7 +131,9 @@ class SettingsState {
       await listen<YtmAccountProfile>('ytm-login-success', async (event) => {
         const p = event.payload;
         this.connectYtmAccount(p.cookie, p.name, p.email_or_handle, p.avatar_url);
-        await this.syncYtmLibrary();
+        if (this.ytmAutoSync) {
+          await this.syncYtmLibrary().catch(() => {});
+        }
       });
     } catch (e) {
       console.warn('Failed to register ytm-login-success listener:', e);
@@ -200,6 +204,7 @@ class SettingsState {
         if ('libraryPath' in records) this.libraryPath = records['libraryPath'];
         if ('autoScanOnStartup' in records) this.autoScanOnStartup = records['autoScanOnStartup'] === 'true';
 
+        if ('regionCode' in records && records['regionCode']) this.regionCode = records['regionCode'];
         if ('ytmConnected' in records) this.ytmConnected = records['ytmConnected'] === 'true';
         if ('ytmAccountName' in records) this.ytmAccountName = records['ytmAccountName'];
         if ('ytmAccountEmail' in records) this.ytmAccountEmail = records['ytmAccountEmail'];
@@ -212,7 +217,8 @@ class SettingsState {
         if ('ytmRecapTracking' in records) this.ytmRecapTracking = records['ytmRecapTracking'] === 'true';
         if ('savedAccounts' in records) {
           try {
-            this.savedAccounts = JSON.parse(records['savedAccounts']);
+            const parsed = JSON.parse(records['savedAccounts']);
+            this.savedAccounts = Array.isArray(parsed) ? parsed : [];
           } catch {
             this.savedAccounts = [];
           }
@@ -292,6 +298,7 @@ class SettingsState {
           autoScanOnStartup: String(this.autoScanOnStartup),
 
           ytmConnected: String(this.ytmConnected),
+          regionCode: this.regionCode,
           ytmAccountName: this.ytmAccountName,
           ytmAccountEmail: this.ytmAccountEmail,
           ytmAccountAvatar: this.ytmAccountAvatar,
@@ -320,20 +327,22 @@ class SettingsState {
       await invoke('open_ytm_login');
     } catch (e) {
       console.error('Failed to open YTM login window:', e);
+      throw e;
     }
   }
 
   async connectWithCookie(cookie: string): Promise<{ name: string; email_or_handle: string }> {
     const trimmed = cookie.trim();
     if (!trimmed) throw new Error('Cookie string cannot be empty');
-    try {
-      const p = await invoke<{ name: string; email: string; avatar: string }>('fetch_ytm_profile', { cookie: trimmed });
-      this.connectYtmAccount(trimmed, p.name, p.email, p.avatar);
-      return { name: p.name || 'Google Account', email_or_handle: p.email || 'authenticated@google.com' };
-    } catch {
-      this.connectYtmAccount(trimmed);
-      return { name: this.ytmAccountName, email_or_handle: this.ytmAccountEmail };
+    const p = await invoke<YtmAccountProfile>('fetch_ytm_profile', { cookie: trimmed });
+    if (!p || !p.name) {
+      throw new Error('Could not verify YouTube Music session from this cookie');
     }
+    this.connectYtmAccount(trimmed, p.name, p.email_or_handle, p.avatar_url);
+    return {
+      name: p.name || 'Google Account',
+      email_or_handle: p.email_or_handle || 'authenticated@google.com',
+    };
   }
 
   async syncYtmLibrary(): Promise<YtmSyncSummary> {
@@ -364,8 +373,7 @@ class SettingsState {
     this.ytmAccountName = name || 'Google Account';
     this.ytmAccountEmail =
       email || (cookie.includes('SAPISID') ? 'authenticated@google.com' : 'cookie-auth@user');
-    this.ytmAccountAvatar =
-      avatar || 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=120&auto=format&fit=crop';
+    this.ytmAccountAvatar = avatar || '';
 
     const existingIdx = this.savedAccounts.findIndex((a) => a.cookie === this.ytmCookie);
     if (existingIdx >= 0) {
@@ -409,6 +417,9 @@ class SettingsState {
   }
 
   updateActiveTheme() {
+    if (typeof document !== 'undefined') {
+      document.documentElement.classList.toggle('reduce-motion', this.reduceMotion);
+    }
     if (!this.dynamicTheme || this.themePreset !== 'dynamic') {
       const presetKey = this.themePreset === 'dynamic' ? 'violet' : this.themePreset;
       const preset = THEME_PRESETS[presetKey] || THEME_PRESETS.violet;
@@ -434,10 +445,19 @@ class SettingsState {
     }
   }
 
+  async refreshCachedVideoIds() {
+    try {
+      const ids = await invoke<string[]>('get_cached_video_ids');
+      this.cachedVideoIds = Array.isArray(ids) ? ids : [];
+    } catch {
+      this.cachedVideoIds = [];
+    }
+  }
+
   async clearCache(): Promise<number> {
     try {
       const freed = await invoke<number>('clear_stream_cache');
-      await this.refreshCacheSize();
+      await Promise.all([this.refreshCacheSize(), this.refreshCachedVideoIds()]);
       return freed || 0;
     } catch {
       return 0;
@@ -446,7 +466,7 @@ class SettingsState {
 
   exportSettings(): string {
     const data = {
-      version: '0.0.38',
+      version: '0.0.42',
       exportedAt: new Date().toISOString(),
       appearance: {
         dynamicTheme: this.dynamicTheme,
@@ -517,6 +537,14 @@ class SettingsState {
         libraryPath: this.libraryPath,
         autoScanOnStartup: this.autoScanOnStartup,
       },
+      account: {
+        regionCode: this.regionCode,
+        ytmSyncPlaylists: this.ytmSyncPlaylists,
+        ytmSyncFavorites: this.ytmSyncFavorites,
+        ytmSyncHistory: this.ytmSyncHistory,
+        ytmAutoSync: this.ytmAutoSync,
+        ytmRecapTracking: this.ytmRecapTracking,
+      },
     };
     return JSON.stringify(data, null, 2);
   }
@@ -540,6 +568,9 @@ class SettingsState {
       }
       if (data.audio) {
         if (data.audio.gaplessAudio !== undefined) this.gaplessAudio = Boolean(data.audio.gaplessAudio);
+        if (data.audio.crossfadeDuration !== undefined && Number.isFinite(Number(data.audio.crossfadeDuration))) {
+          this.crossfadeDuration = Number(data.audio.crossfadeDuration);
+        }
         if (data.audio.replayGain !== undefined) this.replayGain = Boolean(data.audio.replayGain);
         if (data.audio.replayGainMode) this.replayGainMode = data.audio.replayGainMode;
         if (data.audio.exclusiveDeviceMode !== undefined) this.exclusiveDeviceMode = Boolean(data.audio.exclusiveDeviceMode);
@@ -592,7 +623,17 @@ class SettingsState {
         if (data.storage.libraryPath) this.libraryPath = data.storage.libraryPath;
         if (data.storage.autoScanOnStartup !== undefined) this.autoScanOnStartup = Boolean(data.storage.autoScanOnStartup);
       }
+      if (data.account) {
+        if (data.account.regionCode) this.regionCode = data.account.regionCode;
+        if (data.account.ytmSyncPlaylists !== undefined) this.ytmSyncPlaylists = Boolean(data.account.ytmSyncPlaylists);
+        if (data.account.ytmSyncFavorites !== undefined) this.ytmSyncFavorites = Boolean(data.account.ytmSyncFavorites);
+        if (data.account.ytmSyncHistory !== undefined) this.ytmSyncHistory = Boolean(data.account.ytmSyncHistory);
+        if (data.account.ytmAutoSync !== undefined) this.ytmAutoSync = Boolean(data.account.ytmAutoSync);
+        if (data.account.ytmRecapTracking !== undefined) this.ytmRecapTracking = Boolean(data.account.ytmRecapTracking);
+      }
 
+      invoke('set_replaygain', { mode: this.replayGain ? this.replayGainMode : 'off' }).catch(() => {});
+      invoke('set_crossfade', { seconds: this.crossfadeDuration }).catch(() => {});
       this.updateActiveTheme();
       this.scheduleSave();
       return true;
@@ -615,6 +656,7 @@ class SettingsState {
     this.dimDisplayOnStandby = false;
 
     this.gaplessAudio = true;
+    this.crossfadeDuration = 0;
     this.replayGain = false;
     this.replayGainMode = 'track';
     this.exclusiveDeviceMode = false;
@@ -660,7 +702,10 @@ class SettingsState {
     this.maxCacheSizeGb = 5;
     this.libraryPath = '~/Music';
     this.autoScanOnStartup = true;
+    this.regionCode = 'IN';
 
+    invoke('set_replaygain', { mode: 'off' }).catch(() => {});
+    invoke('set_crossfade', { seconds: 0 }).catch(() => {});
     this.updateActiveTheme();
     this.scheduleSave();
   }
