@@ -221,42 +221,6 @@ impl Database {
         Ok(tracks)
     }
 
-    pub fn get_listening_stats(&self, since_epoch: i64) -> Result<Vec<Track>> {
-        let conn = self.conn.lock();
-        let mut stmt = conn.prepare(
-            "SELECT t.id, t.title, t.artist, t.album, t.duration, t.file_path, t.cover_art, t.format, t.bitrate, t.sample_rate, COUNT(ph.id) as period_plays, t.favorite, t.date_added
-             FROM play_history ph
-             JOIN tracks t ON ph.track_id = t.id
-             WHERE ph.played_at >= ?1
-             GROUP BY t.id
-             ORDER BY period_plays DESC, MAX(ph.played_at) DESC",
-        )?;
-
-        let rows = stmt.query_map(params![since_epoch], |row| {
-            Ok(Track {
-                id: row.get(0)?,
-                title: row.get(1)?,
-                artist: row.get(2)?,
-                album: row.get(3)?,
-                duration: row.get(4)?,
-                file_path: row.get(5)?,
-                cover_art: row.get(6)?,
-                format: row.get(7)?,
-                bitrate: row.get(8)?,
-                sample_rate: row.get(9)?,
-                play_count: row.get(10)?,
-                favorite: row.get::<_, i64>(11)? == 1,
-                date_added: row.get(12)?,
-            })
-        })?;
-
-        let mut tracks = Vec::new();
-        for r in rows.flatten() {
-            tracks.push(r);
-        }
-        Ok(tracks)
-    }
-
     pub fn toggle_favorite(&self, track_id: &str) -> Result<bool> {
         let conn = self.conn.lock();
         let current: i64 = conn
@@ -561,41 +525,6 @@ impl Database {
         Ok(tracks)
     }
 
-    pub fn get_listening_stats(&self, since_epoch: i64) -> Result<Vec<Track>> {
-        let conn = self.conn.lock();
-        let mut stmt = conn.prepare(
-            "SELECT t.id, t.title, t.artist, t.album, t.duration, t.file_path, t.cover_art, t.format, t.bitrate, t.sample_rate, COUNT(ph.id) as period_plays, t.favorite, t.date_added
-             FROM play_history ph
-             JOIN tracks t ON ph.track_id = t.id
-             WHERE ph.played_at >= ?1
-             GROUP BY t.id
-             ORDER BY period_plays DESC, MAX(ph.played_at) DESC",
-        )?;
-
-        let rows = stmt.query_map(params![since_epoch], |row| {
-            Ok(Track {
-                id: row.get(0)?,
-                title: row.get(1)?,
-                artist: row.get(2)?,
-                album: row.get(3)?,
-                duration: row.get(4)?,
-                file_path: row.get(5)?,
-                cover_art: row.get(6)?,
-                format: row.get(7)?,
-                bitrate: row.get(8)?,
-                sample_rate: row.get(9)?,
-                play_count: row.get(10)?,
-                favorite: row.get::<_, i64>(11)? == 1,
-                date_added: row.get(12)?,
-            })
-        })?;
-
-        let mut tracks = Vec::new();
-        for r in rows.flatten() {
-            tracks.push(r);
-        }
-        Ok(tracks)
-    }
 }
 
 fn chrono_now() -> i64 {
